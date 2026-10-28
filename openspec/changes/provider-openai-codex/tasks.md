@@ -155,7 +155,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 2. Failure text, PKCE and ID tokens
 
-- [ ] 2.1 Write the failing tests in `test/auth/failure_text_test.dart` (three rows) and confirm they fail because `FailureText` is missing.
+- [x] 2.1 Write the failing tests in `test/auth/failure_text_test.dart` (three rows) and confirm they fail because `FailureText` is missing.
 - [ ] 2.2 Implement `lib/src/auth/failure_text.dart` per design D12: templates, the code and parameter checks, the secret set, and dropping `message`/`detail`. Verify that `failure_text_test.dart` passes and flip its rows green.
 - [ ] 2.3 Implement `lib/src/auth/pkce.dart` (64-byte verifier, base64url, S256; 32-byte state and nonce) with a unit test asserting the lengths, the alphabet and the S256 vector from RFC 7636 Appendix B. Verify the test passes.
 - [ ] 2.4 Write the failing `test/auth/jwt_test.dart` (two rows, plus key selection by `kid` and the RS256-only rule). Then implement:
