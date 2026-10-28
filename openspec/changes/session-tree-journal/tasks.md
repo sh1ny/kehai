@@ -142,6 +142,6 @@
 
 ## 12. Integration checks
 
-- [ ] 12.1 Run `mise run check` (format, analyze with `--fatal-infos`, the full test suite) and `mise run openspec:validate` on native Windows; both pass.
+- [x] 12.1 Run `mise run check` (format, analyze with `--fatal-infos`, the full test suite) and `mise run openspec:validate` on native Windows; both pass.
 - [ ] 12.2 Run the full test suite on Linux under WSL, the user-approved test runner (a runner only; Kehai itself stays native on Windows), to exercise the POSIX lock semantics behind the ownership tests. Copy the tree into the WSL ext4 filesystem rather than running from `/mnt/f`, and run with `--concurrency=1` so the run stays light. Record the command and result in the PR description. When the run finishes, pass or fail, delete the copied tree, its `.dart_tool`/pub cache additions made for this run, and every test temp directory under `/tmp`, then show `df -h ~` to confirm the space came back. If WSL is unavailable, stop and tell the user rather than marking this done.
 - [ ] 12.3 Confirm with `rg -n "substring|take\(|truncat" lib/` that no code outside `lib/src/results/composer.dart` and `line_scanner.dart` cuts result text (ADR 0002); record the check output in the PR description.
