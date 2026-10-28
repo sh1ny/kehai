@@ -206,7 +206,13 @@ _OwnerRecord? _readOwner(Directory dir) {
     if (jsonDecode(text)
         case {'pid': final int ownerPid, 'nonce': final String nonce} &&
             final Map<String, Object?> map) {
-      return _OwnerRecord(ownerPid, nonce, map['startedUtc'] as String?);
+      // A timestamp of the wrong type is dropped, like any unreadable field.
+      final startedUtc = map['startedUtc'];
+      return _OwnerRecord(
+        ownerPid,
+        nonce,
+        startedUtc is String ? startedUtc : null,
+      );
     }
   } on FormatException {
     // Treated as unreadable below.

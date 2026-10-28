@@ -273,6 +273,20 @@ void main() {
     );
   }, timeout: _slow);
 
+  test('a non-string owner timestamp is taken over as unreadable', () async {
+    final dir = await _idleSession();
+    File(p.join(dir.path, ownerFileName)).writeAsStringSync(
+      jsonEncode({'pid': pid + 1000000, 'nonce': 'deadbeef', 'startedUtc': 42}),
+    );
+
+    final writer = await SessionWriter.open(dir);
+    addTearDown(writer.close);
+
+    expect(writer.takeover?.previousPid, pid + 1000000);
+    expect(writer.takeover?.previousStartedUtc, isNull);
+    expect(_ownerOf(dir)['pid'], pid);
+  });
+
   test('takeover race inside one process yields one owner', () async {
     final dir = await _idleSession();
     File(p.join(dir.path, ownerFileName)).writeAsStringSync(

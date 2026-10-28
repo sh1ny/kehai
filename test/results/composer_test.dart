@@ -62,6 +62,59 @@ void main() {
       expect(lines.where((l) => l.startsWith('[truncated:')), isEmpty);
     });
 
+    group('first line over the budget', () {
+      int cost(String line) => estimateTokens(utf8.encode(line).length + 1);
+
+      for (final (name, policy, cap) in [
+        ('head only', const ResultPolicy(maxTokens: 100), 100),
+        (
+          'head and tail',
+          const ResultPolicy(maxTokens: 100, headTail: true),
+          60,
+        ),
+      ]) {
+        test('$name: the first line is clipped to the budget', () async {
+          final r = storeLines(dir, ['x' * 1000, 'y', 'z']);
+
+          final out = await composeResult(
+            'bash',
+            ResultStatus.ok,
+            's',
+            r.descriptor,
+            r.file,
+            policy: policy,
+          );
+
+          final first = out.split('\n')[1];
+          expect(first, startsWith('x'));
+          expect(
+            first,
+            matches(
+              RegExp(r' \[line truncated: showing \d+ of 1,000 chars\]$'),
+            ),
+          );
+          expect(cost(first), lessThanOrEqualTo(cap));
+          expect(cost(first), greaterThan(cap - 2));
+        });
+      }
+
+      test('a budget below the truncation marker fails explicitly', () async {
+        final r = storeLines(dir, ['x' * 1000, 'y']);
+
+        expect(
+          composeResult(
+            'bash',
+            ResultStatus.ok,
+            's',
+            r.descriptor,
+            r.file,
+            policy: const ResultPolicy(maxTokens: 5),
+          ),
+          throwsA(isA<ComposeError>()),
+        );
+      });
+    });
+
     group('token estimate is cumulative', () {
       Future<String> compose(String tool, StoredResult r) =>
           composeResult(tool, ResultStatus.ok, 's', r.descriptor, r.file);

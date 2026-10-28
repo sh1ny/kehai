@@ -208,7 +208,9 @@ Future<void> composeResultTo(
     var count = 0;
     var used = 0;
     await for (final line in scan()) {
-      final text = _render(line);
+      final text = !fits && count == 0 && p.maxTokens != null
+          ? _fitFirst(line, budget)
+          : _render(line);
       final cost = unit(text);
       if (!fits && count > 0 && !within(used + cost, budget)) break;
       sink
@@ -237,7 +239,9 @@ Future<void> composeResultTo(
   final ring = Queue<({int number, String text, int cost})>();
   var ringUsed = 0;
   await for (final line in scan()) {
-    final text = _render(line);
+    final text = head.isEmpty && p.maxTokens != null
+        ? _fitFirst(line, headBudget)
+        : _render(line);
     final cost = unit(text);
     if (headOpen) {
       if (head.isEmpty || within(headUsed + cost, headBudget)) {
@@ -313,6 +317,39 @@ String clipLine(String text, int totalChars, {int cap = 2000}) {
 
 String _header(String tool, ResultStatus status, String summary) =>
     '[$tool ${status.name}] $summary';
+
+/// Renders the first shown [line] so that it costs at most [cap] tokens.
+///
+/// A line that fits is rendered as usual. Otherwise it keeps the longest
+/// prefix whose rendering, with its `[line truncated: …]` marker, is within
+/// [cap], so a result is never empty and never over its budget. Throws a
+/// [ComposeError] when not even the marker alone fits.
+String _fitFirst(ScannedLine line, int cap) {
+  final whole = _render(line);
+  int cost(String text) => estimateTokens(utf8.encode(text).length + 1);
+  if (cost(whole) <= cap) return whole;
+  final runes = line.text.runes.toList();
+  String clipped(int keep) =>
+      '${String.fromCharCodes(runes.take(keep))} '
+      '${_lineMarker(keep, line.totalChars)}';
+  if (cost(clipped(0)) > cap) {
+    throw ComposeError(
+      'a token budget of $cap is too small to show any of line '
+      '${_n(line.number)}',
+    );
+  }
+  var low = 0;
+  var high = runes.length;
+  while (low < high) {
+    final mid = (low + high + 1) ~/ 2;
+    if (cost(clipped(mid)) <= cap) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return clipped(low);
+}
 
 String _render(ScannedLine line) => line.cut
     ? '${line.text} ${_lineMarker(line.shownChars, line.totalChars)}'
