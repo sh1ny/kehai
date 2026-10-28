@@ -309,9 +309,9 @@ Future<void> composeResultTo(
 /// `[line truncated: showing <shown> of <total> chars]`, where [totalChars]
 /// is the length of the whole line before any prefix was dropped.
 ///
-/// The cap is applied to the decoded [text] itself, even when [totalChars] is
-/// approximate (malformed UTF-8 can count fewer characters than it decodes
-/// to).
+/// The cap holds even when [totalChars] is approximate: it is applied to
+/// the decoded [text] itself, since malformed UTF-8 can count fewer
+/// characters than it decodes to.
 String clipLine(String text, int totalChars, {int cap = 2000}) {
   final runes = text.runes;
   final shown = runes.length < cap ? runes.length : cap;
