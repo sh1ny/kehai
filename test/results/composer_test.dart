@@ -408,4 +408,30 @@ void main() {
       expect(line, endsWith(' [line truncated: showing 2,000 of 3,005 chars]'));
     });
   });
+
+  group('review round 3', () {
+    for (final tool in ['other', 'bash']) {
+      test('$tool: bytes that grow on decode are cut to the budget', () async {
+        final r = storeBytes(dir, [
+          for (var i = 0; i < 12000; i++) ...[0x80, 0x0a],
+        ]);
+        expect(estimateTokens(r.descriptor.bytes), 8000);
+
+        final out = await composeResult(
+          tool,
+          ResultStatus.ok,
+          's',
+          r.descriptor,
+          r.file,
+        );
+
+        final lines = out.split('\n');
+        final body = lines.sublist(1, lines.length - 1);
+        final rendered = body.fold(0, (n, l) => n + utf8.encode(l).length + 1);
+        expect(estimateTokens(rendered), lessThanOrEqualTo(8000));
+        expect(body, everyElement(anyOf('\u{FFFD}', startsWith('[…'))));
+        expect(lines.last, startsWith('[truncated: showing lines 1–'));
+      });
+    }
+  });
 }

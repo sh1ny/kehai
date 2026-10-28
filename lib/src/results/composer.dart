@@ -202,17 +202,26 @@ Future<void> composeResultTo(
 
   sink.write(_header(tool, status, summary));
 
+  // A result that fits by its stored bytes is not cut for rounding: the
+  // final line's counted newline may not be stored. The rendered text is
+  // checked too, since malformed UTF-8 grows when decoded (each bad byte
+  // becomes a 3-byte U+FFFD); once it outgrows the stored bytes the budget
+  // applies as for any other result, and a head and tail policy then keeps
+  // only the head.
+  bool allowed(int used) =>
+      within(used, budget) ||
+      fits && (p.maxLines != null || used <= descriptor.bytes + 1);
+
   if (!p.headTail || fits) {
-    // Head only: whole lines from [startLine] until the budget is used. A
-    // result that fits is never cut, whatever the per-line costs add up to.
+    // Head only: whole lines from [startLine] until the budget is used.
     var count = 0;
     var used = 0;
     await for (final line in scan()) {
-      final text = !fits && count == 0 && p.maxTokens != null
+      final text = count == 0 && p.maxTokens != null
           ? _fitFirst(line, budget)
           : _render(line);
       final cost = unit(text);
-      if (!fits && count > 0 && !within(used + cost, budget)) break;
+      if (count > 0 && !allowed(used + cost)) break;
       sink
         ..write('\n')
         ..write(text);
