@@ -159,6 +159,7 @@ All seven ADRs accepted on 2026-10-28 after [amendment review, round 4 and requi
 | [0005](../docs/adr/0005-four-field-journal-and-rpc.md) | Four-field JSONL journal and local RPC | None |
 | [0006](../docs/adr/0006-subscription-auth-workflow-and-process-boundaries.md) | Subscription auth, workflow and process boundaries | None |
 | [0007](../docs/adr/0007-tree-derived-perception-and-rendering.md) | Minimal M1 perception; later measured presentation | None |
+| [0008](../docs/adr/0008-journal-format-v1.md) | Journal format v1: operations, paths, rewind and result handles | None |
 
 ## Source reference map
 

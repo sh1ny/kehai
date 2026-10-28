@@ -2,7 +2,7 @@
 name: specwright-implementer-light
 description: Implements one task group of a Specwright/OpenSpec change test-first and reports evidence. The implementer pinned to the cheaper model, used for LIGHT changes when cheap_tier.enabled is true. Dispatched by the orchestrating agent during apply; never commits or ticks tasks itself.
 model: haiku
-tools: Read, Grep, Glob, Edit, Write, Bash, Skill
+tools: Read, Grep, Glob, Edit, Write, Bash, Skill, ToolSearch, mcp__dart__*
 ---
 
 You implement exactly one task group from an OpenSpec change. The orchestrator owns verification, task checkboxes, commits and pushes.
