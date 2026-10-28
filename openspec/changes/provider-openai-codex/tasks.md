@@ -31,9 +31,9 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | credential-store → Credentials never leave the boundary | Authorize URL handoff | test/auth/browser_login_test.dart | authorize url with state and nonce appears once on stdout and as launcher argument, nowhere else | red |
 | credential-store → Credentials never leave the boundary | Rejected pasted URL is not echoed | test/auth/browser_login_test.dart | rejected pasted url is not echoed | red |
 | credential-store → Credentials never leave the boundary | Subprocess environment is token-free | test/auth/browser_login_test.dart | browser launcher environment contains no token | red |
-| credential-store → Locally composed failure text | Failure messages are token-free | test/auth/failure_text_test.dart | echoed secrets in message, code or param never surface | red |
-| credential-store → Locally composed failure text | Server message is not relayed | test/auth/failure_text_test.dart | server message and detail fields are dropped | red |
-| credential-store → Locally composed failure text | Suspicious error code | test/auth/failure_text_test.dart | uppercase, long or secret-bearing codes become unrecognized | red |
+| credential-store → Locally composed failure text | Failure messages are token-free | test/auth/failure_text_test.dart | echoed secrets in message, code or param never surface | green |
+| credential-store → Locally composed failure text | Server message is not relayed | test/auth/failure_text_test.dart | server message and detail fields are dropped | green |
+| credential-store → Locally composed failure text | Suspicious error code | test/auth/failure_text_test.dart | uppercase, long or secret-bearing codes become unrecognized | green |
 | credential-store → Logout clears stored tokens | Logout with credentials | test/cli/cli_test.dart | logout clears tokens, keeps host id and registration, doctor reports not logged in | red |
 | credential-store → Logout clears stored tokens | Logout without credentials | test/cli/cli_test.dart | logout without tokens prints not logged in, exits zero, sends no revocation, advances generation | red |
 | credential-store → Logout clears stored tokens | Forget the registration | test/cli/cli_test.dart | logout --forget while logged in revokes and keeps only host id and generation | red |
@@ -156,7 +156,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 ## 2. Failure text, PKCE and ID tokens
 
 - [x] 2.1 Write the failing tests in `test/auth/failure_text_test.dart` (three rows) and confirm they fail because `FailureText` is missing.
-- [ ] 2.2 Implement `lib/src/auth/failure_text.dart` per design D12: templates, the code and parameter checks, the secret set, and dropping `message`/`detail`. Verify that `failure_text_test.dart` passes and flip its rows green.
+- [x] 2.2 Implement `lib/src/auth/failure_text.dart` per design D12: templates, the code and parameter checks, the secret set, and dropping `message`/`detail`. Verify that `failure_text_test.dart` passes and flip its rows green.
 - [ ] 2.3 Implement `lib/src/auth/pkce.dart` (64-byte verifier, base64url, S256; 32-byte state and nonce) with a unit test asserting the lengths, the alphabet and the S256 vector from RFC 7636 Appendix B. Verify the test passes.
 - [ ] 2.4 Write the failing `test/auth/jwt_test.dart` (two rows, plus key selection by `kid` and the RS256-only rule). Then implement:
   - `lib/src/auth/jwt.dart`: decoding, RS256 verification through `pointycastle`, and the claim checks per D3b;
