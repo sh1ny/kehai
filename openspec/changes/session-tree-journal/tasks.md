@@ -116,7 +116,7 @@
 
 ## 8. Fork
 
-- [ ] 8.1 Write failing tests: a fork at turn 2 survives parent deletion with every handle readable and the parent journal byte-identical beforehand; the fork keeps current `meta` with only `meta/session`, `meta/lineage` and `meta/requests` replaced, and `body` limited to turn 2; a missing parent result file makes the fork fail naming the handle with no child directory left. Verify they fail.
+- [x] 8.1 Write failing tests: a fork at turn 2 survives parent deletion with every handle readable and the parent journal byte-identical beforehand; the fork keeps current `meta` with only `meta/session`, `meta/lineage` and `meta/requests` replaced, and `body` limited to turn 2; a missing parent result file makes the fork fail naming the handle with no child directory left. Verify they fail.
 - [ ] 8.2 Implement `writer.fork(atTurn)` per D8 (queue-head acknowledged state, `.fork-<id>.tmp` directory, SHA-256-verified copies, a single origin record, rename into place, cleanup on failure); verify the 8.1 tests pass and flip the rows green.
 
 ## 9. Composer, paging and search
