@@ -5,3 +5,7 @@ export 'src/session/errors.dart';
 export 'src/session/path.dart';
 export 'src/session/record.dart';
 export 'src/session/tree.dart';
+export 'src/session/journal.dart';
+export 'src/session/materialize.dart';
+export 'src/session/state.dart';
+export 'src/session/writer.dart';

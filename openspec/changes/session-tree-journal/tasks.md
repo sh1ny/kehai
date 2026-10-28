@@ -5,36 +5,36 @@
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | session-journal → Four-field journal records | Appended record has exactly four fields | test/session/record_test.dart | appended record has exactly four fields | green |
-| session-journal → Four-field journal records | Record with an extra or missing field is rejected | test/session/journal_test.dart | record with an extra or missing field is rejected on open | red |
+| session-journal → Four-field journal records | Record with an extra or missing field is rejected | test/session/journal_test.dart | record with an extra or missing field is rejected on open | green |
 | session-journal → Operation vocabulary | Each operation updates the tree | test/session/tree_ops_test.dart | set, merge and del update the tree | green |
-| session-journal → Operation vocabulary | Invalid operation use is rejected before append | test/session/writer_test.dart | invalid op use is rejected before append | red |
+| session-journal → Operation vocabulary | Invalid operation use is rejected before append | test/session/writer_test.dart | invalid op use is rejected before append | green |
 | session-journal → Path identity | Valid path addresses one node | test/session/path_test.dart | valid path addresses exactly one node | green |
 | session-journal → Path identity | Malformed path is rejected | test/session/path_test.dart | malformed paths are rejected with the offending rule | green |
 | session-journal → Validate, persist, append, then publish | Acknowledged record survives a crash | test/session/crash_test.dart | acknowledged record survives a killed process | red |
-| session-journal → Validate, persist, append, then publish | Storage failure is not published | test/session/writer_test.dart | storage failure is not published and breaks the writer | red |
+| session-journal → Validate, persist, append, then publish | Storage failure is not published | test/session/writer_test.dart | storage failure is not published and breaks the writer | green |
 | session-journal → Single writer per session | Second writer is refused | test/session/ownership_test.dart | second writer is refused from process, isolate and same isolate | red |
 | session-journal → Single writer per session | Concurrent openers race | test/session/ownership_test.dart | concurrent openers race and exactly one wins | red |
 | session-journal → Single writer per session | Takeover race inside one process | test/session/ownership_test.dart | takeover race inside one process yields one owner | red |
 | session-journal → Single writer per session | Close racing a reopen | test/session/ownership_test.dart | close racing a reopen never yields two writers | red |
 | session-journal → Single writer per session | Crash while changing ownership | test/session/ownership_test.dart | stale empty gate is refused with removal hint | red |
 | session-journal → Single writer per session | Dead owner is taken over | test/session/ownership_test.dart | dead owner process is taken over | red |
-| session-journal → Read-only materialization is observational | Read-only materialization alongside a writer | test/session/materialize_test.dart | read-only materialization alongside a writer is observed | red |
+| session-journal → Read-only materialization is observational | Read-only materialization alongside a writer | test/session/materialize_test.dart | read-only materialization alongside a writer is observed | green |
 | session-journal → Read-only materialization is observational | Record visible before a failed flush | test/session/materialize_test.dart | record visible before a failed flush is not acknowledged | red |
 | session-journal → Bounded writer admission and subscribers | Burst within the bound | test/session/writer_queue_test.dart | burst of 32 operations is ordered for all subscribers | red |
 | session-journal → Bounded writer admission and subscribers | Queue full or slow subscriber | test/session/writer_queue_test.dart | full queue rejects with writer busy and slow subscriber resyncs | red |
-| session-journal → Torn trailing record recovery | Torn tail is preserved and truncated on write open | test/session/journal_test.dart | torn tail is preserved and truncated on write open | red |
-| session-journal → Torn trailing record recovery | Valid JSON without newline is still torn | test/session/journal_test.dart | valid record without newline is torn | red |
-| session-journal → Interior corruption stops writes | Corrupt interior line | test/session/journal_test.dart | corrupt interior line stops open and read | red |
-| session-journal → Interior corruption stops writes | Unappliable interior record | test/session/journal_test.dart | unappliable interior record stops open | red |
+| session-journal → Torn trailing record recovery | Torn tail is preserved and truncated on write open | test/session/journal_test.dart | torn tail is preserved and truncated on write open | green |
+| session-journal → Torn trailing record recovery | Valid JSON without newline is still torn | test/session/journal_test.dart | valid record without newline is torn | green |
+| session-journal → Interior corruption stops writes | Corrupt interior line | test/session/journal_test.dart | corrupt interior line stops open and read | green |
+| session-journal → Interior corruption stops writes | Unappliable interior record | test/session/journal_test.dart | unappliable interior record stops open | green |
 | session-journal → Explicit journal migration | Migration preserves the original | test/tool/migrate_journal_test.dart | migration preserves the original | red |
 | session-journal → Explicit journal migration | Outdated format with a torn tail | test/tool/migrate_journal_test.dart | outdated format with a torn tail migrates complete records | red |
 | session-journal → Explicit journal migration | Unsupported or outdated format | test/tool/migrate_journal_test.dart | outdated open and unregistered migration change no file | red |
 | session-tree → Deterministic materialization | Random histories replay to identical trees | test/property/replay_property_test.dart | random histories replay to identical trees | red |
 | session-tree → Deterministic materialization | Failing seed is reproducible | test/property/replay_property_test.dart | failing seed is reported and reproducible | red |
-| session-tree → Session origin record | New session starts with an origin record | test/session/origin_test.dart | new session starts with one origin record | red |
-| session-tree → Session origin record | Missing or repeated origin is rejected | test/session/origin_test.dart | missing or repeated origin is rejected | red |
-| session-tree → Turn anchoring | Turns advance by one | test/session/turn_test.dart | turns advance by one | red |
-| session-tree → Turn anchoring | Skipped or past turn is rejected | test/session/turn_test.dart | skipped or past turn is rejected | red |
+| session-tree → Session origin record | New session starts with an origin record | test/session/origin_test.dart | new session starts with one origin record | green |
+| session-tree → Session origin record | Missing or repeated origin is rejected | test/session/origin_test.dart | missing or repeated origin is rejected | green |
+| session-tree → Turn anchoring | Turns advance by one | test/session/turn_test.dart | turns advance by one | green |
+| session-tree → Turn anchoring | Skipped or past turn is rejected | test/session/turn_test.dart | skipped or past turn is rejected | green |
 | session-tree → Journal-only rewind | Rewind removes later turn-anchored state | test/session/rewind_test.dart | rewind restores end-of-turn state and keeps meta | red |
 | session-tree → Journal-only rewind | Invalid rewind target is rejected | test/session/rewind_test.dart | invalid rewind target is rejected | red |
 | session-tree → Journal-only rewind | Rewind survives replay | test/session/rewind_test.dart | two rewinds survive replay | red |
@@ -79,7 +79,7 @@
 ## 4. Journal file, writer, origin and turns
 
 - [x] 4.1 Write failing tests for: the origin record (new session, missing or repeated origin), the turn rule, rejection of invalid op use before append, an extra/missing-field line failing open, torn-tail handling (preserve and truncate on write open, valid record without newline is torn), interior corruption and unappliable records stopping both open modes with line and offset, read-only materialization flagged `observed`, and storage failure (simulated via an injectable file layer: a failing `writeFrom`/`flush`) leaving the tree unpublished and the writer `broken`; verify each fails for the right reason.
-- [ ] 4.2 Implement `lib/src/session/journal.dart` (line reader to last newline, validation with line/offset errors, torn-tail recovery to `recovery/torn-<offset>-<utc>.bin`), `materialize.dart` (meta fold plus timeline) and `writer.dart` (append, `flush`, then fold, publish and complete; `broken` state). Verify the 4.1 tests pass and flip their rows green.
+- [x] 4.2 Implement `lib/src/session/journal.dart` (line reader to last newline, validation with line/offset errors, torn-tail recovery to `recovery/torn-<offset>-<utc>.bin`), `materialize.dart` (meta fold plus timeline) and `writer.dart` (append, `flush`, then fold, publish and complete; `broken` state). Verify the 4.1 tests pass and flip their rows green.
 - [ ] 4.3 Write the failing crash test: spawn `dart run test/fixtures/append_then_wait.dart <dir>`, wait for its acknowledged-append marker on stdout, kill it, and reopen. Then add the `observed` failed-flush test (pause hook between write and flush, then fail the flush). Make both pass and flip their rows green.
 - [ ] 4.4 Write failing tests for the bounded queue (32 concurrent operations ordered for every subscriber; operation 65 rejected synchronously with `writer busy` and nothing appended) and for subscriber overflow (a paused subscriber gets `ResyncRequired(lastOffset)` at 1,024 while appends and other subscribers continue); implement them in `writer.dart`; verify they pass and flip the rows green.
 
