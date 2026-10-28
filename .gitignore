@@ -1,0 +1,11 @@
+# Local tool state and generated caches
+.crush/
+__pycache__/
+*.pyc
+.dart_tool/
+build/
+
+# Local credentials
+.env
+.env.*
+!.env.example

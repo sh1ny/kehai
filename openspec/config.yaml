@@ -1,0 +1,39 @@
+schema: specwright
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
+
+context: |
+  MANDATORY: Invoke the 'specwright-branch' skill immediately when a new OpenSpec change is started (/opsx:new, /opsx:propose, /opsx:ff, openspec-new-change, openspec-propose, openspec-ff-change) — BEFORE 'openspec new change' runs or any change file is created.
+  MANDATORY: Invoke the 'specwright-commit' skill immediately when the OpenSpec apply phase begins (/opsx:apply, openspec-apply-change, 'openspec instructions apply').
+  MANDATORY: Before archiving a change (/opsx:archive, /opsx:bulk-archive, openspec-archive-change, 'openspec archive'), read its review.md. If it has a whole line `VERDICT: DEFERRED`, do not archive that change: move nothing, sync no spec, and name its `Deferred to:` targets. In a bulk archive, skip that change and archive the rest.
+  MANDATORY: Invoke the 'specwright-finish' skill immediately after the OpenSpec archive workflow completes (/opsx:archive, openspec-archive-change, 'openspec archive').
+  Project-level planning (strategy, architecture baseline, milestone roadmap) is handled by the 'specwright-roadmap' skill; paths are under project: in openspec/specwright.yaml.
+  Specwright settings (finish mode, GitHub identity, review requests, cross-model design review, pre-push validation) live in openspec/specwright.yaml.
