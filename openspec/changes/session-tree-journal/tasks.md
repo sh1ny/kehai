@@ -29,8 +29,8 @@
 | session-journal → Explicit journal migration | Migration preserves the original | test/tool/migrate_journal_test.dart | migration preserves the original | green |
 | session-journal → Explicit journal migration | Outdated format with a torn tail | test/tool/migrate_journal_test.dart | outdated format with a torn tail migrates complete records | green |
 | session-journal → Explicit journal migration | Unsupported or outdated format | test/tool/migrate_journal_test.dart | outdated open and unregistered migration change no file | green |
-| session-tree → Deterministic materialization | Random histories replay to identical trees | test/property/replay_property_test.dart | random histories replay to identical trees | red |
-| session-tree → Deterministic materialization | Failing seed is reproducible | test/property/replay_property_test.dart | failing seed is reported and reproducible | red |
+| session-tree → Deterministic materialization | Random histories replay to identical trees | test/property/replay_property_test.dart | random histories replay to identical trees | green |
+| session-tree → Deterministic materialization | Failing seed is reproducible | test/property/replay_property_test.dart | failing seed is reported and reproducible | green |
 | session-tree → Session origin record | New session starts with an origin record | test/session/origin_test.dart | new session starts with one origin record | green |
 | session-tree → Session origin record | Missing or repeated origin is rejected | test/session/origin_test.dart | missing or repeated origin is rejected | green |
 | session-tree → Turn anchoring | Turns advance by one | test/session/turn_test.dart | turns advance by one | green |
@@ -138,7 +138,7 @@
 
 ## 11. Randomized replay properties
 
-- [ ] 11.1 Write `test/support/reference_model.dart` (a deep-copied snapshot per turn, rewind by snapshot pick, independent of D3) and `test/property/replay_property_test.dart`: 500 seeded histories by default (`KEHAI_PROPERTY_RUNS`, `KEHAI_PROPERTY_SEED`) mixing set/merge/del, new turns, rewinds, request admit/complete/duplicate, result stores and forks. Assert that the live tree, two disk materializations and the reference model are equal with byte-identical canonical serialization, plus torn-tail truncation at random byte offsets and interior byte flips. The failure message names the seed and index. Verify a deliberately injected rewind bug makes it fail with a reproducible seed, then remove the bug and flip both rows green.
+- [x] 11.1 Write `test/support/reference_model.dart` (a deep-copied snapshot per turn, rewind by snapshot pick, independent of D3) and `test/property/replay_property_test.dart`: 500 seeded histories by default (`KEHAI_PROPERTY_RUNS`, `KEHAI_PROPERTY_SEED`) mixing set/merge/del, new turns, rewinds, request admit/complete/duplicate, result stores and forks. Assert that the live tree, two disk materializations and the reference model are equal with byte-identical canonical serialization, plus torn-tail truncation at random byte offsets and interior byte flips. The failure message names the seed and index. Verify a deliberately injected rewind bug makes it fail with a reproducible seed, then remove the bug and flip both rows green.
 
 ## 12. Integration checks
 
