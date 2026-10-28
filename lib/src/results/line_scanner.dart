@@ -22,6 +22,9 @@ final class ScanStats {
 
   /// The size of the read buffer used.
   int bufferBytes = 0;
+
+  /// The number of bytes read from the file so far.
+  int bytesRead = 0;
 }
 
 /// One scanned line.
@@ -124,6 +127,7 @@ Stream<ScannedLine> scanLines(
         position += n;
       }
       if (n == 0) break;
+      stats?.bytesRead += n;
       final view = Uint8List.sublistView(buffer, 0, n);
       var start = 0;
       while (start < n) {

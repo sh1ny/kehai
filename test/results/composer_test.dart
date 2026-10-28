@@ -346,4 +346,44 @@ void main() {
       expect(r.descriptor.lines, 3);
     });
   });
+
+  group('review round 1', () {
+    test(
+      'a line-capped read stops reading after the last shown line',
+      () async {
+        final r = storeBytes(dir, [
+          ...utf8.encode('short\n' * 400),
+          ...List.filled(4 << 20, 0x61),
+        ]);
+        final stats = ScanStats();
+
+        final out = await composeResult(
+          'read',
+          ResultStatus.ok,
+          's',
+          r.descriptor,
+          r.file,
+          policy: ResultPolicy.read,
+          stats: stats,
+        );
+
+        expect(out.split('\n'), hasLength(402));
+        expect(out, contains('showing lines 1–400 of 401'));
+        expect(stats.bytesRead, lessThanOrEqualTo(2 * scanBufferBytes));
+      },
+    );
+
+    test('clipLine clips decoded text whatever the total says', () {
+      final text = '\u{FFFD}' * 3000;
+
+      final clipped = clipLine(text, 0);
+
+      expect(clipped.runes.length, lessThan(2100));
+      expect(clipped, startsWith('\u{FFFD}' * 2000));
+      expect(
+        clipped,
+        endsWith(' [line truncated: showing 2,000 of 3,000 chars]'),
+      );
+    });
+  });
 }

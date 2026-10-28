@@ -218,6 +218,9 @@ Future<void> composeResultTo(
         ..write(text);
       count++;
       used += cost;
+      // Under a line cap the next line is never shown, so stop before the
+      // scanner reads it: it may be a huge newline-free line.
+      if (!fits && p.maxLines != null && count >= budget) break;
     }
     final last = startLine + count - 1;
     if (last < total) {
@@ -305,14 +308,19 @@ Future<void> composeResultTo(
 /// Otherwise it keeps the first [cap] characters and appends
 /// `[line truncated: showing <shown> of <total> chars]`, where [totalChars]
 /// is the length of the whole line before any prefix was dropped.
+///
+/// The cap is applied to the decoded [text] itself, even when [totalChars] is
+/// approximate (malformed UTF-8 can count fewer characters than it decodes
+/// to).
 String clipLine(String text, int totalChars, {int cap = 2000}) {
   final runes = text.runes;
   final shown = runes.length < cap ? runes.length : cap;
-  if (shown >= totalChars) return text;
+  if (runes.length <= cap && shown >= totalChars) return text;
   final kept = runes.length > cap
       ? String.fromCharCodes(runes.take(cap))
       : text;
-  return '$kept ${_lineMarker(shown, totalChars)}';
+  final total = totalChars > runes.length ? totalChars : runes.length;
+  return '$kept ${_lineMarker(shown, total)}';
 }
 
 String _header(String tool, ResultStatus status, String summary) =>

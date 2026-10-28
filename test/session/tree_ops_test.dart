@@ -11,6 +11,71 @@ Matcher treeError(String reason, {String? op, String? path}) =>
         .having((e) => e.message, 'message', contains(path ?? ''));
 
 void main() {
+  group('SessionTree check', () {
+    final cases = <JournalRecord>[
+      rec('body/a', Op.set, 1),
+      rec('body/new/deep/x', Op.set, {'k': true}),
+      rec('body/m', Op.merge, {'z': 3}),
+      rec('body/fresh', Op.merge, {'z': 3}),
+      rec('body/m', Op.merge, 'not a map'),
+      rec('body/s', Op.merge, {'z': 3}),
+      rec('body/s/inner', Op.set, 1),
+      rec('body/m/q', Op.del),
+      rec('body/missing', Op.del),
+      rec('body/s/inner', Op.del),
+      rec('nowhere/x', Op.set, 1),
+      rec('body/a', Op.rewind, 0),
+    ];
+
+    for (final record in cases) {
+      test('check agrees with apply: ${record.op.wire} ${record.path}', () {
+        SessionTree base() => SessionTree.fromJson({
+          'body': {
+            'm': {'q': 1},
+            's': 'text',
+          },
+        });
+        Object? outcome(void Function() run) {
+          try {
+            run();
+            return null;
+          } on SessionError catch (e) {
+            return e.message;
+          }
+        }
+
+        final tree = base();
+        final before = tree.canonical();
+        final checked = outcome(() => tree.check(record));
+        expect(tree.canonical(), before, reason: 'check must not mutate');
+        expect(checked, outcome(() => base().apply(record)));
+      });
+    }
+
+    test('validating against a large tree does not copy it', () {
+      final state = SessionState.fromOrigin(
+        JournalRecord(
+          turn: 0,
+          path: '',
+          op: Op.set,
+          value: {
+            'meta': {
+              'format': 1,
+              'session': 's',
+              'lineage': {'parent': null},
+            },
+            'body': {for (var i = 0; i < 200000; i++) 'n$i': i},
+          },
+        ),
+      );
+      final watch = Stopwatch()..start();
+      for (var i = 0; i < 2000; i++) {
+        state.validate(rec('body/n$i', Op.set, -i));
+      }
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+    });
+  });
+
   group('SessionTree operations', () {
     test('set, merge and del update the tree', () {
       final tree = SessionTree()

@@ -135,7 +135,7 @@ final class SessionState {
         path: path,
       );
     }
-    _target(path).copy().apply(record);
+    _target(path).check(record);
   }
 
   /// Applies [record], which must already have passed [validate].

@@ -64,10 +64,42 @@ final class SessionTree {
         case Op.del:
           _del(target);
         case Op.rewind:
-          throw const SessionError(
-            'unsupported op',
-            'rewind is applied by the timeline, not the tree',
-          );
+          throw _rewindUnsupported;
+      }
+    } on SessionError catch (e) {
+      throw e.at(op.wire, path);
+    }
+  }
+
+  /// Checks that [record] would [apply] cleanly, without changing the tree.
+  ///
+  /// Throws exactly the [SessionError] that [apply] would, but walks only the
+  /// target's path, so validating a record costs nothing per unrelated node.
+  void check(JournalRecord record, {bool isOrigin = false}) {
+    validateRecordShape(record, isOrigin: isOrigin);
+    final JournalRecord(:path, :op, :value) = record;
+    try {
+      final target = SessionPath.parse(path);
+      switch (op) {
+        case Op.set:
+          if (target.isEmpty) {
+            if (value is! Map<Object?, Object?>) throw _originNotMap;
+            return;
+          }
+          _existingParent(target);
+        case Op.merge:
+          if (value is! Map<Object?, Object?>) throw _mergeNotMap;
+          final parent = _existingParent(target);
+          final key = target.segments.last;
+          if (parent != null &&
+              parent.containsKey(key) &&
+              parent[key] is! Map<String, Object?>) {
+            throw _mergeTargetNotMap;
+          }
+        case Op.del:
+          _deleteParent(target);
+        case Op.rewind:
+          throw _rewindUnsupported;
       }
     } on SessionError catch (e) {
       throw e.at(op.wire, path);
@@ -85,9 +117,7 @@ final class SessionTree {
 
   void _set(SessionPath target, Object? value) {
     if (target.isEmpty) {
-      if (value is! Map<Object?, Object?>) {
-        throw const SessionError('not a map', 'the origin value must be a map');
-      }
+      if (value is! Map<Object?, Object?>) throw _originNotMap;
       _root = _copyMap(value);
       return;
     }
@@ -96,9 +126,7 @@ final class SessionTree {
   }
 
   void _merge(SessionPath target, Object? value) {
-    if (value is! Map<Object?, Object?>) {
-      throw const SessionError('not a map', 'merge value must be a map');
-    }
+    if (value is! Map<Object?, Object?>) throw _mergeNotMap;
     final parent = _parentForWrite(target);
     final key = target.segments.last;
     switch (parent[key]) {
@@ -107,38 +135,41 @@ final class SessionTree {
       case final Map<String, Object?> existing:
         existing.addAll(_copyMap(value));
       case _:
-        throw const SessionError('not a map', 'merge target holds a non-map');
+        throw _mergeTargetNotMap;
     }
   }
 
   void _del(SessionPath target) {
+    _deleteParent(target).remove(target.segments.last);
+  }
+
+  /// Returns the map holding the last segment of [target], which must exist.
+  Map<String, Object?> _deleteParent(SessionPath target) {
     final parent = _lookup(
       SessionPath.parse(
         target.segments.take(target.segments.length - 1).join('/'),
       ),
     );
     final key = target.segments.last;
-    if (parent == null ||
-        parent.$1 is! Map<String, Object?> ||
-        !(parent.$1! as Map<String, Object?>).containsKey(key)) {
-      throw const SessionError('path not found', 'nothing to delete');
+    if (parent case (final Map<String, Object?> map,)
+        when map.containsKey(key)) {
+      return map;
     }
-    (parent.$1! as Map<String, Object?>).remove(key);
+    throw const SessionError('path not found', 'nothing to delete');
   }
 
-  /// Returns the map that will hold the last segment of [target], creating
-  /// missing intermediate maps. Validates the whole walk before creating.
-  Map<String, Object?> _parentForWrite(SessionPath target) {
+  /// Returns the existing map that holds the last segment of [target], or
+  /// `null` when an intermediate map is missing. Throws `not a map` when an
+  /// intermediate segment holds a non-map. Changes nothing.
+  Map<String, Object?>? _existingParent(SessionPath target) {
     final intermediates = target.segments.take(target.segments.length - 1);
     var current = _root;
-    var missing = false;
     for (final segment in intermediates) {
-      if (missing) break;
       switch (current[segment]) {
         case final Map<String, Object?> next:
           current = next;
         case null when !current.containsKey(segment):
-          missing = true;
+          return null;
         case _:
           throw SessionError(
             'not a map',
@@ -146,8 +177,16 @@ final class SessionTree {
           );
       }
     }
-    if (!missing) return current;
-    current = _root;
+    return current;
+  }
+
+  /// Returns the map that will hold the last segment of [target], creating
+  /// missing intermediate maps. Validates the whole walk before creating.
+  Map<String, Object?> _parentForWrite(SessionPath target) {
+    final existing = _existingParent(target);
+    if (existing != null) return existing;
+    final intermediates = target.segments.take(target.segments.length - 1);
+    var current = _root;
     for (final segment in intermediates) {
       current = current.putIfAbsent(
         segment,
@@ -170,6 +209,20 @@ final class SessionTree {
     return (current,);
   }
 }
+
+const _originNotMap = SessionError(
+  'not a map',
+  'the origin value must be a map',
+);
+const _mergeNotMap = SessionError('not a map', 'merge value must be a map');
+const _mergeTargetNotMap = SessionError(
+  'not a map',
+  'merge target holds a non-map',
+);
+const _rewindUnsupported = SessionError(
+  'unsupported op',
+  'rewind is applied by the timeline, not the tree',
+);
 
 Object? _copy(Object? value) => switch (value) {
   final List<Object?> list => [for (final e in list) _copy(e)],
