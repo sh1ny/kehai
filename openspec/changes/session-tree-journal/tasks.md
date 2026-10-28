@@ -12,12 +12,12 @@
 | session-journal → Path identity | Malformed path is rejected | test/session/path_test.dart | malformed paths are rejected with the offending rule | green |
 | session-journal → Validate, persist, append, then publish | Acknowledged record survives a crash | test/session/crash_test.dart | acknowledged record survives a killed process | green |
 | session-journal → Validate, persist, append, then publish | Storage failure is not published | test/session/writer_test.dart | storage failure is not published and breaks the writer | green |
-| session-journal → Single writer per session | Second writer is refused | test/session/ownership_test.dart | second writer is refused from process, isolate and same isolate | red |
-| session-journal → Single writer per session | Concurrent openers race | test/session/ownership_test.dart | concurrent openers race and exactly one wins | red |
-| session-journal → Single writer per session | Takeover race inside one process | test/session/ownership_test.dart | takeover race inside one process yields one owner | red |
-| session-journal → Single writer per session | Close racing a reopen | test/session/ownership_test.dart | close racing a reopen never yields two writers | red |
-| session-journal → Single writer per session | Crash while changing ownership | test/session/ownership_test.dart | stale empty gate is refused with removal hint | red |
-| session-journal → Single writer per session | Dead owner is taken over | test/session/ownership_test.dart | dead owner process is taken over | red |
+| session-journal → Single writer per session | Second writer is refused | test/session/ownership_test.dart | second writer is refused from process, isolate and same isolate | green |
+| session-journal → Single writer per session | Concurrent openers race | test/session/ownership_test.dart | concurrent openers race and exactly one wins | green |
+| session-journal → Single writer per session | Takeover race inside one process | test/session/ownership_test.dart | takeover race inside one process yields one owner | green |
+| session-journal → Single writer per session | Close racing a reopen | test/session/ownership_test.dart | close racing a reopen never yields two writers | green |
+| session-journal → Single writer per session | Crash while changing ownership | test/session/ownership_test.dart | stale empty gate is refused with removal hint | green |
+| session-journal → Single writer per session | Dead owner is taken over | test/session/ownership_test.dart | dead owner process is taken over | green |
 | session-journal → Read-only materialization is observational | Read-only materialization alongside a writer | test/session/materialize_test.dart | read-only materialization alongside a writer is observed | green |
 | session-journal → Read-only materialization is observational | Record visible before a failed flush | test/session/materialize_test.dart | record visible before a failed flush is not acknowledged | green |
 | session-journal → Bounded writer admission and subscribers | Burst within the bound | test/session/writer_queue_test.dart | burst of 32 operations is ordered for all subscribers | green |
@@ -94,7 +94,7 @@
   - a killed owner process being taken over and reported.
 
   Verify each fails for the right reason.
-- [ ] 5.2 Implement `lib/src/session/ownership.dart` per design D5 (gate acquisition with a 2 s retry, owner records renamed into place, a liveness-only lock, release that closes the lock handle first and then deletes the record under the gate after a nonce check) and wire it into writer open/close; verify the 5.1 tests pass on Windows and flip the rows green.
+- [x] 5.2 Implement `lib/src/session/ownership.dart` per design D5 (gate acquisition with a 2 s retry, owner records renamed into place, a liveness-only lock, release that closes the lock handle first and then deletes the record under the gate after a nonce check) and wire it into writer open/close; verify the 5.1 tests pass on Windows and flip the rows green.
 
 ## 6. Rewind, requests and resume
 

@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 
 import 'errors.dart';
 import 'journal.dart';
+import 'ownership.dart';
 import 'record.dart';
 import 'state.dart';
 import 'tree.dart';
@@ -129,6 +130,7 @@ final class SessionWriter {
     this._length,
     this._lines,
     this.tornTail,
+    this._ownership,
   );
 
   /// Creates a new session in a fresh directory under [root].
@@ -138,6 +140,7 @@ final class SessionWriter {
   static Future<SessionWriter> create(
     Directory root, {
     JournalIoDecorator? decorate,
+    OwnershipHooks? hooks,
   }) async {
     final random = Random.secure();
     final suffix = List.generate(
@@ -146,56 +149,72 @@ final class SessionWriter {
     ).join();
     final id = '${compactUtc(DateTime.now())}-$suffix';
     final dir = Directory(p.join(root.path, id))..createSync(recursive: true);
-    final origin = JournalRecord(
-      turn: 0,
-      path: '',
-      op: Op.set,
-      value: {
-        'meta': {
-          'format': sessionFormatVersion,
-          'session': id,
-          'lineage': {'parent': null},
-        },
-      },
-    );
-    final state = SessionState.fromOrigin(origin);
-    final io = await _openIo(dir, decorate);
-    final bytes = utf8.encode(origin.encode());
+    final ownership = await Ownership.claim(dir, hooks: hooks);
     try {
-      await io.writeFrom(bytes);
-      await io.flush();
-    } on Object catch (e) {
-      await _closeQuietly(io);
-      throw StorageError('could not write the origin record', e);
+      final origin = JournalRecord(
+        turn: 0,
+        path: '',
+        op: Op.set,
+        value: {
+          'meta': {
+            'format': sessionFormatVersion,
+            'session': id,
+            'lineage': {'parent': null},
+          },
+        },
+      );
+      final state = SessionState.fromOrigin(origin);
+      final io = await _openIo(dir, decorate);
+      final bytes = utf8.encode(origin.encode());
+      try {
+        await io.writeFrom(bytes);
+        await io.flush();
+      } on Object catch (e) {
+        await _closeQuietly(io);
+        throw StorageError('could not write the origin record', e);
+      }
+      return SessionWriter._(dir, state, io, bytes.length, 1, null, ownership);
+    } on Object {
+      await _releaseQuietly(ownership);
+      rethrow;
     }
-    _writeOwner(dir);
-    return SessionWriter._(dir, state, io, bytes.length, 1, null);
   }
 
   /// Opens the existing session in [sessionDir] for writing.
   ///
-  /// Torn bytes after the last newline are copied to a recovery file and cut
-  /// from the journal; see [tornTail]. Throws a [JournalCorruption] without
-  /// modifying the journal when a committed line is invalid.
+  /// Ownership is claimed first, before the journal is touched. Torn bytes
+  /// after the last newline are then copied to a recovery file and cut from
+  /// the journal; see [tornTail]. Throws a [SessionError] with reason
+  /// `session locked` when another writer holds the session, and a
+  /// [JournalCorruption] without modifying the journal when a committed line
+  /// is invalid. A takeover of a dead process's session is reported by
+  /// [takeover].
   static Future<SessionWriter> open(
     Directory sessionDir, {
     JournalIoDecorator? decorate,
+    OwnershipHooks? hooks,
   }) async {
-    final journal = File(p.join(sessionDir.path, journalFileName));
-    final scan = scanJournal(journal);
-    final torn = scan.trailingBytes > 0
-        ? recoverTornTail(sessionDir, journal, scan)
-        : null;
-    final io = await _openIo(sessionDir, decorate);
-    _writeOwner(sessionDir);
-    return SessionWriter._(
-      sessionDir,
-      scan.state,
-      io,
-      scan.committedLength,
-      scan.recordCount,
-      torn,
-    );
+    final ownership = await Ownership.claim(sessionDir, hooks: hooks);
+    try {
+      final journal = File(p.join(sessionDir.path, journalFileName));
+      final scan = scanJournal(journal);
+      final torn = scan.trailingBytes > 0
+          ? recoverTornTail(sessionDir, journal, scan)
+          : null;
+      final io = await _openIo(sessionDir, decorate);
+      return SessionWriter._(
+        sessionDir,
+        scan.state,
+        io,
+        scan.committedLength,
+        scan.recordCount,
+        torn,
+        ownership,
+      );
+    } on Object {
+      await _releaseQuietly(ownership);
+      rethrow;
+    }
   }
 
   /// The session directory.
@@ -204,6 +223,10 @@ final class SessionWriter {
   /// The torn tail found and set aside when opening, or `null`.
   final TornTail? tornTail;
 
+  /// The takeover performed when opening, or `null` for a clean claim.
+  Takeover? get takeover => _ownership.takeover;
+
+  final Ownership _ownership;
   final SessionState _state;
   final JournalIo _io;
   int _length;
@@ -318,7 +341,7 @@ final class SessionWriter {
       unawaited(subscriber.controller.close());
     }
     _subscribers.clear();
-    _deleteOwner(sessionDir);
+    await _ownership.release();
   }
 
   SessionError _refusal(String reason, JournalRecord record) => SessionError(
@@ -417,33 +440,10 @@ Future<void> _closeQuietly(JournalIo io) async {
   }
 }
 
-// Ownership placeholder: group 5 replaces this with the gate/lock protocol.
-// It records who writes the session so read-only materialization can report
-// `observed`. Written as a temp file, flushed, then renamed into place.
-void _writeOwner(Directory dir) {
-  final random = Random.secure();
-  final nonce = List.generate(
-    16,
-    (_) => random.nextInt(16).toRadixString(16),
-  ).join();
-  final temp = File(p.join(dir.path, '$ownerFileName.tmp'));
-  final out = temp.openSync(mode: FileMode.write);
+Future<void> _releaseQuietly(Ownership ownership) async {
   try {
-    out.writeStringSync(
-      jsonEncode({
-        'pid': pid,
-        'nonce': nonce,
-        'startedUtc': DateTime.now().toUtc().toIso8601String(),
-      }),
-    );
-    out.flushSync();
-  } finally {
-    out.closeSync();
+    await ownership.release();
+  } on Object {
+    // The original failure is the one worth reporting.
   }
-  temp.renameSync(p.join(dir.path, ownerFileName));
-}
-
-void _deleteOwner(Directory dir) {
-  final owner = File(p.join(dir.path, ownerFileName));
-  if (owner.existsSync()) owner.deleteSync();
 }

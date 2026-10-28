@@ -7,6 +7,7 @@ export 'src/session/record.dart';
 export 'src/session/tree.dart';
 export 'src/session/journal.dart';
 export 'src/session/materialize.dart';
+export 'src/session/ownership.dart' show OwnershipHooks, OwnershipPause, Takeover;
 export 'src/session/state.dart';
 export 'src/session/writer.dart';
 export 'src/results/composer.dart';
