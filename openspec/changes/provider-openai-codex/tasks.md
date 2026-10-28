@@ -138,7 +138,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 1. ADR, dependencies and fakes
 
-- [ ] 1.1 Write `docs/adr/0009-openai-subscription-credentials-and-protocol-authority.md` (`Status: accepted`, today's date, `Supersedes: none`). It covers design D6 and the protocol-authority rule from *Upstream sources compared*:
+- [x] 1.1 Write `docs/adr/0009-openai-subscription-credentials-and-protocol-authority.md` (`Status: accepted`, today's date, `Supersedes: none`). It covers design D6 and the protocol-authority rule from *Upstream sources compared*:
   - D6: record v1 and its location; the DPAPI file versus a Credential Manager split; the `0600` Unix file; fail-closed selection; the trusted home path; `auth.lock`;
   - the authority rule: OpenAI's Sign in with ChatGPT docs, read 2026-10-29; pi and OpenCode as corroboration at their pinned revisions; the Codex client route rejected, with the historical comparison table; the eligibility condition;
   - the record's `generation` and `plan_usage` fields, the `additional_tools` shape and its single-source evidence, and cross-user DPAPI isolation as a platform property rather than test evidence.
