@@ -386,4 +386,26 @@ void main() {
       );
     });
   });
+
+  group('review round 2', () {
+    test('stray continuation bytes clipped on decode are marked', () async {
+      final r = storeBytes(dir, [
+        ...List.filled(3000, 0x80),
+        ...utf8.encode('ERROR'),
+      ]);
+
+      final out = await composeResult(
+        'read',
+        ResultStatus.ok,
+        's',
+        r.descriptor,
+        r.file,
+        policy: ResultPolicy.read,
+      );
+
+      final line = out.split('\n')[1];
+      expect(line, startsWith('\u{FFFD}' * 2000));
+      expect(line, endsWith(' [line truncated: showing 2,000 of 3,005 chars]'));
+    });
+  });
 }

@@ -74,6 +74,37 @@ void main() {
       }
       expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
     });
+
+    test('looking up one node does not copy the large tree', () {
+      final state = SessionState.fromOrigin(
+        JournalRecord(
+          turn: 0,
+          path: '',
+          op: Op.set,
+          value: {
+            'meta': {
+              'format': 1,
+              'session': 's',
+              'lineage': {'parent': null},
+              'requests': {
+                for (var i = 0; i < 200000; i++) 'q$i': {'state': 'admitted'},
+              },
+            },
+            'body': {for (var i = 0; i < 200000; i++) 'n$i': i},
+          },
+        ),
+      );
+      final watch = Stopwatch()..start();
+      for (var i = 0; i < 2000; i++) {
+        expect(state.get('meta/requests/q$i'), {'state': 'admitted'});
+        expect(state.get('body/n$i'), i);
+      }
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+
+      (state.get('meta/requests/q0')! as Map<String, Object?>)['state'] = 'x';
+      expect(state.get('meta/requests/q0'), {'state': 'admitted'});
+      expect(state.get('meta/requests/missing'), isNull);
+    });
   });
 
   group('SessionTree operations', () {

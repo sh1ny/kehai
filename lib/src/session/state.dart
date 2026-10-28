@@ -101,6 +101,10 @@ final class SessionState {
   SessionTree combined() =>
       SessionTree.fromJson({..._body.toJson(), ..._meta.toJson()});
 
+  /// Returns a deep copy of the node at the non-empty [path], or `null` when
+  /// absent. Only that node is copied, unlike [combined].
+  Object? get(String path) => _target(path).get(SessionPath.parse(path));
+
   /// Checks that [record] can be committed next, without changing the state.
   ///
   /// Throws a [SessionError] when a non-`rewind` record targets the empty path

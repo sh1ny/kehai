@@ -434,9 +434,7 @@ final class SessionWriter {
             id.length == 12 &&
             descriptor.handle == 'r/$id' &&
             descriptor.sha256.startsWith(id);
-        final node = valid
-            ? _state.combined().get(SessionPath.parse(path))
-            : null;
+        final node = valid ? _state.get(path) : null;
         final recorded = node is Map<String, Object?> ? node : null;
         if (!valid ||
             recorded != null && recorded['sha256'] != descriptor.sha256) {
@@ -554,7 +552,7 @@ final class SessionWriter {
   }
 
   Future<void> _finalizeRequests() async {
-    final requests = _state.combined().get(SessionPath.parse(_requestsPath));
+    final requests = _state.get(_requestsPath);
     if (requests is! Map<String, Object?>) return;
     final ids = [
       for (final MapEntry(:key, :value) in requests.entries)
@@ -581,7 +579,7 @@ final class SessionWriter {
   }
 
   Map<String, Object?>? _requestNode(String path) {
-    final node = _state.combined().get(SessionPath.parse(path));
+    final node = _state.get(path);
     return node is Map<String, Object?> ? node : null;
   }
 

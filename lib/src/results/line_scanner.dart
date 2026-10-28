@@ -62,6 +62,9 @@ final class ScannedLine {
   final int retainedBytes;
 
   /// The length of the whole line in characters.
+  ///
+  /// It is never less than the characters the retained bytes decode to, so a
+  /// line clipped after decoding is always [cut].
   final int totalChars;
 
   /// The number of characters in [text].
@@ -194,6 +197,9 @@ final class _LineState {
     var text = const Utf8Decoder(allowMalformed: true)
         .convert(retained.toBytes());
     var shown = _countRunes(text);
+    // Malformed UTF-8 can decode to more characters than the raw count
+    // found, so the total is never below what was decoded.
+    final total = shown > totalChars ? shown : totalChars;
     if (maxChars != null && shown > maxChars) {
       text = _firstRunes(text, maxChars);
       shown = maxChars;
@@ -203,7 +209,7 @@ final class _LineState {
       text: text,
       totalBytes: totalBytes,
       retainedBytes: retained.length,
-      totalChars: totalChars,
+      totalChars: total,
       shownChars: shown,
     );
   }
