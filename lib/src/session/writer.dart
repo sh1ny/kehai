@@ -411,8 +411,17 @@ final class SessionWriter {
   /// equal descriptor, so storing the same bytes again is idempotent. Fails
   /// with a [SessionError] with reason `handle collision` when the node holds
   /// a descriptor with a different `sha256`, or when the handle is not
-  /// `r/` plus the first 12 hex digits of the hash.
+  /// `r/` plus the first 12 hex digits of the hash. A malformed descriptor
+  /// (see [ResultDescriptor.validate]) fails with reason
+  /// `invalid result descriptor`.
   Future<CommittedUpdate?> recordResult(ResultDescriptor descriptor) {
+    try {
+      descriptor.validate();
+    } on ResultError catch (e) {
+      return Future.error(
+        SessionError('invalid result descriptor', e.message, op: 'set'),
+      );
+    }
     final id = descriptor.handle.startsWith('r/')
         ? descriptor.handle.substring(2)
         : descriptor.handle;

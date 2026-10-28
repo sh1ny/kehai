@@ -62,6 +62,72 @@ void main() {
       expect(lines.where((l) => l.startsWith('[truncated:')), isEmpty);
     });
 
+    group('token estimate is cumulative', () {
+      Future<String> compose(String tool, StoredResult r) =>
+          composeResult(tool, ResultStatus.ok, 's', r.descriptor, r.file);
+
+      for (final tool in ['bash', 'other']) {
+        test('$tool: 12,000 one-byte lines fit with no truncation', () async {
+          final r = storeLines(dir, List.filled(12000, 'a'));
+          expect(r.descriptor.bytes, 24000);
+          expect(estimateTokens(r.descriptor.bytes), 8000);
+
+          final lines = (await compose(tool, r)).split('\n');
+
+          expect(lines, hasLength(12001));
+          expect(lines.where((l) => l.startsWith('[')), ['[$tool ok] s']);
+        });
+      }
+
+      test('fit without a trailing newline is shown whole', () async {
+        final r = storeBytes(dir, [...utf8.encode('a\n' * 11999), 0x61, 0x61]);
+        expect(r.descriptor.bytes, 24000);
+
+        final lines = (await compose('bash', r)).split('\n');
+
+        expect(lines, hasLength(12001));
+        expect(lines.last, 'aa');
+      });
+
+      group('one byte over the boundary', () {
+        late StoredResult over;
+        setUp(() {
+          over = storeBytes(dir, [...utf8.encode('a\n' * 12000), 0x62]);
+          expect(estimateTokens(over.descriptor.bytes), 8001);
+        });
+
+        test('head only keeps exactly the lines within the estimate', () async {
+          final lines = (await compose('other', over)).split('\n');
+
+          expect(lines, hasLength(12002));
+          expect(lines[12000], 'a');
+          expect(
+            lines.last,
+            '[truncated: showing lines 1–12,000 of 12,001; '
+            'handle r/7f3a9c1b2d4e; read_more(r/7f3a9c1b2d4e, from=12001)]',
+          );
+        });
+
+        test(
+          'head and tail split the estimate 60/40 by cumulative bytes',
+          () async {
+            final lines = (await compose('bash', over)).split('\n');
+
+            // 7,200 head lines (4,800 tokens), one omitted, 4,800 tail lines.
+            expect(lines[7200], 'a');
+            expect(lines[7201], '[… 1 lines omitted …]');
+            expect(lines[12001], 'b');
+            expect(lines, hasLength(1 + 7200 + 1 + 4800 + 1));
+            expect(
+              lines.last,
+              '[truncated: showing lines 1–7,200 and 7,202–12,001 of 12,001; '
+              'handle r/7f3a9c1b2d4e; read_more(r/7f3a9c1b2d4e, from=7201)]',
+            );
+          },
+        );
+      });
+    });
+
     test('bash log keeps 60% head and 40% tail', () async {
       final r = storeLines(dir, [for (var i = 1; i <= 10000; i++) 'line $i']);
 

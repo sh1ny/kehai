@@ -35,9 +35,10 @@ ResolvedResult resolveHandle(
   );
   final ResultDescriptor descriptor;
   try {
-    if (node is! Map<String, Object?>) throw const FormatException('no node');
+    if (node is! Map<String, Object?>) throw const ResultError('no node');
     descriptor = ResultDescriptor.fromJson(node);
-  } on FormatException {
+    if (descriptor.handle != handle) throw const ResultError('wrong node');
+  } on ResultError {
     throw ResultError('unknown handle $handle');
   }
   final file = File(p.join(sessionDir.path, resultsDirName, descriptor.sha256));

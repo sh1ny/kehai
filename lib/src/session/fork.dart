@@ -79,6 +79,7 @@ Future<int> _copyResults(Directory from, Directory to, Object? tree) async {
       descriptor = ResultDescriptor.fromJson(
         (value as Map<Object?, Object?>).cast<String, Object?>(),
       );
+      if (descriptor.handle != 'r/$key') throw const ResultError('mismatch');
     } on Object {
       throw SessionError('fork failed', 'invalid result descriptor r/$key');
     }

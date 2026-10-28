@@ -187,8 +187,13 @@ Future<void> composeResultTo(
   );
 
   final budget = p.maxLines ?? p.maxTokens!;
+  // Lines cost one unit each; under a token budget a line costs its bytes
+  // (with its newline) and the estimate is taken over the running total, so
+  // that no per-line rounding accumulates.
   int unit(String text) =>
-      p.maxLines != null ? 1 : estimateTokens(utf8.encode(text).length + 1);
+      p.maxLines != null ? 1 : utf8.encode(text).length + 1;
+  bool within(int used, int cap) =>
+      (p.maxLines != null ? used : estimateTokens(used)) <= cap;
 
   final remaining = total - startLine + 1;
   final fits = p.maxLines != null
@@ -198,13 +203,14 @@ Future<void> composeResultTo(
   sink.write(_header(tool, status, summary));
 
   if (!p.headTail || fits) {
-    // Head only: whole lines from [startLine] until the budget is used.
+    // Head only: whole lines from [startLine] until the budget is used. A
+    // result that fits is never cut, whatever the per-line costs add up to.
     var count = 0;
     var used = 0;
     await for (final line in scan()) {
       final text = _render(line);
       final cost = unit(text);
-      if (count > 0 && used + cost > budget) break;
+      if (!fits && count > 0 && !within(used + cost, budget)) break;
       sink
         ..write('\n')
         ..write(text);
@@ -234,7 +240,7 @@ Future<void> composeResultTo(
     final text = _render(line);
     final cost = unit(text);
     if (headOpen) {
-      if (head.isEmpty || headUsed + cost <= headBudget) {
+      if (head.isEmpty || within(headUsed + cost, headBudget)) {
         head.add(text);
         headUsed += cost;
         continue;
@@ -243,7 +249,7 @@ Future<void> composeResultTo(
     }
     ring.add((number: line.number, text: text, cost: cost));
     ringUsed += cost;
-    while (ring.isNotEmpty && ringUsed > tailBudget) {
+    while (ring.isNotEmpty && !within(ringUsed, tailBudget)) {
       ringUsed -= ring.removeFirst().cost;
     }
   }

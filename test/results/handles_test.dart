@@ -168,4 +168,94 @@ void main() {
     );
     expect(writer.state, WriterState.ready);
   });
+
+  group('descriptor validation', () {
+    const id = 'aaaaaaaaaaaa';
+    final good = 'a' * 64;
+
+    ResultDescriptor make({
+      String? handle,
+      String? sha256,
+      int bytes = 3,
+      int lines = 1,
+    }) => ResultDescriptor(
+      handle: handle ?? 'r/$id',
+      sha256: sha256 ?? good,
+      bytes: bytes,
+      lines: lines,
+    );
+
+    test('recordResult rejects malformed descriptors', () async {
+      final writer = await createWriter(root);
+      final bad = <String, ResultDescriptor>{
+        'traversal': make(sha256: '$id/../../journal.jsonl'),
+        'uppercase': make(sha256: 'A' * 64, handle: 'r/${'A' * 12}'),
+        'short': make(sha256: 'a' * 63),
+        'long': make(sha256: 'a' * 65),
+        'non-hex': make(sha256: '${'a' * 63}g'),
+        'negative bytes': make(bytes: -1),
+        'negative lines': make(lines: -1),
+        'uppercase handle': make(handle: 'r/${'A' * 12}'),
+      };
+      for (final MapEntry(:key, :value) in bad.entries) {
+        await expectLater(
+          writer.recordResult(value),
+          throwsA(isA<SessionError>()),
+          reason: key,
+        );
+      }
+      expect(writer.state, WriterState.ready);
+      expect(at(writer.tree, 'results'), isNull);
+      await expectLater(writer.recordResult(make()), completes);
+    });
+
+    test('fromJson rejects malformed descriptors with ResultError', () {
+      for (final json in <Map<String, Object?>>[
+        {...make().toJson(), 'sha256': '$id/../../journal.jsonl'},
+        {...make().toJson(), 'sha256': 'a' * 63},
+        {...make().toJson(), 'bytes': -1},
+        {...make().toJson(), 'lines': -1},
+        {...make().toJson(), 'handle': 'r/${'b' * 12}'},
+        {...make().toJson(), 'handle': 'x/$id'},
+        {...make().toJson()..remove('lines')},
+      ]) {
+        expect(
+          () => ResultDescriptor.fromJson(json),
+          throwsA(isA<ResultError>()),
+        );
+      }
+      expect(ResultDescriptor.fromJson(make().toJson()), make());
+    });
+
+    test('resolveHandle never follows a traversal hash from the tree', () {
+      final session = Directory(p.join(root.path, 'sess'))
+        ..createSync(recursive: true);
+      Directory(p.join(session.path, resultsDirName, id))
+          .createSync(recursive: true);
+      File(p.join(session.path, 'secret.bin')).writeAsBytesSync([1, 2, 3]);
+      const traversal = '$id/../../secret.bin';
+      final tree = SessionTree.fromJson({
+        'results': {
+          id: {'handle': 'r/$id', 'sha256': traversal, 'bytes': 3, 'lines': 1},
+        },
+      });
+
+      expect(
+        () => resolveHandle(tree, session, 'r/$id'),
+        throwsA(_resultError('unknown handle r/$id')),
+      );
+    });
+
+    test('resolveHandle rejects a descriptor stored under another id', () {
+      final session = Directory(p.join(root.path, 'sess'))
+        ..createSync(recursive: true);
+      final tree = SessionTree.fromJson({
+        'results': {'bbbbbbbbbbbb': make().toJson()},
+      });
+      expect(
+        () => resolveHandle(tree, session, 'r/bbbbbbbbbbbb'),
+        throwsA(_resultError('unknown handle r/bbbbbbbbbbbb')),
+      );
+    });
+  });
 }

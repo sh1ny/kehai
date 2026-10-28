@@ -155,6 +155,46 @@ void main() {
     expect(parent.state, WriterState.ready);
   });
 
+  test(
+    'fork refuses a traversal or mismatched descriptor in the tree',
+    () async {
+      const id = 'aaaaaaaaaaaa';
+      for (final value in <Object>[
+        {
+          'handle': 'r/$id',
+          'sha256': '$id/../../journal.jsonl',
+          'bytes': 1,
+          'lines': 1,
+        },
+        {
+          'handle': 'r/bbbbbbbbbbbb',
+          'sha256': 'b' * 64,
+          'bytes': 1,
+          'lines': 1,
+        },
+      ]) {
+        final parent = await SessionWriter.create(root);
+        await parent.apply(rec(1, 'body/a', Op.set, 1));
+        await parent.apply(rec(1, 'results/$id', Op.set, value));
+        final before = entriesOf(root);
+
+        await expectLater(
+          parent.fork(1),
+          throwsA(
+            isA<SessionError>().having(
+              (e) => e.message,
+              'message',
+              contains('invalid result descriptor'),
+            ),
+          ),
+        );
+
+        expect(entriesOf(root), before);
+        await parent.close();
+      }
+    },
+  );
+
   test('fork rejects a turn outside the allowed range', () async {
     final parent = await createWriter(root);
     await parent.apply(rec(1, 'body/a', Op.set, 1));

@@ -186,6 +186,30 @@ void main() {
     }
   });
 
+  test('results path blocked by a file is a storage failure', () async {
+    final dir = _sessionDir(root);
+    File(p.join(dir.path, resultsDirName)).writeAsStringSync('not a dir');
+    var cancelled = false;
+    final controller = StreamController<List<int>>(
+      onCancel: () => cancelled = true,
+    );
+    controller.add(utf8.encode('abc\n'));
+
+    final write = await ResultStore(dir).storeResult(controller.stream);
+
+    final failed = write as ResultStorageFailed;
+    expect(failed.bytesAccepted, 0);
+    expect(failed.error, isA<FileSystemException>());
+    expect(failed.message, contains(failed.tempPath));
+    expect(File(failed.tempPath).existsSync(), isFalse);
+    expect(cancelled, isTrue);
+    expect(
+      File(p.join(dir.path, resultsDirName)).readAsStringSync(),
+      'not a dir',
+    );
+    await controller.close();
+  });
+
   test('identical bytes are stored once', () async {
     final dir = _sessionDir(root);
     final store = ResultStore(dir);

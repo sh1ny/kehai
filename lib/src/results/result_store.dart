@@ -102,12 +102,13 @@ final class ResultStore {
   /// When the stream errors, every chunk received so far is already on disk,
   /// so the prefix is finalized and returned as a [ResultProducerFailed]. When
   /// a write, flush or rename fails, the producer subscription is cancelled
-  /// and a [ResultStorageFailed] is returned; the temporary file is kept. When
+  /// and a [ResultStorageFailed] is returned; the temporary file is kept. A
+  /// failure to create `results/` or open the temporary file also returns a
+  /// [ResultStorageFailed], and the producer is cancelled. When
   /// the final name already exists with the same size the temporary file is
   /// deleted; an existing file of another size is replaced.
   Future<ResultWrite> storeResult(Stream<List<int>> source) async {
-    final dir = Directory(p.join(sessionDir.path, resultsDirName))
-      ..createSync(recursive: true);
+    final dir = Directory(p.join(sessionDir.path, resultsDirName));
     final tempPath = p.join(dir.path, '.tmp-${_randomSuffix()}');
     var accepted = 0;
     var lines = 0;
@@ -117,9 +118,12 @@ final class ResultStore {
     RandomAccessFile? file;
     Object? storageError;
     Object? producerError;
+    var listening = false;
     try {
+      dir.createSync(recursive: true);
       file = await File(tempPath).open(mode: FileMode.writeOnly);
       var index = 0;
+      listening = true;
       try {
         await for (final chunk in source) {
           try {
@@ -156,6 +160,7 @@ final class ResultStore {
     }
     if (storageError != null) {
       await _closeQuietly(file);
+      if (!listening) await _cancelQuietly(source);
       return ResultStorageFailed(accepted, tempPath, storageError);
     }
     hash.close();
@@ -193,6 +198,15 @@ String _randomSuffix() {
 Future<void> _closeQuietly(RandomAccessFile? file) async {
   try {
     await file?.close();
+  } on Object {
+    // The storage failure being reported is the one worth keeping.
+  }
+}
+
+/// Cancels a producer that failed before the store started listening.
+Future<void> _cancelQuietly(Stream<List<int>> source) async {
+  try {
+    await source.listen(null).cancel();
   } on Object {
     // The storage failure being reported is the one worth keeping.
   }

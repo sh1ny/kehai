@@ -1,6 +1,9 @@
 /// Shared result descriptor and error types for the result store read side.
 library;
 
+final RegExp _handlePattern = RegExp(r'^r/[0-9a-f]{12}$');
+final RegExp _sha256Pattern = RegExp(r'^[0-9a-f]{64}$');
+
 /// Facts about one stored result's bytes.
 ///
 /// A descriptor says nothing about how the bytes are shown to the model;
@@ -18,23 +21,53 @@ final class ResultDescriptor {
     required this.lines,
   });
 
-  /// Reads a descriptor from its [toJson] form.
-  factory ResultDescriptor.fromJson(Map<String, Object?> json) =>
-      switch (json) {
-        {
-          'handle': final String handle,
-          'sha256': final String sha256,
-          'bytes': final int bytes,
-          'lines': final int lines,
-        } =>
-          ResultDescriptor(
-            handle: handle,
-            sha256: sha256,
-            bytes: bytes,
-            lines: lines,
-          ),
-        _ => throw FormatException('Invalid result descriptor: $json'),
-      };
+  /// Reads a descriptor from its [toJson] form and [validate]s it.
+  ///
+  /// Throws a [ResultError] when the shape or any fact is invalid.
+  factory ResultDescriptor.fromJson(Map<String, Object?> json) {
+    final descriptor = switch (json) {
+      {
+        'handle': final String handle,
+        'sha256': final String sha256,
+        'bytes': final int bytes,
+        'lines': final int lines,
+      } =>
+        ResultDescriptor(
+          handle: handle,
+          sha256: sha256,
+          bytes: bytes,
+          lines: lines,
+        ),
+      _ => throw ResultError('invalid result descriptor: $json'),
+    };
+    return descriptor..validate();
+  }
+
+  /// Checks that the facts are well formed, else throws a [ResultError].
+  ///
+  /// The [handle] must be `r/` plus 12 lowercase hex digits, the [sha256]
+  /// exactly 64 lowercase hex digits starting with those 12, and [bytes] and
+  /// [lines] non-negative. Anything that becomes a file name is thereby
+  /// confined to hex digits.
+  void validate() {
+    if (!_handlePattern.hasMatch(handle)) {
+      throw ResultError('invalid result descriptor: bad handle "$handle"');
+    }
+    if (!_sha256Pattern.hasMatch(sha256)) {
+      throw ResultError('invalid result descriptor: bad sha256 "$sha256"');
+    }
+    if (!sha256.startsWith(handle.substring(2))) {
+      throw ResultError(
+        'invalid result descriptor: handle $handle does not match $sha256',
+      );
+    }
+    if (bytes < 0 || lines < 0) {
+      throw ResultError(
+        'invalid result descriptor: negative size ($bytes bytes, '
+        '$lines lines)',
+      );
+    }
+  }
 
   /// The result handle, `r/<12 hex>`.
   final String handle;
