@@ -85,7 +85,7 @@
 
 ## 5. Single-writer gate protocol
 
-- [ ] 5.1 Write failing tests in `test/session/ownership_test.dart` using injected pause hooks plus a helper process `test/fixtures/hold_session.dart`:
+- [x] 5.1 Write failing tests in `test/session/ownership_test.dart` using injected pause hooks plus a helper process `test/fixtures/hold_session.dart`:
   - a second writer refused from another process, from another isolate and from the same isolate;
   - a three-way concurrent open with exactly one winner;
   - the two-isolate takeover race;
