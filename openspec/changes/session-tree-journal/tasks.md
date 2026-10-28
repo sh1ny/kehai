@@ -52,12 +52,12 @@
 | result-store → Tree-held result descriptors and handles | Handle resolves through the tree | test/results/handles_test.dart | handle resolves through the tree | red |
 | result-store → Tree-held result descriptors and handles | Identical bytes from a complete and a failed producer | test/results/handles_test.dart | identical bytes keep per-occurrence completion in both orders | red |
 | result-store → Tree-held result descriptors and handles | Unknown or broken handle | test/results/handles_test.dart | unknown or broken handle fails explicitly | red |
-| result-store → Central truncation envelope | Read result over the line cap | test/results/composer_test.dart | read over the line cap gets the exact truncation line | red |
-| result-store → Central truncation envelope | Result that fits has no truncation line | test/results/composer_test.dart | fitting result has no truncation line | red |
-| result-store → Head and tail cut for logs | Long log keeps head and tail | test/results/composer_test.dart | bash log keeps 60% head and 40% tail | red |
-| result-store → Head and tail cut for logs | Over-long single line | test/results/composer_test.dart | 2 GiB newline-free line is cut with bounded memory | red |
-| result-store → Explicit opt-out bounded by capacity | notrunc within capacity | test/results/composer_test.dart | notrunc within capacity shows everything | red |
-| result-store → Explicit opt-out bounded by capacity | notrunc over capacity | test/results/composer_test.dart | notrunc over capacity fails explicitly | red |
+| result-store → Central truncation envelope | Read result over the line cap | test/results/composer_test.dart | read over the line cap gets the exact truncation line | green |
+| result-store → Central truncation envelope | Result that fits has no truncation line | test/results/composer_test.dart | fitting result has no truncation line | green |
+| result-store → Head and tail cut for logs | Long log keeps head and tail | test/results/composer_test.dart | bash log keeps 60% head and 40% tail | green |
+| result-store → Head and tail cut for logs | Over-long single line | test/results/composer_test.dart | 2 GiB newline-free line is cut with bounded memory | green |
+| result-store → Explicit opt-out bounded by capacity | notrunc within capacity | test/results/composer_test.dart | notrunc within capacity shows everything | green |
+| result-store → Explicit opt-out bounded by capacity | notrunc over capacity | test/results/composer_test.dart | notrunc over capacity fails explicitly | green |
 | result-store → Paging and search over stored results | Page and search a stored result | test/results/reader_test.dart | page and search a stored result | red |
 | result-store → Paging and search over stored results | Out-of-range page or invalid pattern | test/results/reader_test.dart | out-of-range page and invalid pattern fail | red |
 | result-store → Paging and search over stored results | Pathological pattern or huge line | test/results/search_test.dart | pathological pattern times out and huge line states its prefix | red |
@@ -122,7 +122,7 @@
 ## 9. Composer, paging and search
 
 - [x] 9.1 Write failing composer tests: the exact `read` truncation line for 2,310 lines; no truncation line for 12 lines; `bash` head/tail 1–600, the `[… 9,000 lines omitted …]` marker and 9,601–10,000 on a 1,000-line budget; a 2 GiB newline-free line (generated on the fly into a temp result, not held in memory) cut with a `[line truncated: …]` marker within a bounded-allocation probe; `notrunc` within capacity, including a 5,000-character line, and over capacity with the exact error. Verify they fail.
-- [ ] 9.2 Implement `lib/src/results/line_scanner.dart` (64 KiB reads, retained prefix plus counted remainder) and `composer.dart` (envelope, default policies, `ceil(bytes/3)` heuristic estimate, `notrunc`); verify the 9.1 tests pass and flip the rows green.
+- [x] 9.2 Implement `lib/src/results/line_scanner.dart` (64 KiB reads, retained prefix plus counted remainder) and `composer.dart` (envelope, default policies, `ceil(bytes/3)` heuristic estimate, `notrunc`); verify the 9.1 tests pass and flip the rows green.
 - [ ] 9.3 Write failing paging and search tests: `read_more` from 401 for 100 lines offering `from=501`; search returning 3 matches with line numbers; `from` beyond the last line; an invalid pattern; a catastrophically backtracking pattern timing out at 5 s; a line longer than 64 KiB stating its searched prefix; a burst of 5 concurrent searches where the 5th gets `search busy`, and after one times out a new search is admitted. Implement `reader.dart` and `search.dart` (worker isolate, 4 slots, 201-message cap, kill at deadline, slot freed in `finally`); verify they pass and flip the rows green.
 
 ## 10. Migration script
