@@ -52,9 +52,12 @@ void main() {
       await pending;
       await pumpEventQueue();
       expect(updates, isEmpty);
-      // The writer's tree is the acknowledged state a fork would take.
-      expect(writer.tree.contains(path), isFalse);
       expect(writer.state, WriterState.broken);
+      // A broken writer may still fork; the child holds only acknowledged state.
+      final forked = await writer.fork(0);
+      final child = materialize(forked.childDir).tree;
+      expect(child.contains(path), isFalse);
+      expect(writer.tree.contains(path), isFalse);
     });
   });
 }

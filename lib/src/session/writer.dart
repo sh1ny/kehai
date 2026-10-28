@@ -5,11 +5,11 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
 import 'errors.dart';
+import 'fork.dart';
 import 'journal.dart';
 import 'ownership.dart';
 import '../results/descriptor.dart';
@@ -147,12 +147,7 @@ final class SessionWriter {
     JournalIoDecorator? decorate,
     OwnershipHooks? hooks,
   }) async {
-    final random = Random.secure();
-    final suffix = List.generate(
-      8,
-      (_) => random.nextInt(16).toRadixString(16),
-    ).join();
-    final id = '${compactUtc(DateTime.now())}-$suffix';
+    final id = newSessionId();
     final dir = Directory(p.join(root.path, id))..createSync(recursive: true);
     final ownership = await Ownership.claim(dir, hooks: hooks);
     try {
@@ -299,6 +294,58 @@ final class SessionWriter {
         JournalRecord(turn: currentTurn, path: '', op: Op.rewind, value: turn),
     finish: (update) => update!,
   );
+
+  /// Creates a new session from the state at the end of turn [atTurn].
+  ///
+  /// The fork runs at the head of the queue from the acknowledged in-memory
+  /// state, so it never sees a record whose flush has not completed. Every
+  /// subtree except `meta` takes its end-of-turn value; `meta` is the current
+  /// one except `meta/session` (the new id), `meta/lineage` (this session and
+  /// [atTurn]) and `meta/requests` (empty). The result files the forked tree
+  /// references are copied and verified first, and the child directory
+  /// appears under the parent's directory only once complete. The parent
+  /// journal is never written. The child has no owner; open it with
+  /// [SessionWriter.open].
+  ///
+  /// A `broken` writer may still fork, since only acknowledged state is read
+  /// and only the child is written. Fails with a [SessionError] with reason
+  /// `invalid fork turn` when [atTurn] is outside the origin turn to the
+  /// current turn, and with reason `fork failed` naming the handle when a
+  /// result file cannot be copied; then nothing is left behind.
+  Future<ForkResult> fork(int atTurn) {
+    ForkResult? result;
+    return _enqueue<ForkResult>(
+      op: Op.set,
+      path: '',
+      allowBroken: true,
+      decide: () => null,
+      action: () async {
+        final body = _state.bodyAtTurn(atTurn);
+        final whole = _state.combined().toJson();
+        final meta = {
+          ...(whole['meta']! as Map<String, Object?>),
+          'session': newSessionId(),
+          'lineage': {
+            'parent': (whole['meta']! as Map<String, Object?>)['session'],
+            'parentTurn': atTurn,
+          },
+          'requests': <String, Object?>{},
+        };
+        final origin = JournalRecord(
+          turn: atTurn,
+          path: '',
+          op: Op.set,
+          value: {...body.toJson(), 'meta': meta},
+        );
+        result = await writeFork(
+          sessionDir,
+          meta['session']! as String,
+          origin,
+        );
+      },
+      finish: (_) => result!,
+    );
+  }
 
   /// Admits request [id] with [fingerprint] as one serialized operation.
   ///
@@ -527,11 +574,13 @@ final class SessionWriter {
     required String path,
     required JournalRecord? Function() decide,
     required T Function(CommittedUpdate? update) finish,
+    Future<void> Function()? action,
+    bool allowBroken = false,
   }) {
     if (_closing || _writerState == WriterState.closed) {
       return Future.error(_refusal('writer closed', op, path));
     }
-    if (_writerState == WriterState.broken) {
+    if (_writerState == WriterState.broken && !allowBroken) {
       return Future.error(_refusal('writer broken', op, path));
     }
     if (_pending >= maxPendingOperations) {
@@ -551,6 +600,8 @@ final class SessionWriter {
         decide,
         (update) => completer.complete(finish(update)),
         completer.completeError,
+        action: action,
+        allowBroken: allowBroken,
       ),
     );
     if (!_running) {
@@ -583,8 +634,22 @@ final class SessionWriter {
   }
 
   Future<void> _process(_Pending pending) async {
-    if (_writerState != WriterState.ready) {
+    final usable =
+        _writerState == WriterState.ready ||
+        pending.allowBroken && _writerState == WriterState.broken;
+    if (!usable) {
       pending.onError(_refusal('writer broken', pending.op, pending.path));
+      return;
+    }
+    final action = pending.action;
+    if (action != null) {
+      try {
+        await action();
+      } on Object catch (e) {
+        pending.onError(e);
+        return;
+      }
+      pending.onDone(null);
       return;
     }
     final JournalRecord? record;
@@ -644,13 +709,27 @@ bool _sameFacts(Map<String, Object?> node, ResultDescriptor descriptor) {
 /// One queued operation. [decide] runs at the head of the queue and returns
 /// the record to append, or `null` when nothing is to be written.
 final class _Pending {
-  _Pending(this.op, this.path, this.decide, this.onDone, this.onError);
+  _Pending(
+    this.op,
+    this.path,
+    this.decide,
+    this.onDone,
+    this.onError, {
+    this.action,
+    this.allowBroken = false,
+  });
 
   final Op op;
   final String path;
   final JournalRecord? Function() decide;
   final void Function(CommittedUpdate? update) onDone;
   final void Function(Object error) onError;
+
+  /// An operation that writes no journal record, run instead of [decide].
+  final Future<void> Function()? action;
+
+  /// Whether the operation may run on a `broken` writer.
+  final bool allowBroken;
 }
 
 final class _Subscriber {

@@ -160,17 +160,46 @@ final class SessionState {
     }
   }
 
+  /// Returns the non-`meta` subtrees as they stood at the end of turn [turn].
+  ///
+  /// This is a pure replay of the timeline prefix over the origin's tree, the
+  /// same one a rewind to [turn] performs, and changes nothing. Throws a
+  /// [SessionError] with reason `invalid fork turn` unless [turn] is an
+  /// integer from the origin turn up to and including the current turn.
+  SessionTree bodyAtTurn(Object? turn) {
+    if (turn is! int || turn < origin.turn || turn > _turn) {
+      throw SessionError(
+        'invalid fork turn',
+        'the target must be an integer from ${origin.turn} to $_turn '
+            '(got ${turn is int ? turn : 'a non-integer'})',
+        op: 'fork',
+      );
+    }
+    return _replay(_keepCount(turn));
+  }
+
   void _rewind(int target) {
+    final keep = _keepCount(target);
+    _timeline.removeRange(keep, _timeline.length);
+    _body = _replay(keep);
+    _turn = target;
+  }
+
+  /// The length of the timeline prefix holding records of turn <= [target].
+  int _keepCount(int target) {
     var keep = _timeline.length;
     while (keep > 0 && _timeline[keep - 1].turn > target) {
       keep--;
     }
-    _timeline.removeRange(keep, _timeline.length);
-    _body = _base.copy();
-    for (final record in _timeline) {
-      _body.apply(record);
+    return keep;
+  }
+
+  SessionTree _replay(int count) {
+    final tree = _base.copy();
+    for (final record in _timeline.take(count)) {
+      tree.apply(record);
     }
-    _turn = target;
+    return tree;
   }
 
   SessionTree _target(String path) => _isMeta(path) ? _meta : _body;

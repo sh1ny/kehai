@@ -38,9 +38,9 @@
 | session-tree → Journal-only rewind | Rewind removes later turn-anchored state | test/session/rewind_test.dart | rewind restores end-of-turn state and keeps meta | green |
 | session-tree → Journal-only rewind | Invalid rewind target is rejected | test/session/rewind_test.dart | invalid rewind target is rejected | green |
 | session-tree → Journal-only rewind | Rewind survives replay | test/session/rewind_test.dart | two rewinds survive replay | green |
-| session-tree → Journal-only fork | Fork is independent of the parent | test/session/fork_test.dart | fork survives parent deletion with readable handles | red |
-| session-tree → Journal-only fork | Fork keeps current session settings | test/session/fork_test.dart | fork keeps current meta with replaced identity keys | red |
-| session-tree → Journal-only fork | Fork failure leaves no child | test/session/fork_test.dart | fork failure leaves no child directory | red |
+| session-tree → Journal-only fork | Fork is independent of the parent | test/session/fork_test.dart | fork survives parent deletion with readable handles | green |
+| session-tree → Journal-only fork | Fork keeps current session settings | test/session/fork_test.dart | fork keeps current meta with replaced identity keys | green |
+| session-tree → Journal-only fork | Fork failure leaves no child | test/session/fork_test.dart | fork failure leaves no child directory | green |
 | session-tree → Request admission and outcome correlation | Duplicate after rewind is not re-executed | test/session/requests_test.dart | duplicate after rewind returns recorded outcome | green |
 | session-tree → Request admission and outcome correlation | Simultaneous duplicate admissions | test/session/requests_test.dart | simultaneous duplicate admissions admit exactly once | green |
 | session-tree → Request admission and outcome correlation | Request id collision | test/session/requests_test.dart | request id collision is rejected including concurrently | green |
@@ -117,7 +117,7 @@
 ## 8. Fork
 
 - [x] 8.1 Write failing tests: a fork at turn 2 survives parent deletion with every handle readable and the parent journal byte-identical beforehand; the fork keeps current `meta` with only `meta/session`, `meta/lineage` and `meta/requests` replaced, and `body` limited to turn 2; a missing parent result file makes the fork fail naming the handle with no child directory left. Verify they fail.
-- [ ] 8.2 Implement `writer.fork(atTurn)` per D8 (queue-head acknowledged state, `.fork-<id>.tmp` directory, SHA-256-verified copies, a single origin record, rename into place, cleanup on failure); verify the 8.1 tests pass and flip the rows green.
+- [x] 8.2 Implement `writer.fork(atTurn)` per D8 (queue-head acknowledged state, `.fork-<id>.tmp` directory, SHA-256-verified copies, a single origin record, rename into place, cleanup on failure); verify the 8.1 tests pass and flip the rows green.
 
 ## 9. Composer, paging and search
 

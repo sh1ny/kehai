@@ -3,6 +3,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
@@ -230,4 +231,14 @@ String compactUtc(DateTime time) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${t.year.toString().padLeft(4, '0')}${two(t.month)}${two(t.day)}'
       'T${two(t.hour)}${two(t.minute)}${two(t.second)}Z';
+}
+
+/// Returns a new session id: `<yyyyMMddTHHmmssZ>-<8 hex>`.
+String newSessionId([DateTime? now]) {
+  final random = Random.secure();
+  final suffix = List.generate(
+    8,
+    (_) => random.nextInt(16).toRadixString(16),
+  ).join();
+  return '${compactUtc(now ?? DateTime.now())}-$suffix';
 }
