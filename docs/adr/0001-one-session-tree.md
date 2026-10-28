@@ -7,7 +7,7 @@ Supersedes: none
 
 ## Context
 
-The adopted [session model](../sensorium-spec.md#session-model) locks this decision before code. Rewind/fork/resume must cover messages, scratch, jobs, checkpoints and collector state together. Draft status records the baseline review gate, not permission to reconsider the locked choice.
+The adopted [session model](../sensorium-spec.md#session-model) locks this decision before code. Rewind/fork/resume must cover messages, scratch, jobs, checkpoints and collector state together.
 
 ## Decision
 

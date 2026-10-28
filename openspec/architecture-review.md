@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Round:** 4 — Required Change 1 recheck.
-- **Prior round:** Round 4 approved with one bounded provenance correction outstanding. Round 3 was incomplete because its external amendment input was inaccessible; no architecture defect was established. Round 2 covered superseded scope.
+- **Round:** 4 recheck — Required Change 1 only.
+- **Prior round:** The round 4 full review approved with one bounded provenance correction outstanding; its text was replaced by this recheck and is not in the repository. The round 2 review is in commit `ee23ec6`. Round 3 was incomplete because its external amendment input was inaccessible; no architecture defect was established. Round 2 covered superseded scope.
 - **Reviewer:** Codex, read-only recheck.
 - **Reviewed:** Prior `openspec/architecture-review.md`, current `openspec/architecture.md`, and review template. Reassessment limited to the Source reference map correction.
 - **Preserved approval scope:** Round 4’s full review of strategy, architecture, seven referenced ADRs, configuration, unchanged sensorium specification, and amendment/replacement-roadmap contract remains in effect. Those artifacts were not newly reviewed in full.

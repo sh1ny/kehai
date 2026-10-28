@@ -17,8 +17,8 @@ Every session fact belongs to one tree; journal/full-result payloads and disposa
 
 ## Success measures
 - **M1 — self-hosting skeleton:** Kehai builds Kehai. Nikolay uses only Kehai, authenticated by ChatGPT/Codex subscription, to complete and merge the first real M2 Specwright change. Replay properties, central full-result handles and hung-hook turn isolation pass. No TUI.
-- **M2:** full Windows tool parity; broader sensorium/nocterm, a 20-turn session with fewer calls to first edit than OMP on the same task, no silent truncation, and the 5k-line renderer budget.
-- **M3 / later:** complete extension/provider breadth when dogfood evidence warrants it; non-Dart plugins and compaction/checkpoint behavior preserve tree invariants.
+- **M2:** full Windows tool parity; broader sensorium/nocterm, compaction and jj checkpoints that preserve tree invariants, a 20-turn session with fewer calls to first edit than OMP on the same task, no silent truncation, and the 5k-line renderer budget.
+- **M3 / later:** complete extension/provider breadth when dogfood evidence warrants it; non-Dart plugins preserve tree invariants.
 - **Later adoption:** Nikolay uses kehai daily instead of OMP for his projects.
 
 ## Assumptions
