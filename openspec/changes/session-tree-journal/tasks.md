@@ -4,12 +4,12 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| session-journal → Four-field journal records | Appended record has exactly four fields | test/session/record_test.dart | appended record has exactly four fields | red |
+| session-journal → Four-field journal records | Appended record has exactly four fields | test/session/record_test.dart | appended record has exactly four fields | green |
 | session-journal → Four-field journal records | Record with an extra or missing field is rejected | test/session/journal_test.dart | record with an extra or missing field is rejected on open | red |
-| session-journal → Operation vocabulary | Each operation updates the tree | test/session/tree_ops_test.dart | set, merge and del update the tree | red |
+| session-journal → Operation vocabulary | Each operation updates the tree | test/session/tree_ops_test.dart | set, merge and del update the tree | green |
 | session-journal → Operation vocabulary | Invalid operation use is rejected before append | test/session/writer_test.dart | invalid op use is rejected before append | red |
-| session-journal → Path identity | Valid path addresses one node | test/session/path_test.dart | valid path addresses exactly one node | red |
-| session-journal → Path identity | Malformed path is rejected | test/session/path_test.dart | malformed paths are rejected with the offending rule | red |
+| session-journal → Path identity | Valid path addresses one node | test/session/path_test.dart | valid path addresses exactly one node | green |
+| session-journal → Path identity | Malformed path is rejected | test/session/path_test.dart | malformed paths are rejected with the offending rule | green |
 | session-journal → Validate, persist, append, then publish | Acknowledged record survives a crash | test/session/crash_test.dart | acknowledged record survives a killed process | red |
 | session-journal → Validate, persist, append, then publish | Storage failure is not published | test/session/writer_test.dart | storage failure is not published and breaks the writer | red |
 | session-journal → Single writer per session | Second writer is refused | test/session/ownership_test.dart | second writer is refused from process, isolate and same isolate | red |
@@ -74,7 +74,7 @@
 ## 3. Records, paths and tree operations
 
 - [x] 3.1 Write failing tests for record encoding (exact four keys, key order, single newline), path validation (segment alphabet and length, 1–32 segments, root set, empty path rules) and the pure tree operations `set`/`merge`/`del` with their error cases, and verify they fail for the missing implementation (rows: appended record has exactly four fields; valid path; malformed paths; set, merge and del).
-- [ ] 3.2 Implement `lib/src/session/record.dart`, `path.dart` and `tree.dart` (mutable JSON tree, deep-copied values, canonical serialization with sorted keys); verify the 3.1 tests pass and flip their rows green.
+- [x] 3.2 Implement `lib/src/session/record.dart`, `path.dart` and `tree.dart` (mutable JSON tree, deep-copied values, canonical serialization with sorted keys); verify the 3.1 tests pass and flip their rows green.
 
 ## 4. Journal file, writer, origin and turns
 
