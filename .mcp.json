@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "dart": {
+      "type": "stdio",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "dart",
+        "mcp-server",
+        "--disable",
+        "flutter,flutter_driver",
+        "--enable",
+        "run_tests,dart_fix,dart_format"
+      ]
+    }
+  }
+}
