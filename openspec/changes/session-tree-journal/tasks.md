@@ -98,7 +98,7 @@
 
 ## 6. Rewind, requests and resume
 
-- [ ] 6.1 Write failing tests: rewind restores end-of-turn-K state and keeps `meta` (one appended line, earlier lines unchanged); invalid rewind targets; two rewinds survive replay; duplicate after rewind returns the recorded outcome without appending; simultaneous duplicate admissions admit exactly once; collisions (sequential and concurrent); admitted becomes `interrupted`/`effect-uncertain` on reopen and a later duplicate returns it; a recovery append failure fails the open. Verify they fail.
+- [x] 6.1 Write failing tests: rewind restores end-of-turn-K state and keeps `meta` (one appended line, earlier lines unchanged); invalid rewind targets; two rewinds survive replay; duplicate after rewind returns the recorded outcome without appending; simultaneous duplicate admissions admit exactly once; collisions (sequential and concurrent); admitted becomes `interrupted`/`effect-uncertain` on reopen and a later duplicate returns it; a recovery append failure fails the open. Verify they fail.
 - [ ] 6.2 Implement rewind (timeline cut plus replay, D3), `admit`/`complete`/`fail` as single queue operations (D4), and open-time request finalization; verify the 6.1 tests pass and flip the rows green.
 
 ## 7. Result store and handles
