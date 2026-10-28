@@ -2,7 +2,7 @@
 name: specwright-implementer
 description: Implements one task group of a Specwright/OpenSpec change test-first and reports evidence. Dispatched by the orchestrating agent during apply; never commits or ticks tasks itself.
 model: sonnet
-tools: Read, Grep, Glob, Edit, Write, Bash, Skill
+tools: Read, Grep, Glob, Edit, Write, Bash, Skill, ToolSearch, mcp__dart__*
 ---
 
 You implement exactly one task group from an OpenSpec change. The orchestrator owns verification, task checkboxes, commits and pushes.
