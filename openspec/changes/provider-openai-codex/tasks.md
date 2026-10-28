@@ -144,7 +144,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - the record's `generation` and `plan_usage` fields, the `additional_tools` shape and its single-source evidence, and cross-user DPAPI isolation as a platform property rather than test evidence.
 
   In `openspec/architecture.md`, add the ADR's row to the index, replace "entry 2 splits the secret or uses a DPAPI-protected file" with the recorded choice, and add source-map rows for the docs pages and the two official implementations. Verify with `mise run openspec:validate`, and confirm the index lists 0009.
-- [ ] 1.2 Add dependencies with `dart pub add args ffi win32 pointycastle` and record the resolved versions. Create `lib/src/auth/openai_constants.dart` holding every constant from the design's comparison table, each with a comment citing its docs page or source revision and line. Verify with `mise run analyze`.
+- [x] 1.2 Add dependencies with `dart pub add args ffi win32 pointycastle` and record the resolved versions. Create `lib/src/auth/openai_constants.dart` holding every constant from the design's comparison table, each with a comment citing its docs page or source revision and line. Verify with `mise run analyze`.
 - [ ] 1.3 Write `test/support/fake_openai.dart`, an `HttpServer` driven by per-test scripts:
   - **auth server:** discovery, JWKS from a per-run RSA key, authorize redirect with an issued client id, `/api/accounts/oauth/token` code and refresh grants, revocation;
   - **auth extras:** a scripted granted-scope set, recording of `prompt`/`force_reconsent` and of revocation requests;
