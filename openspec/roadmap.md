@@ -1,30 +1,35 @@
 # kehai Roadmap
 
-[Strategy](strategy.md) · [Architecture / ADRs](architecture.md) · [Design authority](../docs/sensorium-spec.md) · [Baseline approval](architecture-review.md)
+[Strategy](strategy.md) · [Architecture / ADRs](architecture.md) · [Design authority](../docs/sensorium-spec.md) · [Amendment review](architecture-review.md)
 
-## Now: M1 — Headless walking skeleton
+## Now: M1 — self-hosting skeleton
 
-**Outcome:** a real Anthropic coding turn through a dumb line-mode RPC client, with durable, rewindable/forkable sessions, inspectable full results and supervised native jobs. **No TUI.**
+**Goal: Kehai builds Kehai.** Run `kehai` in this repo with ChatGPT/Codex subscription authentication and the installed Specwright skills; use it to plan, implement, commit and merge the first real M2 change. Primitive is fine; functional is required. This is dogfooding, not feature breadth. No implementation change has started; no exit criterion is passed here.
 
-**Exit criteria** (evidence recorded at milestone close, not claimed here):
-- Seeded property tests generate valid sessions with every supported tree subtree and mixed patches; materialization equals reference replay. Rewind at random retained turns, persist/resume and compare with original journal replay at that point; replay the recorded continuation and recover the same final tree without repeating external effects. Forks evolve independently; deleting a parent preserves fork result handles. No feature-specific rewind code. (agent)
-- Exercise torn-tail recovery, interior corruption refusal, storage failure, stale callbacks, running-job rewind, interrupted resume and RPC reconnect/correlation; no automatic effect replay or silent partial state. (agent)
-- Core `read`, hash-anchor `edit`, `write`, `bash`, `grep`, `find`, `ls` work through RPC; stale anchors reject; long stdout/stderr remain pageable/searchable through handles with explicit central cuts and bounded `notrunc` failure. (agent)
-- Native Windows without WSL and Linux smoke runs cover detected installed shells, PTY/ConPTY, bundled rg, job cancellation and line-client resume. A live configured Anthropic session reads, edits and runs a command; credentials never enter harness diagnostics/journal. AOT release packaging accounts for native assets. (agent)
+**Exit criteria:**
+- `kehai login openai` completes subscription OAuth **without an API key**, stores/refreshes tokens silently using the OS keychain or `~/.kehai/auth.json` with Unix `0600` (Windows: secure keychain), and `kehai doctor` shows account and model list. **(user)**
+- Read files, hash-anchor edit, run `dart test`, `dart analyze` and `jj` through bash, grep/find the tree, and ask a structured question. **(agent)**
+- Load `.claude/skills/` and `.agents/skills/`, inject `AGENTS.md`, and call installed `/opsx:*` and `specwright-*` commands. **(agent)**
+- Complete **branch → proposal → specs → design → tasks → apply → commit → finish → merge**, with Kehai as sole agent, delivering the first actual M2 change. **(user)**
+- Every tool result uses central truncation/full-result handles, never tool-local cuts; property tests replay random journals to identical trees. **(agent)**
+- A plugin process hanging in a hook cannot block turn progress. **(agent)**
 
-**Changes** (one PR each; every entry requires the previous entry merged):
-1. `establish-session-tree-journal` — engine/cli package boundary, typed tree, minimal versioned atomic patch transactions, durable append/materialization and journal-format fixtures.
-2. `extend-journal-to-rewind-fork-resume` — generic tree restoration, fork lineage, restart semantics and randomized replay equivalence first, before any UI or feature-specific state handling.
-3. `extend-session-with-result-handles` — immutable full-result payloads, tree-owned lifetime/fork safety, envelope, paging/search and central model rendering/truncation.
-4. `extend-session-with-native-jobs` — one supervisor and blocking budget, bounded streams, real-shell discovery, PTY/ConPTY, cancellation and generic resource reconciliation.
-5. `extend-session-with-core-tools` — all seven core tools, hash-anchor mutation safety and bundled ripgrep, using the established result/job contracts.
-6. `complete-session-with-anthropic-rpc-loop` — normalized Anthropic streaming, credential boundary, ordered RPC snapshot/patch subscription, durable command correlation and dumb line client; demonstrate the complete walking skeleton and close M1 evidence.
+**Changes** (one PR each; each requires the previous merged):
+1. `session-tree-journal` — one tree; append-only JSONL `{turn,path,op,value}`, migration script, materialize/replay/property tests, journal-only rewind/fork without UI, full-result store/handles.
+2. `provider-openai-codex` — stream/count/usage/tool-call interface and subscription OAuth. Source-citing design verifies PKCE, redirect port/scopes, token-valid endpoint, refresh/expiry, upstream breakage/reversal cost and API-key fallback. OpenAI/Anthropic API-key adapters only if genuinely free from the interface; otherwise M2. Fallback does not pass subscription acceptance.
+3. `core-tools` — numbered/hash-tagged read every N lines, edit loudly rejecting moved/stale anchors, write, real-shell bash (Git Bash/PowerShell detected on Windows; blocking budget → jobs), rg grep, find, ls, structured ask. Short read-only autoapprove allowlist; otherwise ask; explicit `--yolo`. All results centrally composed; minimal hook-timeout seam only.
+4. `agent-loop-and-line-client` — parallel tools, Ctrl-C, bounded retry/backoff, clear context-overflow stop; readline, streamed output, one-line tool display; thin client over `kehai rpc` NDJSON stdio. No nocterm or compaction.
+5. `skills-agents-commands` — skills/AGENTS/commands, existing command definitions/arguments/path substitutions, minimal typed-return job-backed implementer/reviewer subagents; qualify the installed full Specwright workflow.
+6. `dogfood-first-m2-change` — select one small M2 capability from observed gaps; Nikolay performs its real lifecycle entirely in Kehai and merges its PR. Its design records friction to seed M2, not a planning-only rehearsal.
 
-## Next: M2 — Perception through a projection client
+**Bridge:** entry 6 is authorized before M1 promotion, but is already the first M2 delivery. Count its merged PR once; carry its receipt into M2, never restart it or create a wrapper PR. Entries 1–5 ship only `turn`, `budget` and truncation; entry 6 permits only its selected M2 capability.
 
-Nocterm projects the same engine tree; add multiline input and Markdown/code rendering, sensorium v1 (`turn`, `budget`, jj-first/git-best-effort `vcs`, `changes_since_last_turn` including `by: user`, tree scratchpad). **Exit:** Nikolay completes a 20-turn real coding session on this repo with fewer tool calls to first edit than OMP on the same task, recording task/model/tool conditions and no silent truncation (user); the hard sensorium ceiling/fold order, baseline-preserving history-fold A/B and bounded Windows hash attribution are exercised (agent). Early M2, qualify a 5k-line transcript against [renderer targets/fallback](architecture.md#resource-bounds-and-failure-visibility): p95 viewport redraw ≤16 ms, append ≤1 ms, declared Windows/Linux AOT conditions and terminal flush reported separately (agent). No M2 change split before M1 close.
+**Every design:** follow [enforced constraints/process](config.yaml) and [pinned source map](architecture.md#source-reference-map). Dart 3.x AOT, no Rust/embedded runtime, tree-only session state. Most M1 uses Claude Code; from entry 4 attempt apply inside Kehai and record gaps (entry 4 after its earliest runnable loop). Windows login/line client must work without WSL in M1.
+
+## Next: M2 — Dogfood-driven perception and client
+
+Carry the bridge delivery forward; split remaining work only at M1 close using recorded friction. Add nocterm, broader sensorium (`vcs`, changes, scratchpad, diagnostics, checkpoints), compaction, LSP and jj checkpoints. **Exit:** full Windows tool parity (agent); a 20-turn session with fewer calls to first edit than OMP on the same task and no silent truncation (user); 5k-line transcript within the [reviewed renderer budget/fallback](architecture.md#resource-bounds-and-failure-visibility), plus sensorium budget/history-fold/Windows-attribution checks (agent).
 
 ## Later
 
-- **M3 — Reactive, extensible engine:** diagnostics collector/LSP delta footer, checkpoints, notices, snapshot-based speculative compaction, plugin protocol v1 hooks/tools/commands and more providers; exit: a non-Dart plugin runs hooks/tools, is killed mid-hook, and the session remains usable (agent).
-- **Beyond M3:** Claude/Copilot subscription OAuth, data-tier extensions, MCP tool integration, plugin collectors, typed subagents/project-memory features and Kumiko RPC qualification toward OMP parity; plan only after prior evidence, no dates or change split.
+- **M2+ as evidence warrants:** full plugin protocol beyond the M1 timeout proof, MCP, Anthropic/Copilot OAuth, pricing model registry, themes, additional OpenAI-compatible/Anthropic/Gemini/Bedrock/LiteLLM routes and Kumiko qualification. No dates or further change splits.

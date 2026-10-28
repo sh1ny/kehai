@@ -37,3 +37,13 @@ context: |
   MANDATORY: Invoke the 'specwright-finish' skill immediately after the OpenSpec archive workflow completes (/opsx:archive, openspec-archive-change, 'openspec archive').
   Project-level planning (strategy, architecture baseline, milestone roadmap) is handled by the 'specwright-roadmap' skill; paths are under project: in openspec/specwright.yaml.
   Specwright settings (finish mode, GitHub identity, review requests, cross-model design review, pre-push validation) live in openspec/specwright.yaml.
+  Project authority: openspec/strategy.md, openspec/architecture.md, openspec/roadmap.md and the unchanged docs/sensorium-spec.md. M1 is the self-hosting skeleton, not feature parity.
+
+rules:
+  design:
+    - "For every M1 change in openspec/roadmap.md, state: Dart 3.x AOT, no Rust core, no embedded script runtime, and no durable session state outside the tree; external secure credentials are the explicit exception."
+    - "For M1 skeleton designs 1-5, keep sensorium to turn/budget and central truncation; explicitly defer nocterm, compaction, LSP, jj checkpoints, full plugin protocol, MCP, Anthropic OAuth, pricing registry and themes to M2+. Bridge entry 6 is the first actual M2 design and may deliver only its selected M2 capability after the skeleton is ready. Native Windows without WSL must run login and the line client in M1; full Windows tool parity is an M2 exit criterion."
+    - "Use the roadmap dependency chain, one PR per change. Most M1 is authored with Claude Code; from change 4 onward record a Kehai apply attempt and each unsupported step in the design (change 4 after its earliest runnable loop). The final dogfood change is a real first M2 change completed and merged with Kehai as sole agent, never an empty planning substitute."
+    - "Where a reference exists, cite the exact source file and commit revision learned from: Codex/OMP/OpenCode subscription login, OMP hashline edits, and pi session format as applicable. Do not copy their state side stores or drift-recovery behavior; Kehai edits fail loudly on moved/stale anchors."
+    - "The provider-openai-codex design must compare the three login references and record exact PKCE, redirect port, scopes, token-valid endpoint, refresh/expiry, service-change failure, reversal cost and API-key fallback; fallback cannot satisfy M1 subscription acceptance."
+    - "M1 skill/command design must qualify the installed Specwright lifecycle, including typed job-backed implementer/reviewer subagents and usable review routes, not merely discover SKILL.md files."

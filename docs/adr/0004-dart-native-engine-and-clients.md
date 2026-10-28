@@ -7,18 +7,18 @@ Supersedes: none
 
 ## Context
 
-Native Windows without WSL and Linux are primary; release architecture also includes Linux arm64 and macOS. Kumiko will later consume the same engine, not embed a different session implementation. [Dart AOT](https://dart.dev/tools/dart-compile) and [FFI](https://dart.dev/interop/c-interop) supply the intended execution/native boundary.
+Linux is the primary real self-hosting workflow. Native Windows without WSL must support the M1 line client and subscription login; full tool parity is an M2 exit. Later release targets include Linux arm64 and macOS. Kumiko will consume the same engine, not embed another session implementation. [Dart AOT](https://dart.dev/tools/dart-compile) supplies the native execution boundary.
 
 ## Decision
 
-Use Dart 3.x native AOT. Separate engine (session/journal/loop/tools/providers/jobs/collectors), tui (nocterm projection only) and cli (arguments/completions). M1 uses a dumb line client over RPC and contains no TUI. CPU-heavy or synchronous native work runs in disposable worker isolates, with bounded typed messages and revision checks; isolates do not share mutable Dart memory.
+Use Dart 3.x native AOT, no Rust core or embedded script runtime. The headless engine owns session/journal/loop/tools/providers/jobs. `kehai rpc` exposes local NDJSON stdio; M1's readline client is a thin projection that streams tokens and one line per tool call. CLI handles arguments, login and doctor. Nocterm is M2+; no TUI implementation or renderer qualification blocks M1.
 
-Use C FFI for tree-sitter/native PTY, ConPTY on Windows, bundled ripgrep and real detected shells. Native dependencies are packaged per target; a native executable is not a guarantee that all assets are embedded in one file. No embedded interpreter, QuickJS/Python runtime or WSL requirement.
+Use real detected shells, including Git Bash or PowerShell on Windows, and bundled or detected ripgrep. Full PTY/ConPTY, tree-sitter/FFI and native-asset packaging are not M1 prerequisites unless essential to its real workflow. Later blocking CPU/native work stays off engine/UI event loops, using bounded worker messages and stale-state checks; isolates do not contain native memory corruption. Package required native assets per target when introduced; a native executable is not an all-assets-in-one-file promise. No WSL, shell emulation, QuickJS/Python runtime or TypeScript-extension compatibility.
 
 ## Consequences
 
-- **Rejected:** Rust core with Dart/Flutter wrappers; extra cross-language session contracts/toolchains are not justified by measured need.
-- **Rejected:** engine state inside nocterm widgets or Kumiko; clients would become competing authorities.
-- **Rejected:** in-process shell emulation; large compatibility/runtime surface with no current requirement.
-- **Cost:** qualify native assets, PTY cleanup and terminal behavior per OS; cross-compilation is not universally available.
-- **Reversal cost: high** for language/client boundaries; **medium** for individual native adapters. M1 platform exercises and M2 renderer measurements are the evidence gates; no performance result is claimed yet.
+- **Rejected:** Rust core with Dart/Flutter wrappers; extra cross-language session contracts/toolchains lack demonstrated need.
+- **Rejected:** engine authority in nocterm or Kumiko; clients would become competing session owners.
+- **Rejected:** full terminal/native packaging breadth as the self-hosting gate; M1 needs working line-client/login scope, not a terminal platform.
+- **Cost:** qualify M1 Windows login/client and primary Linux workflow, then native assets, cleanup and full Windows tools when introduced. Cross-compilation is not universally available.
+- **Reversal cost: high** for language/client boundaries; **medium** for individual adapters. Later renderer measurements are evidence gates, not claimed results. Apply the shared [per-M1 design contract](../../openspec/architecture.md#decisions-and-per-m1-design-contract), including the narrowly authorized entry-6 M2 bridge.

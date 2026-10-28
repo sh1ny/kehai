@@ -19,5 +19,5 @@ Tools persist complete accepted stdout/stderr/result bytes as immutable chunks; 
 
 - **Rejected:** per-tool truncation or inline-only output; neither can recover omitted evidence after execution.
 - **Rejected:** separate authoritative result metadata database; ownership must rewind/fork with the tree.
-- **Cost:** disk consumption, paging and fork ownership must be designed in M1; compaction retains handles.
-- **Reversal cost: high.** Lost bytes cannot be reconstructed safely. Validate long output, page/search, compaction preservation and fork deletion safety; do not benchmark correctness by rerunning effects.
+- **Cost:** result persistence, central composition and paging/search handles begin in the first M1 change, not after tools or UI. Preserve fork access where journal invariants require it without expanding M1 into a storage platform.
+- **Reversal cost: high.** Lost bytes cannot be reconstructed safely. M1 validates long output, page/search and replay/reference safety; later compaction must preserve handles. Never rerun effects to reconstruct evidence.

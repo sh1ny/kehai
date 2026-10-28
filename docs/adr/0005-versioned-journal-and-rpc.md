@@ -1,4 +1,4 @@
-# ADR 0005: Minimal versioned atomic journal and local RPC
+# ADR 0005: Four-field JSONL journal and local RPC
 
 Status: accepted
 Accepted: 2026-10-28
@@ -7,22 +7,19 @@ Supersedes: none
 
 ## Context
 
-Property-patch persistence is locked; its encoding remains a reviewed proposal. The engine has one writer, so multi-writer merge semantics provide no current benefit. Public wire/storage mistakes are expensive to reverse.
+Property-patch persistence and one authoritative tree are locked. The user fixes the minimal record shape; one writer needs neither multi-writer merge semantics nor a storage platform. Public storage mistakes are expensive to reverse.
 
 ## Decision
 
-Propose versioned UTF-8 NDJSON atomic transaction envelopes: lineage, transaction ID, base/result revision, stable-node property operations and integrity digest. Persist immutable referenced bytes before durable transaction append, then publish/acknowledge. Exact v1 operations, limits and migration fixtures must settle in M1 before schema implementation.
+Append UTF-8 JSONL records with exactly four fields: `{turn,path,op,value}`. Each record is an atomic append boundary, not an envelope of operations. No mandatory transaction IDs, digests, revision chains, segments or extra record metadata. Store format version, lineage, request correlation and compound-operation admission/completion in tree nodes such as `meta`; derive ordering from log offsets. Validate the property operation and persist referenced immutable result bytes before durable append, then publish/acknowledge it. Result descriptors and handles are part of the first change.
 
-Incomplete final lines are uncommitted; preserve them and continue a new segment from the last valid revision. Interior corruption, complete invalid lines or broken revision chains stop writes visibly. Versioned migrations preserve originals and never execute recorded effects.
+Compound operations span records: tree-held admission/completion must detect interrupted updates, not imply atomic multi-record append. The first change design must settle the minimal operation vocabulary/path identity, torn trailing-record recovery, exact interrupted-compound behavior and rewind/fork operations without UI. Complete invalid records/interior corruption stop writes visibly; never silently skip them. Include an explicit migration script preserving originals and randomized property tests proving replay yields the identical tree. Recovery/migration never executes recorded provider/tool/workspace effects. Elaborate fork resource/UI management is deferred unless required to preserve journal/result-reference invariants.
 
-Local stdio RPC is separately versioned: initial materialization at a revision followed race-free by ordered committed patches. Commands carry expected revision/request ID; bounded subscriptions use resync rather than dropped patches. Before effectful execution, commit admission in existing `body`/`meta`: request ID scoped to session/lineage, command type and matching input identity, resulting node/operation references and status. Reject ID collisions or mismatching commands; matching duplicates inspect the recorded outcome rather than execute again. No separate request database.
-
-Reconnect inspection derives correlation from tree/journal, reporting `not-admitted` only with proven coverage of the queried session/lineage and log scope; otherwise `admitted/pending`, `completed/failed/cancelled`, or `interrupted/effect-uncertain` if external effects cannot be established. A lost external acknowledgement never permits automatic replay; this is not exactly-once external execution. Bounded-history compaction preserves correlation/references in `body`/`meta`; if retained history cannot establish an outcome, report `unavailable`, never guess absence. Cursors are runtime capabilities, not durable truth. See [architecture contracts](../../openspec/architecture.md#boundaries-and-contracts).
+`kehai rpc` is local NDJSON stdio. M1's line client is a thin projection over initial materialization and ordered committed updates by log offset. Entry 4 settles only the framing/backpressure needed for this client; no network server or generic transaction-transfer protocol is required. Record effectful request admission/outcome in existing tree nodes, scoped to session/lineage. Reject stale inputs and request-ID collisions. Matching duplicates inspect outcomes rather than execute again. Reconnect distinguishes proven not-admitted, pending, terminal, interrupted/effect-uncertain and unavailable; lost acknowledgement never licenses automatic replay. Runtime cursors are not durable truth, and there is no request side database or exactly-once external-effect guarantee.
 
 ## Consequences
 
-- **Rejected:** JSON Patch/RFC 6902 as the journal; generic array/path addressing does not fit stable-node lifecycle operations and adds unnecessary operation surface. It can be wrapped in versioned atomic envelopes; that is not the reason for rejection.
-- **Rejected:** CRDT log; offline multi-writer merge/collaboration is out of scope and conflicts with the deliberately serialized engine.
-- **Rejected:** snapshots or SQLite as primary session storage; neither is the adopted append-only property journal.
-- **Cost:** own a small schema, validators and migrations. RPC NDJSON must not be reused as LSP framing.
-- **Reversal cost: high.** Randomized replay, torn-line/corruption, schema migration and slow-client/resync fixtures must establish the format before durable sessions ship.
+- **Rejected:** generic JSON Patch/RFC 6902 breadth and CRDT multi-writer merge semantics; use only the minimal operations required by the single tree writer, settled in the first design.
+- **Rejected:** transaction-envelope/digest schema, snapshots-primary persistence, SQLite requirements or native-memory-cap architecture that turns M1 into a storage platform. No feature/request side stores.
+- **Cost:** own a small operation schema, explicit migration and crash-recovery rules. Per-record atomicity requires honest interrupted-compound detection before accepting more commands.
+- **Reversal cost: high.** Random replay, torn/invalid lines, interrupted updates, migration, rewind/fork and result access must establish correctness before durable sessions ship. Later compaction remains journal-derived and retains tree correlation/handles. See [architecture contracts](../../openspec/architecture.md#boundaries-and-contracts) and the shared [per-M1 design contract](../../openspec/architecture.md#decisions-and-per-m1-design-contract).

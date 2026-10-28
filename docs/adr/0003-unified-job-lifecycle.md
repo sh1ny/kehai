@@ -7,13 +7,13 @@ Supersedes: none
 
 ## Context
 
-The adopted [session model](../sensorium-spec.md#session-model) locks one stdio-shaped job model for shell work, daemons, plugin processes, over-budget calls and later subagents.
+The adopted [session model](../sensorium-spec.md#session-model) locks one stdio-shaped job model for shell work, daemons, plugin processes, over-budget calls and subagents. Minimal typed-return subagents required by the installed Specwright implementer/review workflow are M1 jobs; broader plugin/agent facilities are deferred.
 
 ## Decision
 
 A single supervisor owns job admission, foreground blocking budget, streaming persistence, cancellation and deadlines. Logical lifecycle/ownership live in `jobs`; native process/signal handles are ephemeral capabilities, never persisted raw handles. Jobs cannot block engine/UI event loops. A generic reconciler terminates runtime resources removed by tree restoration; no tool-specific rewind handler.
 
-Resume finalizes former live jobs as interrupted/cancelled before accepting commands and resolves unfinished tool nodes accordingly. No automatic replay/relaunch of external effects. Session rewind and workspace restore remain separate; killing a job does not undo files, remote requests or paid provider calls. Platform cleanup limitations are visible, not hidden behind a cancelled label.
+Resume finalizes former live jobs as interrupted/cancelled before accepting commands and resolves unfinished tool nodes accordingly. No automatic replay/relaunch of external effects. Session rewind and workspace restore remain separate; killing a job does not undo files, remote requests or paid provider calls. Platform cleanup limitations are visible, not hidden behind a cancelled label. M1 supports parallel independent calls, Ctrl-C and a foreground budget followed by a job handle. Child state and typed results remain tree facts. Safe bounded backoff applies only to proven-unadmitted/transient setup, never duplicate tools or uncertain paid requests; exhaustion is visible.
 
 ## Consequences
 

@@ -4,24 +4,28 @@
 
 TIER: FULL
 
-| Trigger | Applies | Evidence in the adopted design |
+| Trigger | Applies | Evidence in the proposed design |
 |---|---|---|
-| T1 Components | Yes | Engine, clients, supervised processes and providers have directed relationships. |
-| T2 State | Yes | Session tree, append-only journal, job/tool lifecycles and collector baselines. |
-| T3 Concurrency | Yes | Streaming providers, jobs, collectors, FFI workers and speculative compaction. |
-| T4 Boundaries | Yes | Journal schema, RPC, plugin protocol, LSP/MCP and native integration. |
-| T5 Volume | Yes | Transcript, result bytes, workspace scans and subscriptions grow with use. |
-| T6 Risk | Yes | Irreplaceable session history, filesystem effects, credentials and source disclosure. |
+| T1 Components | Yes | Headless engine, thin clients, supervised processes and provider adapters. |
+| T2 State | Yes | One session tree, append-only journal and tool/job lifecycle. |
+| T3 Concurrency | Yes | Provider streams, parallel tools, interruption and late callbacks. |
+| T4 Boundaries | Yes | Journal, local RPC, subscription auth and process integration. |
+| T5 Volume | Yes | Transcript and complete result bytes grow with use. |
+| T6 Risk | Yes | Session history, external effects, credentials and source disclosure. |
 
 ## Context and authority
 
-Planning baseline, not implemented behavior. [Strategy](strategy.md) sets users and scope. Adopt [sensorium-spec.md](../docs/sensorium-spec.md) unchanged: [session model](../docs/sensorium-spec.md#session-model), [delivery](../docs/sensorium-spec.md#delivery-model), [snapshot](../docs/sensorium-spec.md#the-per-turn-snapshot), [tool results](../docs/sensorium-spec.md#tool-result-contract), [scratch](../docs/sensorium-spec.md#agent-scratchpad), [checkpoints](../docs/sensorium-spec.md#checkpoints-via-jj) and [folding](../docs/sensorium-spec.md#example-rendering-and-token-budget) are authority, not duplicated specifications. Its three locked decisions remain locked; ADR draft status does not reopen them. The current brief replaces its historical delivery slice labels, not its invariants.
+Planning baseline, not implemented behavior. [Strategy](strategy.md) sets purpose; [roadmap](roadmap.md) owns milestones and exit criteria. Adopt [sensorium-spec.md](../docs/sensorium-spec.md) unchanged: [session model](../docs/sensorium-spec.md#session-model), [delivery](../docs/sensorium-spec.md#delivery-model), [snapshot](../docs/sensorium-spec.md#the-per-turn-snapshot), [tool results](../docs/sensorium-spec.md#tool-result-contract), [scratch](../docs/sensorium-spec.md#agent-scratchpad), [checkpoints](../docs/sensorium-spec.md#checkpoints-via-jj) and [folding](../docs/sensorium-spec.md#example-rendering-and-token-budget) remain authority. Its three locked foundations—one tree, central truncation/full-result handles and unified jobs—are unchanged. Proposed ADR status reopens review, not those foundations. The user-directed M1 amendment replaces historical delivery labels, not these invariants.
 
-M1 proves headless tree/journal/rewind/fork/resume, full results and handles, unified jobs, Anthropic and core `read`, hash-anchor `edit`, `write`, `bash`, `grep`, `find`, `ls`, handle paging/search, through a dumb line RPC client. No TUI. M2 adds nocterm, multiline input, Markdown/code, turn/budget/VCS/change/scratch projections and the renderer experiment. M3 adds diagnostics deltas, checkpoints/notices, journal-snapshot compaction, plugin hooks/tools/commands and more providers. Data-tier extensions, plugin collectors, typed subagents and OAuth remain later; no detailed design is implied here.
+**M1: Self-hosting skeleton.** Kehai builds Kehai: subscription OAuth for ChatGPT/Codex; tree/journal and result handles from the first change; core tools and minimal permissions; a parallel agent loop and thin line client; installed skills, commands and enough typed subagents to execute the real Specwright workflow. The sixth roadmap entry is the authorized bridge to the first real M2 change, performed with Kehai as sole agent before M1 promotion and counted once in M2. Loading markdown or completing a docs-only rehearsal is not that gate.
 
-## Decisions
+M1 sensorium is only `turn`, `budget` and central truncation. Broader VCS/changes/scratch/diagnostics/checkpoints sensorium is M2, built on the M1 tree. Nocterm, compaction, LSP, jj checkpoints, the full plugin protocol, MCP, Anthropic OAuth, a pricing/model registry and themes are deferred to M2+; no exact M3 delivery promise is made. More providers and data-tier extras are later. M1 requires native Windows line client and login; full Windows tool parity is an M2 exit. Linux remains the primary real workflow. No TUI, full PTY/ConPTY integration or native parsing/packaging program is an M1 prerequisite unless a specific self-hosting need proves essential.
 
-The [seven proposed ADRs](#adrs) record choices, structurally rejected alternatives and reversal costs. D1–D3 adopt the locked tree, truncation and job decisions separately. D4 chooses Dart-native headless engine/client boundaries over Rust core or a UI-owned engine. D5 proposes minimal atomic property transactions rather than JSON Patch or CRDTs. D6 chooses supervised process extensions over in-process code. D7 proposes perception/history folding, Windows attribution and measurable renderer bounds. All numerical implementation defaults below are **proposed for review**, not measured guarantees; inherited sensorium limits remain those in the linked authority.
+## Decisions and per-M1 design contract
+
+The [seven proposed ADRs](#adrs) capture locked foundations and proposed implementation boundaries. D4 chooses Dart-native headless execution; D5 fixes the minimal journal shape and thin RPC; D6 separates minimal M1 hooks/auth/workflow integration from later extensions; D7 scopes perception and measurement. Defaults below are proposals, not measured guarantees or mandatory feature breadth.
+
+Every M1 change design must apply the [roadmap](roadmap.md) and [OpenSpec configuration](config.yaml), explicitly restating the locked foundations, M1 sensorium/deferred scope, Windows qualification and dogfood attempt rule. Entries 1–5 keep the skeleton scope; after they are ready, entry 6 permits only its selected first M2 capability, not broad M2 pull-forward or a wrapper planning PR. Dart/native/tree constraints still apply to that bridge. From entry 4 onward, attempt each apply inside Kehai (entry 4 once its earliest runnable loop exists), recording work it could not do; most M1 implementation may use Claude Code. Entry 6 must use Kehai alone, including usable internal reviewer roles, for the actual plan/implement/commit/finish/merge workflow; another agent harness is not required to pass. Each design pins full commit revisions and exact source files for adopted behavior rather than rederiving existing implementations. Entry 1 settles journal operations, compound-update crash behavior, migration script and randomized replay tests; entry 2 verifies all three auth implementations below and records exact OAuth/service parameters, expiry/refresh, breakage risk, reversal cost and any API-key fallback. These contracts do not authorize implementation before the new baseline review passes.
 
 ## Components and diagrams
 
@@ -29,205 +33,143 @@ The [seven proposed ADRs](#adrs) record choices, structurally rejected alternati
 
 ```mermaid
 flowchart LR
-  CLI[cli: args and completions] --> Client[line client M1 / nocterm tui M2]
-  Later[Kumiko later client] -. versioned RPC .-> Engine
-  Client <-->|versioned RPC| Engine[engine: session writer and agent loop]
-  Engine --> Journal[(append-only journal)]
-  Engine --> Bytes[(immutable result payloads)]
-  Engine --> Composer[history fold and sensorium composer]
-  Engine --> Jobs[job supervisor and runtime reconciler]
-  Jobs --> Shell[detected shell and PTY / ConPTY]
-  Jobs --> Plugin[local plugin processes]
-  Jobs --> MCP[local MCP via dart_mcp]
-  Jobs --> LSP[LSP via json_rpc_2 and framing adapter]
-  Engine --> Worker[disposable Dart worker isolates / C FFI]
-  Worker --> Native[tree-sitter / native PTY integration]
-  Jobs --> RG[bundled ripgrep]
-  Composer --> Provider[configured provider / LiteLLM proxy]
-  Engine --> Index[(optional disposable SQLite indexes)]
+  CLI[cli: args / login / doctor] --> Client[thin line client M1]
+  Client <-->|local NDJSON RPC| Engine[engine: sole tree writer and agent loop]
+  Later[nocterm M2+ / Kumiko later] -. same RPC .-> Engine
+  Engine --> Journal[(four-field JSONL journal)]
+  Engine --> Bytes[(immutable result bytes)]
+  Engine --> Composer[central composer: turn / budget / truncation]
+  Engine --> Jobs[unified jobs / minimal typed subagents]
+  Jobs --> Shell[real detected shell / bundled or detected rg]
+  Engine --> Hook[minimal hook deadline seam M1]
+  Composer --> Provider[ChatGPT/Codex subscription adapter M1]
+  Provider --> Auth[secure credentials outside session tree]
+  Jobs -. M2+ .-> Ext[process plugins / MCP / LSP / native integrations]
 ```
 
-| Component | Responsibility / ownership boundary | Contract |
-|---|---|---|
-| `engine` | Headless session, journal, loop, tools, providers, jobs, collectors; single tree writer | Commands in; committed versioned patches out |
-| `tui` / `cli` | nocterm projection only / argument and completion entry points; no session authority | Same RPC as line client; Kumiko later is a second client |
-| Job supervisor | Process lifecycle, stdio persistence, deadlines, native resource reconciliation | Logical job nodes; ephemeral runtime capability map |
-| Worker isolates | Hashing/parsing and synchronous FFI away from engine/UI event loops | Bounded typed messages tagged with revision and request ID |
-| Integrations | Real detected Git Bash, PowerShell, nushell or fish where installed; bundled rg; native PTY | Explicit argv/cwd/environment; no embedded interpreter/runtime |
-| Adapters | Thin Anthropic, OpenAI-compatible, Gemini and Bedrock; LiteLLM for others | Versioned normalized stream; credentials resolved outside tree |
+The engine owns session, journal, loop, tools, provider normalization and jobs; clients render committed state and submit commands, never own sessions. Provider interface normalizes streaming, count/usage and tool calls; count may use a documented conservative estimate when exact counting is unavailable. A pricing registry is not needed for budget correctness. Jobs own process lifetime, stdio, deadlines and typed child results; role selection must map installed Specwright implementer and required review routes to runnable minimal subagents, not promise unavailable routes.
 
-Dart 3.x AOT targets native Windows without WSL, Linux x64/arm64 and macOS. AOT produces a native executable, **not** an all-assets-in-one-file promise: rg, C libraries and grammars require per-platform release packaging. Build/qualify on supported OS targets; Dart's documented cross-compilation support is limited to Linux targets. No Rust core, QuickJS, Python runtime or TypeScript-extension compatibility.
+Use Dart 3.x AOT, no Rust core, WSL, embedded Python/QuickJS or TypeScript-extension compatibility. Run actual shells (including detected Git Bash or PowerShell on Windows), not shell emulation. C FFI, parser assets and PTY/ConPTY are later integrations unless essential to the scoped workflow; blocking native work must stay off the engine event loop. Native release packaging is per target, not an all-assets-in-one-file promise.
 
 ### T2 — tool state versus result status
 
 ```mermaid
 stateDiagram-v2
   [*] --> pending
-  pending --> running: durable launch intent
+  pending --> running: durable admission / launch intent
   pending --> cancelled: cancel before launch
   pending --> failed: validation / launch failure
-  running --> settled: final envelope committed
+  running --> settled: final result committed
   running --> failed: execution / persistence failure
-  running --> cancelled: cancel / rewind reconciliation
+  running --> cancelled: interrupt / rewind reconciliation
   settled --> [*]
   failed --> [*]
   cancelled --> [*]
 ```
 
-Tool lifecycle and envelope statuses `ok/error/partial/denied/timeout` are distinct: a call can settle with an `error` envelope. Resume records interrupted/cancelled on former live **jobs** and finalizes unfinished tools as failed/cancelled; it adds no tool lifecycle state. A durable job stores logical identity/state and signal intent, never a raw OS handle or reusable PID as authority.
+Tool lifecycle differs from envelope statuses `ok/error/partial/denied/timeout`: a call can settle with an error result. Logical job state and signal intent belong to the tree; raw handles/PIDs are ephemeral capabilities. Resume finalizes unfinished tools/jobs as failed/interrupted/cancelled before admitting new commands; it never relaunches recorded effects.
 
 ### T3 — ordered turn and concurrent work
 
 ```mermaid
 sequenceDiagram
-  participant C as RPC client
+  participant C as Thin RPC client
   participant E as Engine single writer
-  participant J as Journal / payloads
-  participant W as Collectors / workers
-  participant P as Provider / tool job
-  C->>E: command(baseRevision, requestId)
-  E->>J: append durable atomic transaction
-  E-->>C: committed patch(newRevision)
-  E->>W: bounded parallel collection(revision)
-  W-->>E: value or stale / unavailable
-  E->>J: commit collector observations
-  E->>P: folded request, stable system + current sensorium
-  loop streaming results
-    P-->>E: bytes / events tagged by invocation
-    E->>J: persist immutable bytes, then commit references
-    E-->>C: ordered committed patches
+  participant J as Journal / result bytes
+  participant P as Provider
+  participant T as Parallel tools / child jobs
+  C->>E: command(requestId, expected offset)
+  E->>J: append admission property record(s)
+  E-->>C: committed state / offset
+  E->>P: composed request with turn / budget
+  P-->>E: normalized stream / tool calls
+  E->>T: approved independent calls
+  loop concurrent results
+    T-->>E: invocation-tagged bytes / typed result
+    E->>J: persist bytes then append reference / state record
+    E-->>C: ordered state / token / tool events
   end
-  Note over E,W: Late obsolete work cannot overwrite newer state
+  E->>J: append completion property record
+  Note over E,T: Interrupt cancels live work; stale callbacks cannot restore removed state
 ```
 
-### T4 — durable data and disposable projections
+### T4 — durable data and projections
 
 ```mermaid
 flowchart TD
-  Cmd[validated commands / observations] --> Tx[versioned atomic property transaction]
-  Tx --> Log[journal segments: lineage and revision chain]
-  Log --> Tree[materialized meta / body / scratch / checkpoints / jobs / collectors]
-  Tree --> Refs[result descriptors: ownership, pins and references]
-  Refs --> Payload[immutable payload chunks beside journal]
-  Tree --> RPC[initial materialization + ordered patches]
-  Tree --> Fold[request-only history fold and sensorium]
-  Tree --> Views[TUI / line client / later Kumiko]
-  Tree --> Cache[rebuildable indexes]
-  Memory[external user-editable project-memory file, later] --> Import[imported content snapshot + hash in meta]
-  Import --> Tx
+  Cmd[validated commands / observations] --> Record[record: turn, path, op, value]
+  Record --> Log[append-only JSONL: ordering by log offset]
+  Log --> Tree[materialized session tree]
+  Tree --> Meta[meta: format / lineage / request and compound state]
+  Tree --> Nodes[body / jobs / permissions / child state]
+  Tree --> Refs[result descriptors / handles / ownership]
+  Refs --> Bytes[immutable result bytes beside journal]
+  Tree --> Views[RPC / line client / later projections]
+  Tree --> Compose[request-only composer]
+  Log --> Migration[explicit migration script / replay]
 ```
 
 ## State ownership
 
-All tree changes, including observations proposed by workers/plugins, pass through the engine writer; producers are not additional writers.
-
-| State | Sole writer | Lifetime / invalidation | Authoritative copy |
-|---|---|---|---|
-| `meta`, lineage, versions and imported configuration/input snapshots | Engine | Session; changes are transactions | Tree reconstructed from journal |
-| `body`, call lifecycle, usage, result descriptors/ownership/pins/refs | Engine | Session; rewind appends restoration, compaction replaces only eligible transcript | Tree, not provider/client memory |
-| `scratch` | Engine via validated commands | Until deletion or rewind past anchor; excluded from compaction | Tree; never recovered from project memory |
-| `checkpoints` | Engine | Session; auto ring policy from spec, named entries retained | Tree; external VCS state may disappear |
-| `jobs` and logical signal intent | Engine | Until terminal/removal; resume resolves lost live capabilities before commands | Tree |
-| `collectors`, hash baselines, provenance and last-observed revisions | Engine | Rebuildable observations; invalidate on mutation/restore or stale revision | Tree, including attribution baseline |
-| Journal segments and immutable result chunks | Engine persistence coordinator | Session-owned; payloads never mutated after sealing | Journal is replay authority; bytes have no independent session meaning |
-| OS process/signal handles, transports, RPC cursors and worker requests | Runtime supervisor / each connection | Current process/connection only; recreate or discard, never replay | Runtime capabilities, **not session state** |
-| Client render caches / optional SQLite indexes | Respective client / index builder | Bounded and disposable; rebuild from tree/journal | Never authoritative |
-| Workspace, user plan/project-memory files, VCS repository | User and external tools; kehai is one participant | External to session; capture observations, do not claim sole ownership | Filesystem/VCS; imported memory snapshot is tree input only |
-| Credentials | OS keychain/environment owner | Resolve when needed; not copied into journal/config snapshots | OS keychain or environment |
+All durable session facts pass through the single engine writer: messages, permissions/approval decisions, request admission/outcomes, child-agent state, result metadata and later scratch/checkpoints/collector baselines. They belong to the tree reconstructed from the journal, never a request database, child registry, snapshot-primary store or feature side store. Format version, lineage and correlation can live in `meta`; ordering derives from log offsets, not extra record fields. Immutable result bytes are session-owned payloads with tree descriptors, not independent session authority. Configuration and secure auth credentials are explicit external inputs/exceptions, not another durable session store; imported nonsecret inputs may be captured in tree state. User workspace/VCS files remain external facts, not Kehai-owned session state. OS handles, transport cursors and in-flight runtime maps are disposable capabilities; they cannot substitute for tree-held admission or lifecycle facts.
 
 ## Boundaries and contracts
 
-**Persistence (D5, proposed).** UTF-8 NDJSON transaction envelopes contain format/schema version, lineage, transaction ID, base/result revision, ordered property operations and integrity digest. One line is one atomic transaction, not independent per-property commits. Large restorations are streamed through bounded I/O rather than constrained to one IPC frame. Minimal operations address stable node IDs. Reject JSON Patch for generic array/path addressing and unnecessary operation surface, not an inability to wrap it in versioned atomic envelopes; CRDT merge semantics are unnecessary for one writer. Validate the entire transaction before append, flush referenced immutable payload chunks first, durably append/flush the transaction, then acknowledge/publish it. An incomplete final line after a crash is uncommitted: preserve it and continue in a new segment linked to the last valid revision. Interior corruption, a complete invalid line or broken revision chain stops writes and reports recovery failure; never silently skip it. Version migrations are explicit, preserve original data and must not replay external effects. Settle the exact v1 operation/schema/migration fixtures in M1 before schema implementation, not after sessions ship.
+**Journal (D5).** Each UTF-8 JSONL record has exactly `{turn,path,op,value}`. The atomic append boundary is one record, not a transaction envelope. No mandatory digest, transaction ID, revision chain, segments, SQLite or native-memory-cap storage architecture. Validate a property operation, persist any referenced immutable bytes, durably append its record, then publish it. Compound operations record admission/completion in the tree so interrupted multi-record updates are detectable. The first design settles the minimal operation vocabulary, path identity, recovery behavior for incomplete compound updates and torn trailing records, plus an explicit migration script preserving originals. Complete invalid records/interior corruption stop writes visibly; never silently skip history. Replay must deterministically reproduce the identical tree for randomized histories. Snapshots cannot become primary persistence, and migration/recovery never execute tool/provider/workspace effects.
 
-**Rewind/fork/resume (D1/D3).** Rewind appends an atomic tree restoration; it never edits history or calls feature-specific rewind handlers. A generic reconciler compares live resources with current job nodes and kills resources no longer owned. Workspace restore is a separate VCS action; combined rewind cannot promise atomic rollback of external effects. Fork creates new lineage metadata and independently owned immutable payloads (copies/reflinks or deletion-safe reference ownership established before publishing the fork). Deleting the parent must not break the fork. Resume materializes and finalizes former live jobs as interrupted/cancelled before admitting commands. Never auto-reexecute a tool, provider request or workspace effect.
+**Rewind/fork/resume (D1/D3).** Rewind/fork are journal operations in M1, without UI or elaborate branch/resource-management features. Rewind appends restoration rather than editing history; generic reconciliation cancels live resources no longer owned and rejects obsolete callbacks. Fork must preserve referenced result access and parent-deletion safety wherever required by the journal invariants; defer broader fork management. Interrupted compound restoration must be detected and resolved under the first design's rules before commands resume. Workspace restore is separate; neither rewind nor cancellation rolls back external effects. Resume reconstructs logical state and marks unresolved effects uncertain, never automatically reexecuting them.
 
-**RPC (D5).** Versioned commands/subscriptions over local stdio NDJSON; no network service. Send a versioned materialization at revision R in bounded begin/chunk/end frames, then ordered committed transactions after R. Large transactions also use begin/chunk/end framing and apply atomically only after the complete validated transaction arrives. Snapshot transfer and catch-up share bounded backpressure; if the retained window is lost, explicitly restart materialization. Commands carry request ID and expected revision; reject stale commands, never silently rebase. Before any effect, durably record admission in existing `body`/`meta`: request ID scoped to session/lineage, command type and matching input identity, resulting node/operation references and status. Reject ID collisions or mismatching commands; matching duplicates return the recorded outcome, not another execution. Reconnect inspection derives outcomes from tree/journal: `not-admitted` only with proven coverage of the queried session/lineage and log scope; `admitted/pending`; `completed/failed/cancelled`; or `interrupted/effect-uncertain` when external effects cannot be established. Lost external acknowledgement never permits automatic replay. Correlation and references survive bounded-history compaction; if relevant retained history cannot establish an outcome, return `unavailable`, never infer absence. There is no separate request database or exactly-once external-effect guarantee. Runtime cursors are advisory, never session truth. LSP framing is separate.
+**RPC and loop (D5).** `kehai rpc` is local NDJSON stdio; the readline client is a thin projection, streaming tokens and one line per tool call. Establish initial materialization plus ordered updates using log offsets; exact framing/backpressure is entry 4 design work, not a storage-platform prerequisite. Commands use request correlation and expected state; reject stale/colliding inputs rather than silently rebase. Record admission before effects and completion in existing tree nodes; matching duplicates inspect the recorded outcome, not execute again. Reconnect distinguishes proven not-admitted, pending, terminal, interrupted/effect-uncertain and unavailable; missing acknowledgement is not permission to retry. Support parallel independent tools and Ctrl-C cancellation. Bounded exponential backoff is only for known-unadmitted requests or transient setup failures proven safe to retry; never automatically duplicate tools, effects or uncertain paid requests. Exhaustion is visible. Context overflow stops clearly; compaction is M2+.
 
-**Tools/results (D2).** Use the adopted [envelope, handles, paging/search and truncation rules](../docs/sensorium-spec.md#tool-result-contract). Full accepted user-process output is persisted, including raw tool stderr; streaming creates sealed chunks whose descriptors are patched into the tree. This output is distinct from harness-generated adapter/launch diagnostics, which must satisfy the credential boundary below before persistence. Rendering alone applies model-facing cuts. `notrunc` bypasses presentation caps, not transport/resource limits or provider context size; reject an oversized request explicitly rather than silently cut it. Hash-anchor edits re-read and verify current content at mutation time and reject stale anchors. Large files/results use bounded pages and streams, never whole-output buffers. `summarize_result` is optional/off by default and not an M1 requirement.
+**Tools, results and permissions (D2).** M1 includes numbered/hash-tagged `read` (hash every N lines), loud hash-anchor `edit`, `write`, real-shell `bash`, `grep`, `find`, `ls` and structured `ask`, enough to run `dart test`, `dart analyze` and `jj`. Re-read at mutation time and loudly reject stale or moved anchors; do not import upstream drift-remapping or snapshot side stores. Use bundled or detected `rg`. A short read-only autoapprove allowlist runs without prompting; all other calls ask, with explicit user `--yolo` override. Shell prefix matching is insufficient: metacharacters, substitutions and mixed commands ask unless the entire command is proven read-only. Decisions live in the tree, not UI memory. Foreground budget expiry returns a unified job handle while output continues to persist. Every result uses the central [envelope/handle/paging/search/truncation contract](../docs/sensorium-spec.md#tool-result-contract), beginning in change 1; no tool-local cuts. Full accepted stdout/stderr bytes persist; model-facing composer alone cuts. `notrunc` cannot bypass provider context capacity: reject impossible requests visibly. Large results stream/page rather than buffer whole output.
 
-**Plugins/integrations (D6).** Lazy persistent, any-language local process plugins speak versioned stdio NDJSON with IDs, capabilities and typed request/result/event messages. Hooks participate in nonblocking orchestration with hard engine-enforced deadlines: mandatory policy failure denies; optional enrichment failure becomes no-op plus visible failure. No approvals subsystem is implied. Plugins offer tools/commands/hooks and declarative picker/form/status/panel/tool-card descriptions, never arbitrary Dart/nocterm widgets. Core-fork extension means intentionally changing/rebuilding core, not a bypass allowing external plugins in-process. MCP uses `dart_mcp` local stdio; its experimental status and cancellation limitations require supervisor deadlines. LSP uses `json_rpc_2` plus an application-owned **Content-Length framing adapter**, not NDJSON. C FFI work that can block runs away from the event loop; isolate messages do not share mutable Dart memory. Isolates do not contain native memory corruption: an FFI crash can kill the engine, which must recover from the journal without replaying effects. Missing shell/native assets fail the affected capability visibly, never fall back to an embedded interpreter.
+**Skills, commands and hooks (D6).** Load `SKILL.md` from `.claude/skills/` and `.agents/skills/`, inject applicable `AGENTS.md`, and adapt installed `/opsx:*` and `specwright-*` commands, including existing `.claude/commands/opsx/*.md` definitions/aliases, arguments and skill path substitutions such as `skill-dir`; not every command is a `SKILL.md`. Minimal typed-return subagents are unified jobs, mapping installed `.claude/agents/specwright-implementer*.md` and `specwright-reviewer.md` roles plus usable role/model configuration to the required workflow. M1 hooks are only an engine-enforced timeout seam and hung-process fixture: optional hook timeout is a visible safe no-op, a minimal deny-class policy fails closed. Neither can gate the turn indefinitely. Hook policy is independent of core tool approvals and does not imply a broad plugin framework. M2+ process plugins may use versioned stdio NDJSON and declarative UI, never arbitrary in-process widgets. MCP/LSP and their protocol framing are deferred; local subprocesses run with user privileges, not a sandbox.
 
-**Trust/outbound.** Configured provider/proxy is the only harness outbound prompt sink; no telemetry, accounts or cloud service. MCP/plugins are local processes. Any future remote MCP requires separate explicit authorization, not a roadmap commitment. User-installed plugins and shell subprocesses have OS-user privileges and can themselves use the network: locality is not a sandbox or an egress guarantee. No automatic upload/endpoint discovery. Resolved provider/OAuth credentials, authorization headers, credential-bearing URLs and launch-environment dumps must never be persisted in tree, payloads or error logs. Adapter errors persist only allowlisted structured fields and a sanitized provider body; redact known credential/auth material before persistence, never store raw provider exceptions or request dumps. Integration failures remain visible with useful sanitized category/status/message. Give resolved credentials only to the relevant adapter; construct least-needed shell/plugin/MCP/LSP environments without inheriting provider keys by default. Explicit user-configured environment opt-in carries a clear trust caveat: subprocesses have user privileges and can expose supplied secrets. This prevents accidental inclusion of configured credentials by the harness, not secrets the user intentionally outputs or includes in source/raw tool stderr; no sandbox or all-user-output redaction is promised. Plain local journals remain sensitive, user-owned and deletable. Plugin UI text, tool output and repository files are untrusted data, not authority to change policy.
+**Subscription auth and trust (D6).** `kehai login openai` must complete ChatGPT/Codex subscription OAuth without an API key; `kehai doctor` displays account/model availability. Use a secure OS keychain on Windows; Unix may instead use `~/.kehai/auth.json` with mode `0600`. A chmod claim does not secure Windows: fail closed when a permitted secure backend is unavailable. Refresh silently until reauthentication is necessary, then show a useful sanitized error. The entry 2 design source-verifies exact PKCE/state, redirect port/URI, scopes, token/refresh/expiry handling and the endpoint valid for that subscription token; do not assume it works against a standard `/v1` API. API-key OpenAI or Anthropic may share that PR only if genuinely free from the interface, otherwise M2; fallback never satisfies subscription acceptance.
 
-**Perception (D7).** Stable system content; ephemeral current sensorium is last user-role content before generation. Tree-derived rendering follows the exact [snapshot order](../docs/sensorium-spec.md#the-per-turn-snapshot), [fold order and immutable-section error](../docs/sensorium-spec.md#example-rendering-and-token-budget). Enforce hard ceilings with exact tokenizer measurement when available, otherwise a documented provider-safe conservative bound, never a hopeful estimate. The spec's mode table defines `delta` as changed fields since the last `full`, yet delivery removes all previous blocks: a truly delta-only block loses unchanged baseline facts when that full block is stripped. As a conservative supplement to the spec's open history-fold question, not a rewrite of its literal mode table, keep canonical tree/history unchanged and default one request-render fold switch to stripping previous blocks. Whenever stripping would remove unchanged facts needed to interpret the delta, render the current full snapshot and honestly mark it `full`, subject to the exact inherited fold order, hard ceiling and immutable-section error. Most stripped turns therefore send full snapshots, increasing per-turn tokens; never relabel a delta-only block as self-contained. Delta delivery is experimental only when its model-visible full baseline is preserved, for example the same switch's retention arm in M2 A/B; retaining multiple blocks is not the adopted default. Compare equivalent task outcomes and retention of unchanged VCS, user-change and diagnostic facts alongside tokens and prefix-cache metrics. Removing earlier blocks can invalidate a historical cache suffix even with a stable system prompt; no cache neutrality is claimed. Verify provider behavior, especially Gemini/Bedrock, when each adapter lands.
+The configured provider is the only harness prompt sink; OAuth intentionally contacts the verified auth service. No Kehai telemetry or hosted account service. Resolved credentials, auth headers, credential URLs and environment dumps never enter journal, payloads or logs. Persist only useful allowlisted/sanitized adapter failures, not raw exception/request dumps. Give credentials only to the adapter; do not inherit provider secrets into shell/child/plugin environments by default. User source/raw process output can contain secrets and is not universally redacted or encrypted. Repository content, skills and tool/plugin output are untrusted data, not authority to change approval policy. Future remote integrations require separate authorization.
 
-Windows change detection uses bounded hash-on-turn-boundary scans as authority, watchers only as hints; mtime alone is insufficient. Persist baselines/provenance in collector nodes. Partial scans retain explicit stale/partial coverage. `by: user` means outside recorded tool provenance, not verified human identity. External project memory remains later: import content/hash into `meta`, never reconstruct scratch from it; pin export is deferred. Compaction uses a journal-derived snapshot, validates lineage and revision before atomic splice and discards stale work; retain scratch, result ownership/handles and request correlation/references in existing `body`/`meta`.
+**Perception (D7).** M1 renders only current turn/budget and central result truncation from tree state; exact counts where available, documented conservative estimates otherwise, with visible stop on overflow. No pricing registry or broad sensorium collectors are needed. M2 broader perception follows the unchanged snapshot/fold order and ceilings. A delta-only block loses unchanged facts if its full baseline is removed: proposed request-only folding emits an honestly marked full snapshot whenever stripping prior blocks would lose needed facts, while leaving canonical history unchanged. Preserve source authority and review this supplement before adoption; compare retained facts/task outcomes, tokens and cache effects rather than claim cache neutrality. Windows change scans later use hashes as authority and watchers as hints, with explicit partial/stale coverage. Compaction/checkpoints/LSP are M2+; any later compaction preserves scratch, handles and tree-held request/child correlation, validates lineage/state and never replaces the journal as authority.
 
 ## Resource bounds and failure visibility
 
-This table owns proposed tunable runtime defaults; references elsewhere do not introduce additional caps. Sensorium/tool presentation, scratch, checkpoint ring and diagnostics-settle limits are owned by the linked spec. Reject invalid configurations before a turn.
+Choose small, tunable defaults in each change design, not mandatory platform breadth here. Bound concurrent work and producer/consumer queues; stream full output to disk and page handles. Slow consumers backpressure or visibly disconnect/resync; no dropped bytes disguised as success. Storage failure stops ingestion/effects, preserving available results and reporting partial/error out-of-band if persistence itself fails. Foreground/job, provider-idle and hook deadlines are independently enforced by the engine. Cancellation shows cleanup failures and uncertain external outcomes; it never claims all descendants died without evidence. Proposed hook deadline: 300 ms; exact job/concurrency/transport sizes are design decisions, not a requirement for a session storage platform. No automatic session deletion, hidden eviction, retry loops or fixed decoded-tree/native-memory budget is introduced.
 
-| Flow / store | Bound and behavior at bound | Failure/recovery; visibility and retry |
-|---|---|---|
-| Commands / journal writer | 64 pending commands and 4 MiB queued metadata; 1 MiB IPC frame; journal transactions streamed with working sets bounded by the session tree budget, including large rewind diffs | Reject admission before effects when full/oversized. Writer failure stops mutations, visible to client/stderr. Inspect durable revision before retry; effects never auto-retried. |
-| Streams / worker transfers | 64 KiB chunks; 1 MiB queued per producer; pause reads/apply backpressure, never drop bytes | If producer cannot pause safely, cancel and record explicit partial/error. Disk-full stops ingestion and execution; show persistence failure even if it cannot itself be journaled. |
-| Session tree / journal / payloads | Configurable admission budget, proposed 256 MiB decoded tree and 10 GiB durable session data; reserve 1 MiB for terminal failure records. No automatic deletion; refuse new work at high-water | Existing result pages remain readable; user sees storage pressure. Append final status using reserve; if unavailable, stop and report out-of-band. 10x/100x requires paging, archiving/deletion or explicit larger budgets, not hidden eviction. |
-| RPC / plugin / LSP / MCP messages | Per-connection queue 1 MiB; protocol frame cap above. Large bodies use handles/pages. Oversized external frames fail that connection visibly | Slow RPC gets resync/disconnect, not a missing patch. Restart a transport explicitly; never retry tool effects. LSP header parser applies the cap before allocating its body. |
-| Jobs / blocking work | 8 active jobs, 32 waiting; overflow rejected. Single 1 s foreground blocking budget then job handle. Cancel grace 2 s then forced termination | Supervisor owns deadlines and continues draining/spooling, not UI. Launch/death/cancel visible in tree; process-group/ConPTY cleanup qualified per platform. No automatic relaunch. |
-| Collectors / hashing / workers | 4 concurrent workers; collector deadline from spec; scans stop after 10k files or 64 MiB per turn and show coverage, continuing via tree-held cursor | Discard obsolete results; keep visibly stale values. Worker death fails its request; restart observations only. Native engine crash resumes from journal. No false complete attribution at 10x/100x. |
-| Provider streams | 1 active turn/session; 60 s idle and 10 min overall deadlines, user configurable; stream through bounded producer path | Timeout records available partial result and usage uncertainty. Network/auth errors show actual failure; no blind paid-request retry. |
-| Plugin hooks / other requests | Policy/enrichment hook 300 ms; tool requests use the unified job budget; startup/handshake 5 s | Deadline enforced outside plugin. Default deny or visible no-op by hook class; user can explicitly restart failed process. |
-| History / composer / compaction | One active compaction; request bounded by provider context and sensorium ceilings; transcript/result payloads paged; reject an over-context `notrunc` request | Stale compaction discarded. Composer budget/configuration failure blocks generation visibly; canonical history remains intact. |
-| Projection / indexes | Visible viewport + overscan only; proposed 8 MiB render cache, 64 MiB disposable index cache; evict/rebuild; paged query results | Client crash reconnects/resyncs without losing session. Index failure falls back to journal/tree access with visible degraded status. |
+Later renderer experiment: early in nocterm work, measure a 5k-line transcript in release/AOT, visible viewport only, declared hardware/terminal/viewports, warmed controlled-sink layout/paint/diff/emission and terminal flush separately. Proposed targets are p95 redraw ≤16 ms and append ≤1 ms. If missed, consider a one-pass transcript renderer within nocterm before replacing the framework. These are unmeasured proposals, not M1 work or acceptance evidence.
 
-At 10x/100x normal transcript/output/workspace volume, correctness stays unchanged: disk payloads and journal grow within explicit budgets, projections page, producers backpressure, scan coverage becomes partial, and admissions fail visibly rather than allocating in proportion to total output. Performance at these sizes is an acceptance experiment, not yet a result.
+## Risks and review gates
 
-**Renderer experiment (M2, proposed).** On a 5k-line transcript, target p95 full **visible-viewport** redraw ≤16 ms and streaming append ≤1 ms. Use release/AOT, warmed runs, declared Windows and Linux terminal versions, viewport sizes, hardware and dataset. Time build/layout/paint/diff/emission to a controlled sink; record terminal flush separately. Benchmark early M2 before relying on nocterm's differential/batched rendering. If it misses, implement a custom one-pass viewport transcript renderer under nocterm components, not a framework replacement. M1 contains no TUI code or renderer benchmark implementation.
-
-## Flow and state gaps
-
-| Gap | Required behavior / proposed resolution |
-|---|---|
-| Payload persisted but transaction not committed | Bytes alone are not session facts. M1 performs no automatic payload GC; later cleanup must preserve all retained journal revisions and fork owners, not merely the current materialization. |
-| Durable launch intent but crash before/after process launch | Resume marks unresolved job interrupted; cannot infer whether external effects occurred. Never relaunch. |
-| Rewind races with output or worker completion | Serialize restoration; reject callbacks for removed node/invocation generation. Generic reconciler kills removed resources; already-written workspace bytes remain. |
-| Fork/delete race | Establish child payload ownership before publishing child lineage; parent deletion cannot remove child-owned payloads. |
-| Runtime signal fails or child outlives cancellation | Show cancellation/cleanup failure; retain resource until confirmed exited or capability is lost. No claim that rewind undoes effects or that all descendants always die. |
-| Collector late/out of order; user edits during scan | Commit only matching observation revision/generation; mark partial/stale; next turn reobserves. Mutation-time hash anchors remain the last guard. |
-| Workspace restore succeeds but session update fails | Report repository outcome separately; restart observes actual VCS state. Combined rewind is an ordered workflow, not a distributed transaction. |
-| Connection drops before command acknowledgement | Inspect durable session/lineage-scoped request correlation in tree/journal; distinguish proven not-admitted, pending, terminal, effect-uncertain and unavailable. Never replay automatically or infer absence from compacted history. |
-| Compaction races with new turn or rewind | Revision/lineage validation fails: discard candidate, keep original tree and handles. |
-| Credential-like bytes appear in source/output | User-produced source/raw tool stderr is not automatically scrubbed or encrypted. Harness-generated adapter/launch diagnostics are sanitized before persistence and default subprocess environments exclude provider keys. |
-
-## Mechanism ledger
-
-| Mechanism | Build? | Why / evidence that would change the decision |
-|---|---|---|
-| Single writer, durable transactions, version/integrity checks | M1 | Crash/torn writes and concurrent callbacks can corrupt irreplaceable session state; stored format is costly to retrofit. |
-| Resource reconciler, bounded queues, stale-generation rejection | M1 | Rewind can remove a running job while output is arriving; slow consumers can otherwise exhaust memory. |
-| Separate immutable payloads plus deletion-safe fork ownership | M1 | Full outputs exceed memory; parent deletion must not invalidate a fork. |
-| Watcher hints plus hash authority | M2 | Windows watcher/mtime misses can hide outside edits; scans must show incomplete coverage. |
-| Hook deadline/default classification | M3 | A hung/crashed plugin must not hold a turn hostage or silently approve policy. |
-| Speculative snapshot validation | M3 | A concurrent turn can invalidate a proposed splice. |
-| SQLite index, retries, restart loops, filesystem snapshots, remote relay | Not required/built | Index only if measured query cost needs it; others add independent state/effect risks. Reconsider with measured bottlenecks or separately authorized scope, not speculative resilience. |
-| Embedded runtime, in-process plugin UI/code, Rust core | Rejected | They enlarge crash/runtime and maintenance boundaries without evidence this Dart/process design fails. |
-
-## Risks and trade-offs
-
-- **Custom journal wire format (high reversal cost)** → freeze v1 only after M1 randomized replay/rewind/fork/resume, torn-write and migration fixtures; property tests must precede UI implementation.
-- **Dart/native and terminal uncertainty** → platform packaging/PTY qualification; synchronous FFI on workers; renderer gate before rich-client expansion. No measured performance claimed.
-- **Local code is powerful, not sandboxed** → explicit local installation/configuration, visible failures, no hidden outbound harness services; do not invent a security guarantee.
-- **Whole-repo hashing is costly** → bounded partial coverage and honest staleness; reject stale writes rather than assert complete protection from races.
-- **Plain journals may contain private data** → user ownership/deletion, credentials outside journal, no automatic uploads; encryption is not silently promised.
+- **Journal reversal cost:** entry 1 must prove randomized identical-tree replay, torn-write/compound recovery, migration, rewind/fork and result access. Minimal records do not imply atomic multi-record updates; the design must resolve interruption without metadata envelopes or side stores.
+- **Subscription/service breakage:** use source-driven auth/service behavior, secure storage and visible reauth; API-key success is not the M1 gate. Refresh concurrency and secret-safe errors need review, not invented protocol constants now.
+- **Real workflow viability:** installed commands, typed roles and review routes must actually complete a real first M2 change with Kehai alone. Do not substitute loading files or an empty planning PR.
+- **Platform scope:** Windows login/line client in M1, tool parity in M2; no WSL. Native PTY/parser packaging and renderer experiments must not inflate the skeleton.
+- **Effects and privacy:** uncertain provider/tool execution is never replayed; plain local session data remains sensitive. Local execution is powerful, not sandboxed; permission prompts and hook deny policy are distinct.
 
 ## ADRs
 
-Accepted after [baseline review, round 2](architecture-review.md), 2026-10-28.
+All seven ADRs accepted on 2026-10-28 after [amendment review, round 4 and required-change recheck](architecture-review.md). The three foundations remain locked.
 
 | ADR | Decision | Supersedes |
 |---|---|---|
 | [0001](../docs/adr/0001-one-session-tree.md) | One authoritative session tree — locked foundation | None |
-| [0002](../docs/adr/0002-central-result-truncation.md) | Central model-rendering truncation and full-result handles — locked foundation | None |
-| [0003](../docs/adr/0003-unified-job-lifecycle.md) | One supervised job lifecycle — locked foundation | None |
-| [0004](../docs/adr/0004-dart-native-engine-and-clients.md) | Dart-native headless engine and projection clients; no Rust core | None |
-| [0005](../docs/adr/0005-versioned-journal-and-rpc.md) | Minimal versioned atomic journal and local RPC | None |
-| [0006](../docs/adr/0006-process-extensions-and-integrations.md) | Process plugins and explicit integration trust boundaries | None |
-| [0007](../docs/adr/0007-tree-derived-perception-and-rendering.md) | Tree-derived perception, safe history folding and measured rendering | None |
+| [0002](../docs/adr/0002-central-result-truncation.md) | Central truncation and full-result handles — locked foundation | None |
+| [0003](../docs/adr/0003-unified-job-lifecycle.md) | Unified supervised jobs — locked foundation | None |
+| [0004](../docs/adr/0004-dart-native-engine-and-clients.md) | Dart-native headless engine and thin clients | None |
+| [0005](../docs/adr/0005-versioned-journal-and-rpc.md) | Four-field JSONL journal and local RPC | None |
+| [0006](../docs/adr/0006-process-extensions-and-integrations.md) | Subscription auth, workflow and process boundaries | None |
+| [0007](../docs/adr/0007-tree-derived-perception-and-rendering.md) | Minimal M1 perception; later measured presentation | None |
 
-## Open questions and evidence to collect
+## Source reference map
 
-No unresolved choice is permitted to change the locked invariants. Proposed journal operations/defaults need review before M1 schema implementation; history-fold/cache behavior, Windows scan costs and renderer thresholds have the explicit experiments above. Later non-binding details: user-facing sensorium name, shell preference ordering among detected shells, and native asset packaging layout. Later feature design must separately settle pin-export UX and user scratch-write provenance without creating a side store.
+Pinned **discovery candidates**: file existence at these full revisions was checked through GitHub; this is not an inspected implementation audit, proof of service compatibility or Kehai format compatibility. Consuming designs must read the cited files, record what they learned, and reverify current OAuth/service behavior before adopting it. Do not freeze OAuth constants from snippets.
 
-## Stack evidence
+| Reference | Full revision | Exact files / investigation and limitation |
+|---|---|---|
+| OpenAI Codex login | `7c11b8074dbdbab2a3afedf30df7c55f0c6907d8` | [server.rs](https://github.com/openai/codex/blob/7c11b8074dbdbab2a3afedf30df7c55f0c6907d8/codex-rs/login/src/server.rs), [oauth/authorization.rs](https://github.com/openai/codex/blob/7c11b8074dbdbab2a3afedf30df7c55f0c6907d8/codex-rs/login/src/oauth/authorization.rs), [oauth_session_login.rs](https://github.com/openai/codex/blob/7c11b8074dbdbab2a3afedf30df7c55f0c6907d8/codex-rs/login/src/oauth_session_login.rs), [auth/manager.rs](https://github.com/openai/codex/blob/7c11b8074dbdbab2a3afedf30df7c55f0c6907d8/codex-rs/login/src/auth/manager.rs): inspect login/callback/PKCE/exchange/refresh in entry 2. |
+| oh-my-pi Codex auth | `76772d0c9729d95db30b60a7949dfbfdf47fd7f0` | [packages/ai/src/registry/oauth/openai-codex.ts](https://github.com/can1357/oh-my-pi/blob/76772d0c9729d95db30b60a7949dfbfdf47fd7f0/packages/ai/src/registry/oauth/openai-codex.ts): inspect subscription login/account/expiry/refresh. |
+| OpenCode built-in historical auth | `ec3ae17e4d6abb9685b1d558d5e51416c9bfad60` | [packages/opencode/src/plugin/codex.ts](https://github.com/anomalyco/opencode/blob/ec3ae17e4d6abb9685b1d558d5e51416c9bfad60/packages/opencode/src/plugin/codex.ts): historical discovery reference, not proof of current support. |
+| Separate third-party OpenCode plugin | `bec2ad69b252ef4ad7dd33b9532ff8b4fdb6d016` | [index.ts](https://github.com/numman-ali/opencode-openai-codex-auth/blob/bec2ad69b252ef4ad7dd33b9532ff8b4fdb6d016/index.ts): distinct third-party entry, not OpenCode's built-in plugin; trace its auth modules before adopting behavior. |
+| oh-my-pi hashline | `d94bdfa1bb25e50cf90fb57fefb1863e5aef86fc` | [patcher.ts](https://github.com/can1357/oh-my-pi/blob/d94bdfa1bb25e50cf90fb57fefb1863e5aef86fc/packages/hashline/src/patcher.ts), [recovery.ts](https://github.com/can1357/oh-my-pi/blob/d94bdfa1bb25e50cf90fb57fefb1863e5aef86fc/packages/hashline/src/recovery.ts), [snapshots.ts](https://github.com/can1357/oh-my-pi/blob/d94bdfa1bb25e50cf90fb57fefb1863e5aef86fc/packages/hashline/src/snapshots.ts): inspect hash validation, without adopting drift recovery or side stores; Kehai loudly rejects moved/stale anchors. |
+| Pi session format | `ad702637fdf6fbd3f965c5dba0b14bae100b74eb` | [session-format.md](https://github.com/badlogic/pi-mono/blob/ad702637fdf6fbd3f965c5dba0b14bae100b74eb/packages/coding-agent/docs/session-format.md), [sessions.md](https://github.com/badlogic/pi-mono/blob/ad702637fdf6fbd3f965c5dba0b14bae100b74eb/packages/coding-agent/docs/sessions.md): inspect JSONL message-tree/branching concepts; not authority for Kehai's four-field journal. |
 
-Primary documentation checked for this baseline: [Dart AOT and cross-compilation](https://dart.dev/tools/dart-compile), [C interop](https://dart.dev/interop/c-interop), [isolate memory/execution](https://api.dart.dev/dart-isolate/), [nocterm](https://github.com/Norbert515/nocterm), [dart_mcp experimental API](https://pub.dev/documentation/dart_mcp/latest/), [json_rpc_2 String StreamChannel interface](https://pub.dev/documentation/json_rpc_2/latest/). These establish boundaries, not measured latency or complete platform qualification.
+Stack boundary references: [Dart AOT/cross-compilation](https://dart.dev/tools/dart-compile), [C interop](https://dart.dev/interop/c-interop), [isolates](https://api.dart.dev/dart-isolate/), [nocterm](https://github.com/Norbert515/nocterm), [dart_mcp experimental API](https://pub.dev/documentation/dart_mcp/latest/), [json_rpc_2](https://pub.dev/documentation/json_rpc_2/latest/). They establish options, not measured latency, complete platform qualification or M1 dependencies.
