@@ -127,7 +127,7 @@
 
 ## 10. Migration script
 
-- [ ] 10.1 Write failing tests in `test/tool/migrate_journal_test.dart` with a test-registered fixture migration `0 → 1`:
+- [x] 10.1 Write failing tests in `test/tool/migrate_journal_test.dart` with a test-registered fixture migration `0 → 1`:
   - the original is preserved byte-identical as `journal.v0.jsonl`, the new journal opens at format 1, results are untouched, and the record counts are printed;
   - an outdated format with a 20-byte torn tail migrates its complete records, saves the torn bytes to `recovery/` and keeps the backup byte-identical;
   - an outdated open fails naming the command, an unregistered path fails, and neither changes any file;
