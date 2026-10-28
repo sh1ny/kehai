@@ -203,11 +203,11 @@ Future<void> composeResultTo(
   sink.write(_header(tool, status, summary));
 
   // A result that fits by its stored bytes is not cut for rounding: the
-  // final line's counted newline may not be stored. The rendered text is
-  // checked too, since malformed UTF-8 grows when decoded (each bad byte
-  // becomes a 3-byte U+FFFD); once it outgrows the stored bytes the budget
-  // applies as for any other result, and a head and tail policy then keeps
-  // only the head.
+  // final line's counted newline may not be stored.
+  // The rendered text is checked too, since malformed UTF-8 grows when
+  // decoded (each bad byte becomes a 3-byte U+FFFD); once it outgrows the
+  // stored bytes the budget applies as for any other result, and a head and
+  // tail policy then keeps only the head.
   bool allowed(int used) =>
       within(used, budget) ||
       fits && (p.maxLines != null || used <= descriptor.bytes + 1);
