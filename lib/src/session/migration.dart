@@ -192,6 +192,7 @@ MigrationReport _migrate(
       'this kehai reads format $sessionFormatVersion',
     );
   }
+  if (from == sessionFormatVersion) _validateSource(read);
   if (from == target && !resumed) {
     return MigrationReport(
       fromFormat: from,
@@ -225,7 +226,7 @@ MigrationReport _migrate(
       torn = TornTail(read.trailing);
     } else {
       torn =
-          _existingRecovery(dir, read) ??
+          _existingRecovery(dir, source, read) ??
           saveTornBytes(dir, source, read.committed, now: now);
     }
   }
@@ -252,6 +253,30 @@ MigrationReport _migrate(
   );
 }
 
+/// Folds the current-format [read] records with the rules `open` applies.
+///
+/// Throws a [JournalCorruption] naming the line, offset and reason of the
+/// first record that cannot be applied.
+void _validateSource(_Source read) {
+  var index = 0;
+  try {
+    final state = SessionState.fromOrigin(read.records.first);
+    for (final record in read.records.skip(1)) {
+      index++;
+      state
+        ..validate(record)
+        ..commit(record);
+    }
+  } on SessionError catch (e) {
+    throw JournalCorruption(
+      index + 1,
+      read.offsets[index],
+      e.reason,
+      e.message,
+    );
+  }
+}
+
 /// Checks the migrated [records] with the current-format rules.
 void _validate(List<JournalRecord> records) {
   var index = 0;
@@ -272,18 +297,33 @@ void _validate(List<JournalRecord> records) {
 }
 
 /// The recovery file a previous, interrupted run saved for the same tail.
-TornTail? _existingRecovery(Directory dir, _Source read) {
+///
+/// A file only matches when it holds exactly the torn bytes of [source], so
+/// an earlier tail recovered at the same offset is never taken for this one.
+TornTail? _existingRecovery(Directory dir, File source, _Source read) {
   final recovery = Directory(p.join(dir.path, recoveryDirName));
   if (!recovery.existsSync()) return null;
   final prefix = 'torn-${read.committed}-';
+  List<int>? tail;
   for (final entity in recovery.listSync()) {
     if (entity is File &&
         p.basename(entity.path).startsWith(prefix) &&
         entity.lengthSync() == read.trailing) {
-      return TornTail(read.trailing, recoveryPath: entity.path);
+      tail ??= source.readAsBytesSync().sublist(read.committed);
+      if (_sameBytes(entity.readAsBytesSync(), tail)) {
+        return TornTail(read.trailing, recoveryPath: entity.path);
+      }
     }
   }
   return null;
+}
+
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 Map<int, File> _backups(Directory dir) {
@@ -297,9 +337,16 @@ Map<int, File> _backups(Directory dir) {
 }
 
 final class _Source {
-  const _Source(this.records, this.format, this.committed, this.trailing);
+  const _Source(
+    this.records,
+    this.offsets,
+    this.format,
+    this.committed,
+    this.trailing,
+  );
 
   final List<JournalRecord> records;
+  final List<int> offsets;
   final int format;
   final int committed;
   final int trailing;
@@ -310,9 +357,11 @@ _Source _readSource(File file) {
   final bytes = file.readAsBytesSync();
   final committed = bytes.lastIndexOf(0x0A) + 1;
   final records = <JournalRecord>[];
+  final offsets = <int>[];
   var start = 0;
   while (start < committed) {
     final end = bytes.indexOf(0x0A, start);
+    offsets.add(start);
     try {
       try {
         records.add(
@@ -335,7 +384,7 @@ _Source _readSource(File file) {
       'the origin record has no meta/format',
     );
   }
-  return _Source(records, format, committed, bytes.length - committed);
+  return _Source(records, offsets, format, committed, bytes.length - committed);
 }
 
 const String _usage =

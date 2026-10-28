@@ -204,6 +204,9 @@ TornTail recoverTornTail(
 /// Copies the bytes of [journal] after [committedLength] to
 /// `recovery/torn-<offset>-<utc>.bin` inside [sessionDir] and flushes them,
 /// leaving [journal] untouched.
+///
+/// When that name is taken the file is `torn-<offset>-<utc>-<n>.bin` with the
+/// first free `n >= 1`; an existing recovery file is never overwritten.
 TornTail saveTornBytes(
   Directory sessionDir,
   File journal,
@@ -214,7 +217,7 @@ TornTail saveTornBytes(
   final dir = Directory(p.join(sessionDir.path, recoveryDirName))
     ..createSync(recursive: true);
   final stamp = compactUtc(now ?? DateTime.now());
-  final recovery = File(p.join(dir.path, 'torn-$committedLength-$stamp.bin'));
+  final recovery = _createExclusive(dir, 'torn-$committedLength-$stamp');
   final out = recovery.openSync(mode: FileMode.writeOnly);
   try {
     out.writeFromSync(bytes);
@@ -223,6 +226,22 @@ TornTail saveTornBytes(
     out.closeSync();
   }
   return TornTail(bytes.length, recoveryPath: recovery.path);
+}
+
+/// Creates `<stem>.bin` in [dir], or `<stem>-<n>.bin` with the first free
+/// `n >= 1`, failing atomically when a file already exists so no earlier
+/// recovery file is ever overwritten.
+File _createExclusive(Directory dir, String stem) {
+  for (var n = 0; ; n++) {
+    final name = n == 0 ? '$stem.bin' : '$stem-$n.bin';
+    final file = File(p.join(dir.path, name));
+    try {
+      file.createSync(exclusive: true);
+      return file;
+    } on PathExistsException {
+      continue;
+    }
+  }
 }
 
 /// Formats [time] in UTC as `yyyyMMddTHHmmssZ`.

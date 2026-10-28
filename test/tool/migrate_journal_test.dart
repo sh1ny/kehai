@@ -114,6 +114,37 @@ void main() {
     expect(read.tree.get(SessionPath.parse('scratch/b')), 'two');
   });
 
+  test('a torn tail is not matched to a different recovery file', () async {
+    final root = await tempDir();
+    final torn = List<int>.filled(20, 0x41);
+    final committed = bytesOf(v0Lines());
+    final dir = writeSession(root, [...committed, ...torn]);
+    final recovery = Directory(p.join(dir.path, 'recovery'))..createSync();
+    final stale = List<int>.filled(20, 0x42);
+    final other = fileIn(
+      recovery,
+      'torn-${committed.length}-20260101T000000Z.bin',
+    )..writeAsBytesSync(stale);
+
+    final out = StringBuffer();
+    final code = await runMigrateJournal(
+      ['--session', dir.path],
+      fixtureRegistry(),
+      out: out,
+    );
+
+    expect(code, 0, reason: '$out');
+    expect(other.readAsBytesSync(), stale);
+    final saved = recovery
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path != other.path)
+        .toList();
+    expect(saved, hasLength(1));
+    expect(saved.single.readAsBytesSync(), torn);
+    expect(out.toString(), contains(saved.single.path));
+  });
+
   test('outdated open and unregistered migration change no file', () async {
     final root = await tempDir();
     final original = [...bytesOf(v0Lines()), ...List<int>.filled(20, 0x41)];
@@ -219,4 +250,56 @@ void main() {
       expect(read.tree.get(SessionPath.parse('meta/format')), 1);
     },
   );
+
+  group('current-format journal with an unappliable committed record', () {
+    final cases = <String, List<String>>{
+      'delete of a missing path': [
+        originLine(),
+        rec(1, 'body/a', Op.set, 1).encode(),
+        rec(1, 'body/missing', Op.del).encode(),
+      ],
+      'repeated origin': [
+        originLine(),
+        rec(1, 'body/a', Op.set, 1).encode(),
+        originLine(),
+      ],
+      'skipped turn': [
+        originLine(),
+        rec(1, 'body/a', Op.set, 1).encode(),
+        rec(3, 'body/b', Op.set, 2).encode(),
+      ],
+    };
+    for (final MapEntry(key: name, value: lines) in cases.entries) {
+      test('$name is refused and no file changes', () async {
+        final root = await tempDir();
+        final dir = writeSession(root, bytesOf(lines));
+        final before = snapshot(dir);
+        final offset = utf8.encode(lines.take(2).join()).length;
+
+        for (final args in [
+          ['--session', dir.path],
+          ['--session', dir.path, '--check'],
+        ]) {
+          final out = StringBuffer();
+          final err = StringBuffer();
+          final code = await runMigrateJournal(
+            args,
+            fixtureRegistry(),
+            out: out,
+            err: err,
+          );
+          expect(code, 65, reason: '$out $err');
+          expect(out.toString(), isNot(contains('nothing to do')));
+          expect(err.toString(), contains('line 3'));
+          expect(err.toString(), contains('offset $offset'));
+        }
+        expect(snapshot(dir), before);
+        expect(fileIn(dir, 'journal.jsonl.migrating').existsSync(), isFalse);
+        expect(
+          dir.listSync().map((e) => p.basename(e.path)),
+          isNot(contains(startsWith('journal.v'))),
+        );
+      });
+    }
+  });
 }

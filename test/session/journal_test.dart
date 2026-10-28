@@ -66,6 +66,34 @@ void main() {
       expect(writer.tree.canonical(), read.tree.canonical());
     });
 
+    test('repeated recovery at one offset and second keeps every tail', () {
+      final committed = bytesOf([originLine()]);
+      final at = DateTime.utc(2026, 1, 2, 3, 4, 5);
+      final dir = writeSession(root, committed);
+      final tails = [
+        [for (var i = 0; i < 10; i++) 0x41],
+        [for (var i = 0; i < 12; i++) 0x42],
+        [for (var i = 0; i < 14; i++) 0x43],
+      ];
+      final paths = <String>[];
+      for (final tail in tails) {
+        journalOf(dir).writeAsBytesSync([...committed, ...tail]);
+        final scan = scanJournal(journalOf(dir));
+        final torn = recoverTornTail(dir, journalOf(dir), scan, now: at);
+        paths.add(torn.recoveryPath!);
+        expect(journalOf(dir).readAsBytesSync(), committed);
+      }
+      final stem = 'torn-${committed.length}-20260102T030405Z';
+      expect(paths.map(p.basename), [
+        '$stem.bin',
+        '$stem-1.bin',
+        '$stem-2.bin',
+      ]);
+      for (var i = 0; i < tails.length; i++) {
+        expect(File(paths[i]).readAsBytesSync(), tails[i]);
+      }
+    });
+
     test('valid record without newline is torn', () async {
       final committed = bytesOf([originLine()]);
       final unterminated = utf8.encode(
