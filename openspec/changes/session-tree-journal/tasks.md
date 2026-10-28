@@ -69,7 +69,7 @@
 
 ## 2. Package scaffold
 
-- [ ] 2.1 Create the Dart package at the repo root: `pubspec.yaml` (`name: kehai`, SDK `^3.13.0`), `analysis_options.yaml` including `package:lints/recommended.yaml` with strict casts/inference/raw types, `lib/kehai.dart`, and add dependencies with `dart pub add crypto path` and `dart pub add --dev test lints`; make sure `.gitignore` covers `.dart_tool/` and `build/`. Verify: `mise run analyze` and `mise run format:check` pass, and `mise run test` runs a placeholder test in `test/smoke_test.dart`.
+- [x] 2.1 Create the Dart package at the repo root: `pubspec.yaml` (`name: kehai`, SDK `^3.13.0`), `analysis_options.yaml` including `package:lints/recommended.yaml` with strict casts/inference/raw types, `lib/kehai.dart`, and add dependencies with `dart pub add crypto path` and `dart pub add --dev test lints`; make sure `.gitignore` covers `.dart_tool/` and `build/`. Verify: `mise run analyze` and `mise run format:check` pass, and `mise run test` runs a placeholder test in `test/smoke_test.dart`.
 
 ## 3. Records, paths and tree operations
 

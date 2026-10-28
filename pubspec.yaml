@@ -1,0 +1,13 @@
+name: kehai
+description: Kehai headless coding-agent engine.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+dependencies:
+  crypto: ^3.0.8
+  path: ^1.9.1
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0
