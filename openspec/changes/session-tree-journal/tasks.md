@@ -65,7 +65,7 @@
 
 ## 1. ADR and architecture index
 
-- [ ] 1.1 Write `docs/adr/0008-journal-format-v1.md` (MADR-short, `Status: accepted`, dated, `Supersedes: none`) recording what design.md *ADRs* lists: op vocabulary, path grammar and root set, origin record, turn rule, `meta`-exempt timeline rewind, `meta/requests` anchoring, newline commit marker and torn-tail policy, content-addressed `r/<12hex>` descriptors with completion on the occurrence, copy-on-fork with current `meta`, the gate/owner single-writer protocol, `observed` disk reads, the migration contract, and the macOS `fsync` limitation; add its row to the ADR index in `openspec/architecture.md`. Verify: the file exists with those sections and `openspec validate --all --strict` passes.
+- [x] 1.1 Write `docs/adr/0008-journal-format-v1.md` (MADR-short, `Status: accepted`, dated, `Supersedes: none`) recording what design.md *ADRs* lists: op vocabulary, path grammar and root set, origin record, turn rule, `meta`-exempt timeline rewind, `meta/requests` anchoring, newline commit marker and torn-tail policy, content-addressed `r/<12hex>` descriptors with completion on the occurrence, copy-on-fork with current `meta`, the gate/owner single-writer protocol, `observed` disk reads, the migration contract, and the macOS `fsync` limitation; add its row to the ADR index in `openspec/architecture.md`. Verify: the file exists with those sections and `openspec validate --all --strict` passes.
 
 ## 2. Package scaffold
 
