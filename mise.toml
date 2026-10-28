@@ -1,0 +1,47 @@
+# Project toolchain and tasks. Run `mise install` once, then `mise run <task>`.
+
+[tools]
+dart = "3.13.7"
+jj = "0.46.0"
+ripgrep = "15.2.0"
+gh = "2.103.3"
+gitleaks = "8.30.1"
+node = "24"
+"npm:@fission-ai/openspec" = "1.14.1"
+
+[env]
+# Project-local Dart tool state, so this repo's `dart mcp-server` app bundle
+# never contends with other projects or SDKs for the shared user-wide copy.
+DART_DATA_HOME = "{{config_root}}/.dart_tool/dart-data"
+
+[tasks.get]
+description = "Fetch Dart dependencies"
+run = "dart pub get"
+
+[tasks.format]
+description = "Format Dart sources"
+run = "dart format ."
+
+[tasks."format:check"]
+description = "Fail if Dart sources are not formatted"
+run = "dart format --output=none --set-exit-if-changed ."
+
+[tasks.analyze]
+description = "Static analysis with infos treated as failures"
+run = "dart analyze --fatal-infos"
+
+[tasks.test]
+description = "Run the Dart test suite"
+run = "dart test"
+
+[tasks.check]
+description = "Everything that must pass before a push"
+depends = ["format:check", "analyze", "test"]
+
+[tasks."openspec:validate"]
+description = "Validate all OpenSpec changes and specs"
+run = "openspec validate --all --strict"
+
+[tasks.secrets]
+description = "Scan the working tree for secrets"
+run = "gitleaks dir . --redact"
