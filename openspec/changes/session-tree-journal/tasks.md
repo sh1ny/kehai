@@ -73,7 +73,7 @@
 
 ## 3. Records, paths and tree operations
 
-- [ ] 3.1 Write failing tests for record encoding (exact four keys, key order, single newline), path validation (segment alphabet and length, 1–32 segments, root set, empty path rules) and the pure tree operations `set`/`merge`/`del` with their error cases, and verify they fail for the missing implementation (rows: appended record has exactly four fields; valid path; malformed paths; set, merge and del).
+- [x] 3.1 Write failing tests for record encoding (exact four keys, key order, single newline), path validation (segment alphabet and length, 1–32 segments, root set, empty path rules) and the pure tree operations `set`/`merge`/`del` with their error cases, and verify they fail for the missing implementation (rows: appended record has exactly four fields; valid path; malformed paths; set, merge and del).
 - [ ] 3.2 Implement `lib/src/session/record.dart`, `path.dart` and `tree.dart` (mutable JSON tree, deep-copied values, canonical serialization with sorted keys); verify the 3.1 tests pass and flip their rows green.
 
 ## 4. Journal file, writer, origin and turns
