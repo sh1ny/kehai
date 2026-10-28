@@ -10,7 +10,7 @@
 | session-journal → Operation vocabulary | Invalid operation use is rejected before append | test/session/writer_test.dart | invalid op use is rejected before append | green |
 | session-journal → Path identity | Valid path addresses one node | test/session/path_test.dart | valid path addresses exactly one node | green |
 | session-journal → Path identity | Malformed path is rejected | test/session/path_test.dart | malformed paths are rejected with the offending rule | green |
-| session-journal → Validate, persist, append, then publish | Acknowledged record survives a crash | test/session/crash_test.dart | acknowledged record survives a killed process | red |
+| session-journal → Validate, persist, append, then publish | Acknowledged record survives a crash | test/session/crash_test.dart | acknowledged record survives a killed process | green |
 | session-journal → Validate, persist, append, then publish | Storage failure is not published | test/session/writer_test.dart | storage failure is not published and breaks the writer | green |
 | session-journal → Single writer per session | Second writer is refused | test/session/ownership_test.dart | second writer is refused from process, isolate and same isolate | red |
 | session-journal → Single writer per session | Concurrent openers race | test/session/ownership_test.dart | concurrent openers race and exactly one wins | red |
@@ -19,7 +19,7 @@
 | session-journal → Single writer per session | Crash while changing ownership | test/session/ownership_test.dart | stale empty gate is refused with removal hint | red |
 | session-journal → Single writer per session | Dead owner is taken over | test/session/ownership_test.dart | dead owner process is taken over | red |
 | session-journal → Read-only materialization is observational | Read-only materialization alongside a writer | test/session/materialize_test.dart | read-only materialization alongside a writer is observed | green |
-| session-journal → Read-only materialization is observational | Record visible before a failed flush | test/session/materialize_test.dart | record visible before a failed flush is not acknowledged | red |
+| session-journal → Read-only materialization is observational | Record visible before a failed flush | test/session/materialize_test.dart | record visible before a failed flush is not acknowledged | green |
 | session-journal → Bounded writer admission and subscribers | Burst within the bound | test/session/writer_queue_test.dart | burst of 32 operations is ordered for all subscribers | red |
 | session-journal → Bounded writer admission and subscribers | Queue full or slow subscriber | test/session/writer_queue_test.dart | full queue rejects with writer busy and slow subscriber resyncs | red |
 | session-journal → Torn trailing record recovery | Torn tail is preserved and truncated on write open | test/session/journal_test.dart | torn tail is preserved and truncated on write open | green |
@@ -80,7 +80,7 @@
 
 - [x] 4.1 Write failing tests for: the origin record (new session, missing or repeated origin), the turn rule, rejection of invalid op use before append, an extra/missing-field line failing open, torn-tail handling (preserve and truncate on write open, valid record without newline is torn), interior corruption and unappliable records stopping both open modes with line and offset, read-only materialization flagged `observed`, and storage failure (simulated via an injectable file layer: a failing `writeFrom`/`flush`) leaving the tree unpublished and the writer `broken`; verify each fails for the right reason.
 - [x] 4.2 Implement `lib/src/session/journal.dart` (line reader to last newline, validation with line/offset errors, torn-tail recovery to `recovery/torn-<offset>-<utc>.bin`), `materialize.dart` (meta fold plus timeline) and `writer.dart` (append, `flush`, then fold, publish and complete; `broken` state). Verify the 4.1 tests pass and flip their rows green.
-- [ ] 4.3 Write the failing crash test: spawn `dart run test/fixtures/append_then_wait.dart <dir>`, wait for its acknowledged-append marker on stdout, kill it, and reopen. Then add the `observed` failed-flush test (pause hook between write and flush, then fail the flush). Make both pass and flip their rows green.
+- [x] 4.3 Write the failing crash test: spawn `dart run test/fixtures/append_then_wait.dart <dir>`, wait for its acknowledged-append marker on stdout, kill it, and reopen. Then add the `observed` failed-flush test (pause hook between write and flush, then fail the flush). Make both pass and flip their rows green.
 - [ ] 4.4 Write failing tests for the bounded queue (32 concurrent operations ordered for every subscriber; operation 65 rejected synchronously with `writer busy` and nothing appended) and for subscriber overflow (a paused subscriber gets `ResyncRequired(lastOffset)` at 1,024 while appends and other subscribers continue); implement them in `writer.dart`; verify they pass and flip the rows green.
 
 ## 5. Single-writer gate protocol
