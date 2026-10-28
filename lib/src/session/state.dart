@@ -20,7 +20,9 @@ const int sessionFormatVersion = 1;
 /// they cannot diverge: [validate] checks a record without mutating and
 /// [commit] applies it.
 final class SessionState {
-  SessionState._(this.origin, this._meta, this._body) : _turn = origin.turn;
+  SessionState._(this.origin, this._meta, this._body)
+    : _base = _body.copy(),
+      _turn = origin.turn;
 
   /// Creates the state from the journal's first record, [origin].
   ///
@@ -67,7 +69,8 @@ final class SessionState {
   final JournalRecord origin;
 
   final SessionTree _meta;
-  final SessionTree _body;
+  final SessionTree _base;
+  SessionTree _body;
   final List<JournalRecord> _timeline = [];
   int _turn;
 
@@ -83,11 +86,15 @@ final class SessionState {
 
   /// Checks that [record] can be committed next, without changing the state.
   ///
-  /// Throws a [SessionError] when the record targets the empty path
-  /// (`invalid origin`), is a `rewind` (`unsupported op`), has a turn other
+  /// Throws a [SessionError] when a non-`rewind` record targets the empty path
+  /// (`invalid origin`), has a turn other
   /// than the current turn or the next one (`invalid turn`), or cannot be
   /// applied to the tree (`path not found`, `not a map`, `invalid path`,
   /// `invalid record`).
+  ///
+  /// A `rewind` must carry the current turn and an integer target from the
+  /// origin turn up to, but excluding, the current turn; otherwise it fails
+  /// with `invalid turn` or `invalid rewind target`.
   void validate(JournalRecord record) {
     final JournalRecord(:turn, :path, :op) = record;
     if (path.isEmpty && op != Op.rewind) {
@@ -100,12 +107,8 @@ final class SessionState {
     }
     validateRecordShape(record, isOrigin: false);
     if (op == Op.rewind) {
-      throw SessionError(
-        'unsupported op',
-        'rewind is not supported yet',
-        op: op.wire,
-        path: path,
-      );
+      _validateRewind(record);
+      return;
     }
     if (turn != _turn && turn != _turn + 1) {
       throw SessionError(
@@ -119,10 +122,55 @@ final class SessionState {
   }
 
   /// Applies [record], which must already have passed [validate].
+  ///
+  /// A `rewind` cuts the timeline after the last record whose turn is at most
+  /// the target and rebuilds the non-`meta` subtrees by replaying what is
+  /// left from the origin. `meta` is untouched.
   void commit(JournalRecord record) {
+    if (record.op == Op.rewind) {
+      _rewind(record.value! as int);
+      return;
+    }
     _target(record.path).apply(record);
     if (!_isMeta(record.path)) _timeline.add(record);
     _turn = record.turn;
+  }
+
+  void _validateRewind(JournalRecord record) {
+    final JournalRecord(:turn, :path, :op, :value) = record;
+    if (turn != _turn) {
+      throw SessionError(
+        'invalid turn',
+        'a rewind must carry the current turn $_turn, got $turn',
+        op: op.wire,
+        path: path,
+      );
+    }
+    final last = _turn - 1;
+    if (value is! int || value < origin.turn || value > last) {
+      final range = last < origin.turn
+          ? 'there is no earlier turn to rewind to'
+          : 'the target must be an integer from ${origin.turn} to $last';
+      throw SessionError(
+        'invalid rewind target',
+        '$range (got ${value is int ? value : 'a non-integer'})',
+        op: op.wire,
+        path: path,
+      );
+    }
+  }
+
+  void _rewind(int target) {
+    var keep = _timeline.length;
+    while (keep > 0 && _timeline[keep - 1].turn > target) {
+      keep--;
+    }
+    _timeline.removeRange(keep, _timeline.length);
+    _body = _base.copy();
+    for (final record in _timeline) {
+      _body.apply(record);
+    }
+    _turn = target;
   }
 
   SessionTree _target(String path) => _isMeta(path) ? _meta : _body;

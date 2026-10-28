@@ -12,9 +12,13 @@ import 'package:path/path.dart' as p;
 import 'errors.dart';
 import 'journal.dart';
 import 'ownership.dart';
+import 'path.dart';
 import 'record.dart';
+import 'requests.dart';
 import 'state.dart';
 import 'tree.dart';
+
+const String _requestsPath = 'meta/requests';
 
 /// The most operations that may be pending, including the one in progress.
 const int maxPendingOperations = 64;
@@ -184,7 +188,10 @@ final class SessionWriter {
   ///
   /// Ownership is claimed first, before the journal is touched. Torn bytes
   /// after the last newline are then copied to a recovery file and cut from
-  /// the journal; see [tornTail]. Throws a [SessionError] with reason
+  /// the journal; see [tornTail]. Every request still `admitted` is then
+  /// recorded as `interrupted` with reason `effect-uncertain`, counted by
+  /// [interruptedRequests], before the writer is returned. A storage failure
+  /// there fails the open with a [StorageError] and releases the session. Throws a [SessionError] with reason
   /// `session locked` when another writer holds the session, and a
   /// [JournalCorruption] without modifying the journal when a committed line
   /// is invalid. A takeover of a dead process's session is reported by
@@ -202,7 +209,7 @@ final class SessionWriter {
           ? recoverTornTail(sessionDir, journal, scan)
           : null;
       final io = await _openIo(sessionDir, decorate);
-      return SessionWriter._(
+      final writer = SessionWriter._(
         sessionDir,
         scan.state,
         io,
@@ -211,6 +218,13 @@ final class SessionWriter {
         torn,
         ownership,
       );
+      try {
+        await writer._finalizeRequests();
+      } on Object {
+        await writer.close();
+        rethrow;
+      }
+      return writer;
     } on Object {
       await _releaseQuietly(ownership);
       rethrow;
@@ -231,6 +245,7 @@ final class SessionWriter {
   final JournalIo _io;
   int _length;
   int _lines;
+  int _interrupted = 0;
 
   WriterState _writerState = WriterState.ready;
   bool _closing = false;
@@ -263,30 +278,80 @@ final class SessionWriter {
   /// writer. When [maxPendingOperations] operations are already pending this
   /// throws a [SessionError] with reason `writer busy` synchronously and
   /// queues nothing.
-  Future<CommittedUpdate> apply(JournalRecord record) {
-    if (_closing || _writerState == WriterState.closed) {
-      return Future.error(_refusal('writer closed', record));
-    }
-    if (_writerState == WriterState.broken) {
-      return Future.error(_refusal('writer broken', record));
-    }
-    if (_pending >= maxPendingOperations) {
-      throw SessionError(
-        'writer busy',
-        'at most $maxPendingOperations operations may be pending',
-        op: record.op.wire,
+  Future<CommittedUpdate> apply(JournalRecord record) =>
+      _enqueue<CommittedUpdate>(
+        op: record.op,
         path: record.path,
+        decide: () => record,
+        finish: (update) => update!,
       );
-    }
-    _pending++;
-    final pending = _Pending(record);
-    _queue.add(pending);
-    if (!_running) {
-      _running = true;
-      _drained = _run();
-    }
-    return pending.completer.future;
+
+  /// Rewinds the non-`meta` subtrees to the end of turn [turn].
+  ///
+  /// Appends one `rewind` record carrying the current turn. Fails with a
+  /// [SessionError] with reason `invalid rewind target` when [turn] is not an
+  /// allowed target, and appends nothing.
+  Future<CommittedUpdate> rewind(int turn) => _enqueue<CommittedUpdate>(
+    op: Op.rewind,
+    path: '',
+    decide: () =>
+        JournalRecord(turn: currentTurn, path: '', op: Op.rewind, value: turn),
+    finish: (update) => update!,
+  );
+
+  /// Admits request [id] with [fingerprint] as one serialized operation.
+  ///
+  /// The lookup, the fingerprint comparison and the append run together at
+  /// the head of the queue. The result tells whether this call newly admitted
+  /// the request, which is then the only caller allowed to execute it. A known
+  /// id with the same fingerprint returns the recorded node and appends
+  /// nothing. A different fingerprint throws a [RequestCollision]. An [id]
+  /// that is not a single valid path segment fails with `invalid path`.
+  Future<Admission> admit(String id, String fingerprint) {
+    Admission? known;
+    return _enqueue<Admission>(
+      op: Op.set,
+      path: '$_requestsPath/$id',
+      decide: () {
+        final path = _requestPath(id);
+        final node = _requestNode(path);
+        if (node == null) {
+          return JournalRecord(
+            turn: currentTurn,
+            path: path,
+            op: Op.set,
+            value: {
+              'fingerprint': fingerprint,
+              'state': 'admitted',
+              'turn': currentTurn,
+            },
+          );
+        }
+        if (node['fingerprint'] != fingerprint) throw RequestCollision(id);
+        known = Admission.existing(node);
+        return null;
+      },
+      finish: (_) => known ?? const Admission.newlyAdmitted(),
+    );
   }
+
+  /// Records the [outcome] of admitted request [id] and marks it `completed`.
+  ///
+  /// Fails with a [SessionError] when the request is unknown or not
+  /// `admitted`.
+  Future<CommittedUpdate> complete(String id, Object? outcome) =>
+      _settle(id, {'state': 'completed', 'outcome': outcome});
+
+  /// Marks admitted request [id] as `failed`, with an optional [reason] and
+  /// [outcome].
+  ///
+  /// Fails with a [SessionError] when the request is unknown or not
+  /// `admitted`.
+  Future<CommittedUpdate> fail(String id, {String? reason, Object? outcome}) =>
+      _settle(id, {'state': 'failed', 'reason': ?reason, 'outcome': ?outcome});
+
+  /// The number of requests recorded as interrupted when this writer opened.
+  int get interruptedRequests => _interrupted;
 
   /// Like [apply], for a request that names its operation by wire name.
   ///
@@ -344,11 +409,115 @@ final class SessionWriter {
     await _ownership.release();
   }
 
-  SessionError _refusal(String reason, JournalRecord record) => SessionError(
+  Future<CommittedUpdate> _settle(String id, Map<String, Object?> change) {
+    return _enqueue<CommittedUpdate>(
+      op: Op.merge,
+      path: '$_requestsPath/$id',
+      decide: () {
+        final path = _requestPath(id);
+        final node = _requestNode(path);
+        if (node == null) {
+          throw SessionError(
+            'unknown request',
+            'request "$id" was never admitted',
+            op: 'merge',
+            path: path,
+          );
+        }
+        if (node['state'] != 'admitted') {
+          throw SessionError(
+            'request not admitted',
+            'request "$id" is already ${node['state']}',
+            op: 'merge',
+            path: path,
+          );
+        }
+        return JournalRecord(
+          turn: currentTurn,
+          path: path,
+          op: Op.merge,
+          value: change,
+        );
+      },
+      finish: (update) => update!,
+    );
+  }
+
+  Future<void> _finalizeRequests() async {
+    final requests = _state.combined().get(SessionPath.parse(_requestsPath));
+    if (requests is! Map<String, Object?>) return;
+    final ids = [
+      for (final MapEntry(:key, :value) in requests.entries)
+        if (value is Map<String, Object?> && value['state'] == 'admitted') key,
+    ]..sort();
+    for (final id in ids) {
+      await _settle(id, {'state': 'interrupted', 'reason': 'effect-uncertain'});
+      _interrupted++;
+    }
+  }
+
+  String _requestPath(String id) {
+    final path = '$_requestsPath/$id';
+    if (id.contains('/')) {
+      throw SessionError(
+        'invalid path',
+        'request id "$id" must be a single path segment',
+        op: 'set',
+        path: path,
+      );
+    }
+    SessionPath.parse(path);
+    return path;
+  }
+
+  Map<String, Object?>? _requestNode(String path) {
+    final node = _state.combined().get(SessionPath.parse(path));
+    return node is Map<String, Object?> ? node : null;
+  }
+
+  Future<T> _enqueue<T>({
+    required Op op,
+    required String path,
+    required JournalRecord? Function() decide,
+    required T Function(CommittedUpdate? update) finish,
+  }) {
+    if (_closing || _writerState == WriterState.closed) {
+      return Future.error(_refusal('writer closed', op, path));
+    }
+    if (_writerState == WriterState.broken) {
+      return Future.error(_refusal('writer broken', op, path));
+    }
+    if (_pending >= maxPendingOperations) {
+      throw SessionError(
+        'writer busy',
+        'at most $maxPendingOperations operations may be pending',
+        op: op.wire,
+        path: path,
+      );
+    }
+    _pending++;
+    final completer = Completer<T>();
+    _queue.add(
+      _Pending(
+        op,
+        path,
+        decide,
+        (update) => completer.complete(finish(update)),
+        completer.completeError,
+      ),
+    );
+    if (!_running) {
+      _running = true;
+      _drained = _run();
+    }
+    return completer.future;
+  }
+
+  SessionError _refusal(String reason, Op op, String path) => SessionError(
     reason,
     'the session must be reopened',
-    op: record.op.wire,
-    path: record.path,
+    op: op.wire,
+    path: path,
   );
 
   Future<void> _run() async {
@@ -367,15 +536,23 @@ final class SessionWriter {
   }
 
   Future<void> _process(_Pending pending) async {
-    final record = pending.record;
     if (_writerState != WriterState.ready) {
-      pending.completer.completeError(_refusal('writer broken', record));
+      pending.onError(_refusal('writer broken', pending.op, pending.path));
       return;
     }
+    final JournalRecord? record;
     try {
-      _state.validate(record);
+      record = pending.decide();
+      if (record != null) _state.validate(record);
     } on SessionError catch (e) {
-      pending.completer.completeError(e);
+      pending.onError(e);
+      return;
+    } on RequestCollision catch (e) {
+      pending.onError(e);
+      return;
+    }
+    if (record == null) {
+      pending.onDone(null);
       return;
     }
     final bytes = utf8.encode(record.encode());
@@ -384,9 +561,7 @@ final class SessionWriter {
       await _io.flush();
     } on Object catch (e) {
       _writerState = WriterState.broken;
-      pending.completer.completeError(
-        StorageError('could not append the record', e),
-      );
+      pending.onError(StorageError('could not append the record', e));
       return;
     }
     final update = CommittedUpdate(record, _length, _lines + 1);
@@ -394,7 +569,7 @@ final class SessionWriter {
     _lines++;
     _state.commit(record);
     _publish(update);
-    pending.completer.complete(update);
+    pending.onDone(update);
   }
 
   void _publish(CommittedUpdate update) {
@@ -412,11 +587,16 @@ final class SessionWriter {
   }
 }
 
+/// One queued operation. [decide] runs at the head of the queue and returns
+/// the record to append, or `null` when nothing is to be written.
 final class _Pending {
-  _Pending(this.record);
+  _Pending(this.op, this.path, this.decide, this.onDone, this.onError);
 
-  final JournalRecord record;
-  final Completer<CommittedUpdate> completer = Completer();
+  final Op op;
+  final String path;
+  final JournalRecord? Function() decide;
+  final void Function(CommittedUpdate? update) onDone;
+  final void Function(Object error) onError;
 }
 
 final class _Subscriber {

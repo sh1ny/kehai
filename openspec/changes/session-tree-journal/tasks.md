@@ -35,17 +35,17 @@
 | session-tree → Session origin record | Missing or repeated origin is rejected | test/session/origin_test.dart | missing or repeated origin is rejected | green |
 | session-tree → Turn anchoring | Turns advance by one | test/session/turn_test.dart | turns advance by one | green |
 | session-tree → Turn anchoring | Skipped or past turn is rejected | test/session/turn_test.dart | skipped or past turn is rejected | green |
-| session-tree → Journal-only rewind | Rewind removes later turn-anchored state | test/session/rewind_test.dart | rewind restores end-of-turn state and keeps meta | red |
-| session-tree → Journal-only rewind | Invalid rewind target is rejected | test/session/rewind_test.dart | invalid rewind target is rejected | red |
-| session-tree → Journal-only rewind | Rewind survives replay | test/session/rewind_test.dart | two rewinds survive replay | red |
+| session-tree → Journal-only rewind | Rewind removes later turn-anchored state | test/session/rewind_test.dart | rewind restores end-of-turn state and keeps meta | green |
+| session-tree → Journal-only rewind | Invalid rewind target is rejected | test/session/rewind_test.dart | invalid rewind target is rejected | green |
+| session-tree → Journal-only rewind | Rewind survives replay | test/session/rewind_test.dart | two rewinds survive replay | green |
 | session-tree → Journal-only fork | Fork is independent of the parent | test/session/fork_test.dart | fork survives parent deletion with readable handles | red |
 | session-tree → Journal-only fork | Fork keeps current session settings | test/session/fork_test.dart | fork keeps current meta with replaced identity keys | red |
 | session-tree → Journal-only fork | Fork failure leaves no child | test/session/fork_test.dart | fork failure leaves no child directory | red |
-| session-tree → Request admission and outcome correlation | Duplicate after rewind is not re-executed | test/session/requests_test.dart | duplicate after rewind returns recorded outcome | red |
-| session-tree → Request admission and outcome correlation | Simultaneous duplicate admissions | test/session/requests_test.dart | simultaneous duplicate admissions admit exactly once | red |
-| session-tree → Request admission and outcome correlation | Request id collision | test/session/requests_test.dart | request id collision is rejected including concurrently | red |
-| session-tree → Resume finalizes interrupted requests | Admitted request becomes interrupted | test/session/requests_test.dart | admitted request becomes interrupted on reopen | red |
-| session-tree → Resume finalizes interrupted requests | Recovery append fails | test/session/requests_test.dart | recovery append failure fails the open | red |
+| session-tree → Request admission and outcome correlation | Duplicate after rewind is not re-executed | test/session/requests_test.dart | duplicate after rewind returns recorded outcome | green |
+| session-tree → Request admission and outcome correlation | Simultaneous duplicate admissions | test/session/requests_test.dart | simultaneous duplicate admissions admit exactly once | green |
+| session-tree → Request admission and outcome correlation | Request id collision | test/session/requests_test.dart | request id collision is rejected including concurrently | green |
+| session-tree → Resume finalizes interrupted requests | Admitted request becomes interrupted | test/session/requests_test.dart | admitted request becomes interrupted on reopen | green |
+| session-tree → Resume finalizes interrupted requests | Recovery append fails | test/session/requests_test.dart | recovery append failure fails the open | green |
 | result-store → Immutable full-result bytes | Large result stored whole | test/results/result_store_test.dart | 50 MiB result stored whole with backpressure | red |
 | result-store → Immutable full-result bytes | Producer fails after emitting output | test/results/result_store_test.dart | producer failure finalizes the accepted prefix | red |
 | result-store → Immutable full-result bytes | Storage fails during write | test/results/result_store_test.dart | storage failure returns no descriptor and names the temp file | red |
@@ -99,7 +99,7 @@
 ## 6. Rewind, requests and resume
 
 - [x] 6.1 Write failing tests: rewind restores end-of-turn-K state and keeps `meta` (one appended line, earlier lines unchanged); invalid rewind targets; two rewinds survive replay; duplicate after rewind returns the recorded outcome without appending; simultaneous duplicate admissions admit exactly once; collisions (sequential and concurrent); admitted becomes `interrupted`/`effect-uncertain` on reopen and a later duplicate returns it; a recovery append failure fails the open. Verify they fail.
-- [ ] 6.2 Implement rewind (timeline cut plus replay, D3), `admit`/`complete`/`fail` as single queue operations (D4), and open-time request finalization; verify the 6.1 tests pass and flip the rows green.
+- [x] 6.2 Implement rewind (timeline cut plus replay, D3), `admit`/`complete`/`fail` as single queue operations (D4), and open-time request finalization; verify the 6.1 tests pass and flip the rows green.
 
 ## 7. Result store and handles
 
