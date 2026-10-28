@@ -274,13 +274,15 @@ final class SessionWriter {
   /// writer. When [maxPendingOperations] operations are already pending this
   /// throws a [SessionError] with reason `writer busy` synchronously and
   /// queues nothing.
-  Future<CommittedUpdate> apply(JournalRecord record) =>
-      _enqueue<CommittedUpdate>(
-        op: record.op,
-        path: record.path,
-        decide: () => record,
-        finish: (update) => update!,
-      );
+  Future<CommittedUpdate> apply(JournalRecord record) {
+    final snapshot = _snapshot(record);
+    return _enqueue<CommittedUpdate>(
+      op: snapshot.op,
+      path: snapshot.path,
+      decide: () => snapshot,
+      finish: (update) => update!,
+    );
+  }
 
   /// Rewinds the non-`meta` subtrees to the end of turn [turn].
   ///
@@ -322,13 +324,14 @@ final class SessionWriter {
       action: () async {
         final body = _state.bodyAtTurn(atTurn);
         final whole = _state.combined().toJson();
+        final parentMeta = whole['meta'];
+        final parentMetaMap = parentMeta is Map<String, Object?>
+            ? parentMeta
+            : const <String, Object?>{};
         final meta = {
-          ...(whole['meta']! as Map<String, Object?>),
+          ...parentMetaMap,
           'session': newSessionId(),
-          'lineage': {
-            'parent': (whole['meta']! as Map<String, Object?>)['session'],
-            'parentTurn': atTurn,
-          },
+          'lineage': {'parent': parentMetaMap['session'], 'parentTurn': atTurn},
           'requests': <String, Object?>{},
         };
         final origin = JournalRecord(
@@ -388,7 +391,7 @@ final class SessionWriter {
   /// Fails with a [SessionError] when the request is unknown or not
   /// `admitted`.
   Future<CommittedUpdate> complete(String id, Object? outcome) =>
-      _settle(id, {'state': 'completed', 'outcome': outcome});
+      _settle(id, {'state': 'completed', 'outcome': _freeze(outcome)});
 
   /// Marks admitted request [id] as `failed`, with an optional [reason] and
   /// [outcome].
@@ -396,7 +399,11 @@ final class SessionWriter {
   /// Fails with a [SessionError] when the request is unknown or not
   /// `admitted`.
   Future<CommittedUpdate> fail(String id, {String? reason, Object? outcome}) =>
-      _settle(id, {'state': 'failed', 'reason': ?reason, 'outcome': ?outcome});
+      _settle(id, {
+        'state': 'failed',
+        'reason': ?reason,
+        'outcome': ?_freeze(outcome),
+      });
 
   /// Records [descriptor] at `results/<id>` as one serialized operation.
   ///
@@ -654,7 +661,8 @@ final class SessionWriter {
     }
     final JournalRecord? record;
     try {
-      record = pending.decide();
+      final decided = pending.decide();
+      record = decided == null ? null : _snapshot(decided);
       if (record != null) _state.validate(record);
     } on SessionError catch (e) {
       pending.onError(e);
@@ -696,6 +704,53 @@ final class SessionWriter {
         subscriber.controller.add(update);
       }
     }
+  }
+}
+
+/// The containers already frozen by [_freeze], so they are never copied again.
+final Expando<bool> _frozen = Expando<bool>('frozen record value');
+
+/// Returns [record] with a deeply unmodifiable copy of its value.
+///
+/// The writer validates, encodes, retains and publishes only the returned
+/// record, so a caller mutating the value it passed in can change none of
+/// them. A record whose value is already frozen is returned as it is.
+JournalRecord _snapshot(JournalRecord record) {
+  final value = _freeze(record.value);
+  return identical(value, record.value)
+      ? record
+      : JournalRecord(
+          turn: record.turn,
+          path: record.path,
+          op: record.op,
+          value: value,
+        );
+}
+
+/// Returns a deeply unmodifiable copy of [value], or [value] when it is
+/// a scalar or was frozen before.
+///
+/// Values that are not plain JSON are copied as far as maps and lists go and
+/// left for validation to reject.
+Object? _freeze(Object? value) {
+  switch (value) {
+    case final Map<Object?, Object?> map:
+      if (_frozen[map] ?? false) return map;
+      final copy = <Object?, Object?>{
+        for (final MapEntry(:key, :value) in map.entries) key: _freeze(value),
+      };
+      final frozen = copy.keys.every((key) => key is String)
+          ? Map<String, Object?>.unmodifiable(copy.cast<String, Object?>())
+          : Map<Object?, Object?>.unmodifiable(copy);
+      _frozen[frozen] = true;
+      return frozen;
+    case final List<Object?> list:
+      if (_frozen[list] ?? false) return list;
+      final frozen = List<Object?>.unmodifiable(list.map(_freeze));
+      _frozen[frozen] = true;
+      return frozen;
+    default:
+      return value;
   }
 }
 

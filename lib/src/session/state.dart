@@ -48,9 +48,26 @@ final class SessionState {
         throw invalid('unknown root subtree "$key" in the origin value');
       }
     }
-    if (initial.containsKey('meta') &&
-        initial['meta'] is! Map<Object?, Object?>) {
-      throw invalid('meta must be a map');
+    final meta = initial['meta'];
+    if (meta is! Map<Object?, Object?>) {
+      throw invalid('the origin value must hold a meta map');
+    }
+    if (meta['format'] is! int) {
+      throw invalid('meta/format must be an integer');
+    }
+    final session = meta['session'];
+    if (session is! String || session.isEmpty) {
+      throw invalid('meta/session must be a non-empty string');
+    }
+    switch (meta['lineage']) {
+      case {'parent': null} && Map(length: 1):
+      case {'parent': String(), 'parentTurn': int()} && Map(length: 2):
+        break;
+      default:
+        throw invalid(
+          'meta/lineage must be {parent: null} or '
+          '{parent: <session id>, parentTurn: <int>}',
+        );
     }
     return SessionState._(
       origin,

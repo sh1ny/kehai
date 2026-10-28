@@ -55,6 +55,40 @@ void main() {
     },
   );
 
+  group('match cap', () {
+    Future<String> searchLines(int count) {
+      final stored = storeLines(dir, [
+        for (var i = 0; i < count; i++) 'hit $i',
+      ], name: 'cap$count.bin');
+      return ResultSearcher().searchResult(
+        stored.file,
+        stored.descriptor,
+        'hit',
+      );
+    }
+
+    int shown(String out) =>
+        RegExp(r'^\d+: hit', multiLine: true).allMatches(out).length;
+
+    test('200 matches render 200 lines and no more line', () async {
+      final out = await searchLines(200);
+      expect(shown(out), 200);
+      expect(out, isNot(contains('more')));
+    });
+
+    test('201 matches render 200 lines and "+1 more"', () async {
+      final out = await searchLines(201);
+      expect(shown(out), 200);
+      expect(out, contains('\n… +1 more'));
+    });
+
+    test('250 matches render 200 lines and "+50 more"', () async {
+      final out = await searchLines(250);
+      expect(shown(out), 200);
+      expect(out, contains('\n… +50 more'));
+    });
+  });
+
   test('search burst over the limit is rejected and slots are freed', () async {
     final bad = storeLines(dir, ['${'a' * 60}b'], name: 'bad.bin');
     final ok = storeLines(dir, ['one', 'two FAIL'], name: 'ok.bin');

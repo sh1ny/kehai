@@ -52,6 +52,84 @@ void main() {
       }
     });
 
+    test('an origin without complete valid meta is rejected', () async {
+      Map<String, Object?> meta(void Function(Map<String, Object?>) edit) {
+        final m = <String, Object?>{
+          'format': 1,
+          'session': 's1',
+          'lineage': <String, Object?>{'parent': null},
+        };
+        edit(m);
+        return m;
+      }
+
+      final origins = <String, Object?>{
+        'empty origin': <String, Object?>{},
+        'no meta': <String, Object?>{'body': <String, Object?>{}},
+        'meta not a map': <String, Object?>{'meta': 1},
+        'empty meta': <String, Object?>{'meta': <String, Object?>{}},
+        'no format': {'meta': meta((m) => m.remove('format'))},
+        'format not an int': {'meta': meta((m) => m['format'] = '1')},
+        'no session': {'meta': meta((m) => m.remove('session'))},
+        'session not a string': {'meta': meta((m) => m['session'] = 7)},
+        'empty session': {'meta': meta((m) => m['session'] = '')},
+        'no lineage': {'meta': meta((m) => m.remove('lineage'))},
+        'lineage not a map': {'meta': meta((m) => m['lineage'] = 'x')},
+        'lineage empty': {'meta': meta((m) => m['lineage'] = {})},
+        'parent missing': {
+          'meta': meta((m) => m['lineage'] = {'parentTurn': 1}),
+        },
+        'parent not a string': {
+          'meta': meta((m) => m['lineage'] = {'parent': 3, 'parentTurn': 1}),
+        },
+        'parent without turn': {
+          'meta': meta((m) => m['lineage'] = {'parent': 'p'}),
+        },
+        'parentTurn not an int': {
+          'meta': meta(
+            (m) => m['lineage'] = {'parent': 'p', 'parentTurn': 'x'},
+          ),
+        },
+        'null parent with turn': {
+          'meta': meta((m) => m['lineage'] = {'parent': null, 'parentTurn': 1}),
+        },
+        'extra lineage key': {
+          'meta': meta(
+            (m) =>
+                m['lineage'] = {'parent': 'p', 'parentTurn': 1, 'extra': true},
+          ),
+        },
+      };
+      for (final MapEntry(:key, :value) in origins.entries) {
+        final line = rec(0, '', Op.set, value).encode();
+        final dir = writeSession(root, bytesOf([line]));
+        final matcher = isA<JournalCorruption>()
+            .having((e) => e.line, '$key line', 1)
+            .having((e) => e.offset, '$key offset', 0)
+            .having((e) => e.reason, '$key reason', 'invalid origin');
+        expect(() => materialize(dir), throwsA(matcher), reason: key);
+        await expectLater(
+          SessionWriter.open(dir),
+          throwsA(matcher),
+          reason: key,
+        );
+        dir.deleteSync(recursive: true);
+      }
+    });
+
+    test('a fork lineage origin is accepted', () async {
+      final line = rec(3, '', Op.set, {
+        'meta': {
+          'format': 1,
+          'session': 's2',
+          'lineage': {'parent': 's1', 'parentTurn': 3},
+        },
+      }).encode();
+      final dir = writeSession(root, bytesOf([line]));
+      expect(materialize(dir).tree.toJson()['meta'], isNotNull);
+      await (await SessionWriter.open(dir)).close();
+    });
+
     test('a live root set after the origin is rejected', () async {
       final writer = await createWriter(root);
       final length = journalOf(writer.sessionDir).lengthSync();

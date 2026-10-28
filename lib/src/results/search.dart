@@ -121,7 +121,9 @@ final class ResultSearcher {
                     'match${matchTotal == 1 ? '' : 'es'}'} for /$pattern/ '
           'in ${descriptor.handle}',
         );
-      for (final (n, text, chars) in matches) {
+      // The worker sends one message past the cap so the caller can tell
+      // that matches were left out; only the first `maxShownMatches` render.
+      for (final (n, text, chars) in matches.take(maxShownMatches)) {
         if (n < 0) continue;
         out.write('\n$n: ${clipLine(text, chars)}');
       }

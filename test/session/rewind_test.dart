@@ -81,7 +81,11 @@ void main() {
         forkRoot,
         bytesOf([
           rec(2, '', Op.set, {
-            'meta': {'format': 1},
+            'meta': {
+              'format': 1,
+              'session': 's2',
+              'lineage': {'parent': 's1', 'parentTurn': 2},
+            },
           }).encode(),
           rec(3, 'body/x', Op.set, 1).encode(),
         ]),
