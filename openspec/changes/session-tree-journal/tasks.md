@@ -46,12 +46,12 @@
 | session-tree → Request admission and outcome correlation | Request id collision | test/session/requests_test.dart | request id collision is rejected including concurrently | green |
 | session-tree → Resume finalizes interrupted requests | Admitted request becomes interrupted | test/session/requests_test.dart | admitted request becomes interrupted on reopen | green |
 | session-tree → Resume finalizes interrupted requests | Recovery append fails | test/session/requests_test.dart | recovery append failure fails the open | green |
-| result-store → Immutable full-result bytes | Large result stored whole | test/results/result_store_test.dart | 50 MiB result stored whole with backpressure | red |
-| result-store → Immutable full-result bytes | Producer fails after emitting output | test/results/result_store_test.dart | producer failure finalizes the accepted prefix | red |
-| result-store → Immutable full-result bytes | Storage fails during write | test/results/result_store_test.dart | storage failure returns no descriptor and names the temp file | red |
-| result-store → Tree-held result descriptors and handles | Handle resolves through the tree | test/results/handles_test.dart | handle resolves through the tree | red |
-| result-store → Tree-held result descriptors and handles | Identical bytes from a complete and a failed producer | test/results/handles_test.dart | identical bytes keep per-occurrence completion in both orders | red |
-| result-store → Tree-held result descriptors and handles | Unknown or broken handle | test/results/handles_test.dart | unknown or broken handle fails explicitly | red |
+| result-store → Immutable full-result bytes | Large result stored whole | test/results/result_store_test.dart | 50 MiB result stored whole with backpressure | green |
+| result-store → Immutable full-result bytes | Producer fails after emitting output | test/results/result_store_test.dart | producer failure finalizes the accepted prefix | green |
+| result-store → Immutable full-result bytes | Storage fails during write | test/results/result_store_test.dart | storage failure returns no descriptor and names the temp file | green |
+| result-store → Tree-held result descriptors and handles | Handle resolves through the tree | test/results/handles_test.dart | handle resolves through the tree | green |
+| result-store → Tree-held result descriptors and handles | Identical bytes from a complete and a failed producer | test/results/handles_test.dart | identical bytes keep per-occurrence completion in both orders | green |
+| result-store → Tree-held result descriptors and handles | Unknown or broken handle | test/results/handles_test.dart | unknown or broken handle fails explicitly | green |
 | result-store → Central truncation envelope | Read result over the line cap | test/results/composer_test.dart | read over the line cap gets the exact truncation line | green |
 | result-store → Central truncation envelope | Result that fits has no truncation line | test/results/composer_test.dart | fitting result has no truncation line | green |
 | result-store → Head and tail cut for logs | Long log keeps head and tail | test/results/composer_test.dart | bash log keeps 60% head and 40% tail | green |
@@ -112,7 +112,7 @@
   - unknown and broken handles.
 
   Verify they fail.
-- [ ] 7.2 Implement `lib/src/results/result_store.dart` (`ResultWrite` outcomes, SHA-256 content addressing, temp file then rename, dedupe, descriptor `{handle, sha256, bytes, lines}`, collision check) and handle resolution; verify the 7.1 tests pass and flip the rows green.
+- [x] 7.2 Implement `lib/src/results/result_store.dart` (`ResultWrite` outcomes, SHA-256 content addressing, temp file then rename, dedupe, descriptor `{handle, sha256, bytes, lines}`, collision check) and handle resolution; verify the 7.1 tests pass and flip the rows green.
 
 ## 8. Fork
 

@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'errors.dart';
 import 'journal.dart';
 import 'ownership.dart';
+import '../results/descriptor.dart';
 import 'path.dart';
 import 'record.dart';
 import 'requests.dart';
@@ -350,6 +351,52 @@ final class SessionWriter {
   Future<CommittedUpdate> fail(String id, {String? reason, Object? outcome}) =>
       _settle(id, {'state': 'failed', 'reason': ?reason, 'outcome': ?outcome});
 
+  /// Records [descriptor] at `results/<id>` as one serialized operation.
+  ///
+  /// Completes with `null` and appends nothing when the node already holds an
+  /// equal descriptor, so storing the same bytes again is idempotent. Fails
+  /// with a [SessionError] with reason `handle collision` when the node holds
+  /// a descriptor with a different `sha256`, or when the handle is not
+  /// `r/` plus the first 12 hex digits of the hash.
+  Future<CommittedUpdate?> recordResult(ResultDescriptor descriptor) {
+    final id = descriptor.handle.startsWith('r/')
+        ? descriptor.handle.substring(2)
+        : descriptor.handle;
+    final path = 'results/$id';
+    return _enqueue<CommittedUpdate?>(
+      op: Op.set,
+      path: path,
+      decide: () {
+        final valid =
+            id.length == 12 &&
+            descriptor.handle == 'r/$id' &&
+            descriptor.sha256.startsWith(id);
+        final node = valid
+            ? _state.combined().get(SessionPath.parse(path))
+            : null;
+        final recorded = node is Map<String, Object?> ? node : null;
+        if (!valid ||
+            recorded != null && recorded['sha256'] != descriptor.sha256) {
+          throw SessionError(
+            'handle collision',
+            'handle ${descriptor.handle} does not match the hash '
+                '${descriptor.sha256} or holds a different result',
+            op: 'set',
+            path: path,
+          );
+        }
+        if (recorded != null && _sameFacts(recorded, descriptor)) return null;
+        return JournalRecord(
+          turn: currentTurn,
+          path: path,
+          op: Op.set,
+          value: descriptor.toJson(),
+        );
+      },
+      finish: (update) => update,
+    );
+  }
+
   /// The number of requests recorded as interrupted when this writer opened.
   int get interruptedRequests => _interrupted;
 
@@ -585,6 +632,13 @@ final class SessionWriter {
       }
     }
   }
+}
+
+/// Whether [node] holds exactly the facts of [descriptor].
+bool _sameFacts(Map<String, Object?> node, ResultDescriptor descriptor) {
+  final json = descriptor.toJson();
+  return node.length == json.length &&
+      json.entries.every((e) => node[e.key] == e.value);
 }
 
 /// One queued operation. [decide] runs at the head of the queue and returns
