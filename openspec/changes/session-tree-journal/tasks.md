@@ -26,9 +26,9 @@
 | session-journal → Torn trailing record recovery | Valid JSON without newline is still torn | test/session/journal_test.dart | valid record without newline is torn | green |
 | session-journal → Interior corruption stops writes | Corrupt interior line | test/session/journal_test.dart | corrupt interior line stops open and read | green |
 | session-journal → Interior corruption stops writes | Unappliable interior record | test/session/journal_test.dart | unappliable interior record stops open | green |
-| session-journal → Explicit journal migration | Migration preserves the original | test/tool/migrate_journal_test.dart | migration preserves the original | red |
-| session-journal → Explicit journal migration | Outdated format with a torn tail | test/tool/migrate_journal_test.dart | outdated format with a torn tail migrates complete records | red |
-| session-journal → Explicit journal migration | Unsupported or outdated format | test/tool/migrate_journal_test.dart | outdated open and unregistered migration change no file | red |
+| session-journal → Explicit journal migration | Migration preserves the original | test/tool/migrate_journal_test.dart | migration preserves the original | green |
+| session-journal → Explicit journal migration | Outdated format with a torn tail | test/tool/migrate_journal_test.dart | outdated format with a torn tail migrates complete records | green |
+| session-journal → Explicit journal migration | Unsupported or outdated format | test/tool/migrate_journal_test.dart | outdated open and unregistered migration change no file | green |
 | session-tree → Deterministic materialization | Random histories replay to identical trees | test/property/replay_property_test.dart | random histories replay to identical trees | red |
 | session-tree → Deterministic materialization | Failing seed is reproducible | test/property/replay_property_test.dart | failing seed is reported and reproducible | red |
 | session-tree → Session origin record | New session starts with an origin record | test/session/origin_test.dart | new session starts with one origin record | green |
@@ -134,7 +134,7 @@
   - an interrupted migration (`.migrating` plus a backup and no journal) is reported on open and completed by a rerun.
 
   Verify they fail.
-- [ ] 10.2 Implement `lib/src/session/migration.dart` (registry, record transformations, claim through the D5 protocol, torn-tail recovery, `.migrating` then renames) and `tool/migrate_journal.dart` (`--session`, `--to`, `--check`, exit codes per the `dart-build-cli-app` skill); verify the 10.1 tests pass and flip the rows green.
+- [x] 10.2 Implement `lib/src/session/migration.dart` (registry, record transformations, claim through the D5 protocol, torn-tail recovery, `.migrating` then renames) and `tool/migrate_journal.dart` (`--session`, `--to`, `--check`, exit codes per the `dart-build-cli-app` skill); verify the 10.1 tests pass and flip the rows green.
 
 ## 11. Randomized replay properties
 

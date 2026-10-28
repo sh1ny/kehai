@@ -19,6 +19,12 @@ const String ownerFileName = 'session.owner';
 /// The directory name for recovered bytes inside a session directory.
 const String recoveryDirName = 'recovery';
 
+/// The file a migration writes before it renames anything.
+const String migratingFileName = 'journal.jsonl.migrating';
+
+/// The command that migrates an outdated session.
+const String migrationCommand = 'dart run tool/migrate_journal.dart';
+
 /// A committed journal line that cannot be read or applied.
 final class JournalCorruption implements Exception {
   /// Creates an error for the 1-based [line] starting at byte [offset].
@@ -83,9 +89,24 @@ final class JournalScan {
 /// [JournalCorruption] naming the line, offset and reason for a committed
 /// line that is not a valid record or cannot be applied, and for a missing or
 /// repeated origin (`invalid origin`).
+///
+/// Before any line is applied, throws a [SessionError] when the session was
+/// left in the middle of a migration (`incomplete migration; rerun
+/// migrate_journal`). It also throws when `meta/format` in the origin is not
+/// the current [sessionFormatVersion]: `format 0 requires migration` for an
+/// older format, `format 9 is newer than this kehai` for a newer one.
 JournalScan scanJournal(File journal) {
+  final sessionDir = journal.parent;
+  if (!journal.existsSync() &&
+      File(p.join(sessionDir.path, migratingFileName)).existsSync()) {
+    throw SessionError(
+      'incomplete migration; rerun migrate_journal',
+      'run $migrationCommand --session ${sessionDir.path}',
+    );
+  }
   final bytes = journal.readAsBytesSync();
   final committed = bytes.lastIndexOf(0x0A) + 1;
+  if (committed > 0) _requireCurrentFormat(bytes, sessionDir);
   SessionState? state;
   var start = 0;
   var line = 0;
@@ -122,6 +143,36 @@ JournalScan scanJournal(File journal) {
   return JournalScan(state, line, committed, bytes.length - committed);
 }
 
+/// Returns the `meta/format` of the origin [record], or `null` when absent.
+int? originFormat(JournalRecord record) {
+  if (record.path.isNotEmpty) return null;
+  if (record.value case {'meta': {'format': final int format}}) return format;
+  return null;
+}
+
+void _requireCurrentFormat(List<int> bytes, Directory sessionDir) {
+  final JournalRecord origin;
+  try {
+    origin = JournalRecord.parse(
+      utf8.decode(bytes.sublist(0, bytes.indexOf(0x0A))),
+    );
+  } on Exception {
+    return; // The fold reports the invalid origin with its line and offset.
+  }
+  final format = originFormat(origin);
+  if (format == null || format == sessionFormatVersion) return;
+  if (format > sessionFormatVersion) {
+    throw SessionError(
+      'format $format is newer than this kehai',
+      'this kehai reads format $sessionFormatVersion',
+    );
+  }
+  throw SessionError(
+    'format $format requires migration',
+    'run $migrationCommand --session ${sessionDir.path}',
+  );
+}
+
 /// Copies the torn tail described by [scan] to a recovery file and truncates
 /// [journal] to its last newline.
 ///
@@ -133,26 +184,42 @@ TornTail recoverTornTail(
   JournalScan scan, {
   DateTime? now,
 }) {
-  final bytes = journal.readAsBytesSync().sublist(scan.committedLength);
-  final dir = Directory(p.join(sessionDir.path, recoveryDirName))
-    ..createSync(recursive: true);
-  final stamp = compactUtc(now ?? DateTime.now());
-  final recovery = File(
-    p.join(dir.path, 'torn-${scan.committedLength}-$stamp.bin'),
+  final torn = saveTornBytes(
+    sessionDir,
+    journal,
+    scan.committedLength,
+    now: now,
   );
-  final out = recovery.openSync(mode: FileMode.writeOnly);
-  try {
-    out.writeFromSync(bytes);
-    out.flushSync();
-  } finally {
-    out.closeSync();
-  }
   final raf = journal.openSync(mode: FileMode.append);
   try {
     raf.truncateSync(scan.committedLength);
     raf.flushSync();
   } finally {
     raf.closeSync();
+  }
+  return torn;
+}
+
+/// Copies the bytes of [journal] after [committedLength] to
+/// `recovery/torn-<offset>-<utc>.bin` inside [sessionDir] and flushes them,
+/// leaving [journal] untouched.
+TornTail saveTornBytes(
+  Directory sessionDir,
+  File journal,
+  int committedLength, {
+  DateTime? now,
+}) {
+  final bytes = journal.readAsBytesSync().sublist(committedLength);
+  final dir = Directory(p.join(sessionDir.path, recoveryDirName))
+    ..createSync(recursive: true);
+  final stamp = compactUtc(now ?? DateTime.now());
+  final recovery = File(p.join(dir.path, 'torn-$committedLength-$stamp.bin'));
+  final out = recovery.openSync(mode: FileMode.writeOnly);
+  try {
+    out.writeFromSync(bytes);
+    out.flushSync();
+  } finally {
+    out.closeSync();
   }
   return TornTail(bytes.length, recoveryPath: recovery.path);
 }
