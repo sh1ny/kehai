@@ -86,8 +86,8 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | provider-auth → Dynamic client registration | Later sign-in reuses the client | test/auth/browser_login_test.dart | later login reuses saved client without name hint | red |
 | provider-auth → Dynamic client registration | Different client returned | test/auth/browser_login_test.dart | different issued id is rejected | red |
 | provider-auth → Dynamic client registration | Host id is stable | test/auth/browser_login_test.dart | host id survives logout --forget | red |
-| provider-auth → Token verification and plan-usage grant | Verified login | test/auth/jwt_test.dart | rs256 token with expected claims verifies and yields subject and email | red |
-| provider-auth → Token verification and plan-usage grant | Invalid ID token | test/auth/jwt_test.dart | bad signature, alg, iss, aud, exp or nonce each fail naming the check | red |
+| provider-auth → Token verification and plan-usage grant | Verified login | test/auth/jwt_test.dart | rs256 token with expected claims verifies and yields subject and email | green |
+| provider-auth → Token verification and plan-usage grant | Invalid ID token | test/auth/jwt_test.dart | bad signature, alg, iss, aud, exp or nonce each fail naming the check | green |
 | provider-auth → Token verification and plan-usage grant | Different account | test/auth/browser_login_test.dart | different subject fails naming logout --forget | red |
 | provider-auth → Plan usage consent | Plan usage not granted | test/auth/browser_login_test.dart | grant without direct scope stores registration as plan usage disabled and no tokens | red |
 | provider-auth → Plan usage consent | Enable plan usage | test/auth/browser_login_test.dart | enable-plan-usage sends saved client, full scopes and prompt=consent, then stores tokens | red |
@@ -158,7 +158,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 - [x] 2.1 Write the failing tests in `test/auth/failure_text_test.dart` (three rows) and confirm they fail because `FailureText` is missing.
 - [x] 2.2 Implement `lib/src/auth/failure_text.dart` per design D12: templates, the code and parameter checks, the secret set, and dropping `message`/`detail`. Verify that `failure_text_test.dart` passes and flip its rows green.
 - [x] 2.3 Implement `lib/src/auth/pkce.dart` (64-byte verifier, base64url, S256; 32-byte state and nonce) with a unit test asserting the lengths, the alphabet and the S256 vector from RFC 7636 Appendix B. Verify the test passes.
-- [ ] 2.4 Write the failing `test/auth/jwt_test.dart` (two rows, plus key selection by `kid` and the RS256-only rule). Then implement:
+- [x] 2.4 Write the failing `test/auth/jwt_test.dart` (two rows, plus key selection by `kid` and the RS256-only rule). Then implement:
   - `lib/src/auth/jwt.dart`: decoding, RS256 verification through `pointycastle`, and the claim checks per D3b;
   - `lib/src/auth/oidc.dart`: discovery and key-set fetch, with 64 KiB bounds, 30 s timeouts, and the issuer and host checks.
 
