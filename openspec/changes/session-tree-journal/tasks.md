@@ -103,7 +103,7 @@
 
 ## 7. Result store and handles
 
-- [ ] 7.1 Write failing tests:
+- [x] 7.1 Write failing tests:
   - a 50 MiB, 1,000,000-line stream in 64 KiB chunks stored byte-identical, with a probe proving no chunk is delivered before the previous one is written;
   - a producer error after 10,000 bytes finalizing a pageable prefix;
   - a storage failure (injected) returning `storageFailed` with bytes accepted and the temp path, and no final-name file;
