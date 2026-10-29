@@ -179,15 +179,20 @@ final class FailureText {
   ///
   /// [code] and [param] are raw server values; they are validated here, so a
   /// caller passes them straight from [parseErrorBody].
+  ///
+  /// [detail] is a fixed Kehai sentence that replaces the template's own
+  /// closing sentence. It must never hold server text.
   ComposedFailure compose(
     FailureKind kind, {
     int? status,
     String? code,
     String? param,
+    String? detail,
   }) {
     final safeCode = validateCode(code);
     final safeParam = validateParam(param);
-    final (head, tail) = _template(kind, safeCode);
+    final (head, templateTail) = _template(kind, safeCode);
+    final tail = detail ?? templateTail;
     final buffer = StringBuffer(head);
     if (status != null) buffer.write(': HTTP $status');
     if (safeCode != null) buffer.write(' ($safeCode)');

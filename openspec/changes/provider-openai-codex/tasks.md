@@ -187,7 +187,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - external logout, account replacement;
   - parallel and shared-failure refreshes;
   - reused token, plan usage dropped, token replaced meanwhile, client rejected, unknown 400.
-- [ ] 4.2 Implement `lib/src/auth/oauth_client.dart`:
+- [x] 4.2 Implement `lib/src/auth/oauth_client.dart`:
   - form code exchange, refresh with `resource` and no scope, and revocation, per D2, D4 and D6a;
   - required response fields;
   - 64 KiB body bounds and 30 s timeouts;
