@@ -17,12 +17,12 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | credential-store → Fail closed without a secure backend | Unix permissions too open | test/auth/credential_store_test.dart | [unix] group or other bits on auth.json refuse the load | red |
 | credential-store → Fail closed without a secure backend | Unsafe Unix home or link | test/auth/credential_store_test.dart | [unix] symlinked home, symlinked or non-regular auth.json are refused | red |
 | credential-store → Fail closed without a secure backend | Secure write unavailable | test/auth/credential_store_test.dart | failing protect or open call stores nothing and leaves no file | red |
-| credential-store → Trusted credential home path | Home beneath a shared writable parent | test/auth/home_trust_test.dart | writable non-sticky parent is rejected before any access or lock | red |
-| credential-store → Trusted credential home path | Home reached through a symlinked ancestor | test/auth/home_trust_test.dart | [unix] symlinked ancestor resolves to canonical path used for file and lock | red |
-| credential-store → Trusted credential home path | Sticky shared parent | test/auth/home_trust_test.dart | root-owned sticky world-writable ancestor is accepted | red |
-| credential-store → Trusted credential home path | Ancestor owned by another user | test/auth/home_trust_test.dart | ancestor owned by another user is rejected even at 0755 | red |
-| credential-store → Trusted credential home path | Sticky parent owned by another user | test/auth/home_trust_test.dart | sticky ancestor owned by another user is rejected | red |
-| credential-store → Trusted credential home path | Home owned by another user | test/auth/home_trust_test.dart | home owned by another user is rejected | red |
+| credential-store → Trusted credential home path | Home beneath a shared writable parent | test/auth/home_trust_test.dart | writable non-sticky parent is rejected before any access or lock | green |
+| credential-store → Trusted credential home path | Home reached through a symlinked ancestor | test/auth/home_trust_test.dart | [unix] symlinked ancestor resolves to canonical path used for file and lock | green |
+| credential-store → Trusted credential home path | Sticky shared parent | test/auth/home_trust_test.dart | root-owned sticky world-writable ancestor is accepted | green |
+| credential-store → Trusted credential home path | Ancestor owned by another user | test/auth/home_trust_test.dart | ancestor owned by another user is rejected even at 0755 | green |
+| credential-store → Trusted credential home path | Sticky parent owned by another user | test/auth/home_trust_test.dart | sticky ancestor owned by another user is rejected | green |
+| credential-store → Trusted credential home path | Home owned by another user | test/auth/home_trust_test.dart | home owned by another user is rejected | green |
 | credential-store → Atomic credential replacement | Successful replacement | test/auth/credential_store_test.dart | replacement returns new record and leaves no temp file | red |
 | credential-store → Atomic credential replacement | Interrupted write | test/auth/credential_store_test.dart | failure before rename keeps the previous record | red |
 | credential-store → Cross-process credential lock | Two processes refresh at once | test/auth/refresher_process_test.dart | two processes refreshing send exactly one refresh | red |
@@ -167,7 +167,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 ## 3. Credential store
 
 - [x] 3.1 Write the failing `test/auth/home_trust_test.dart` (six rows) against an injected `stat` seam, plus one real-FFI `[unix]` test asserting that FFI `st_mode` agrees with `FileStat.mode` on a temp dir.
-- [ ] 3.2 Implement `lib/src/auth/home_trust.dart` per design D6 *Trusted home path*:
+- [x] 3.2 Implement `lib/src/auth/home_trust.dart` per design D6 *Trusted home path*:
   - canonicalization, the home-not-a-symlink check, and the ownership/mode/sticky rule;
   - FFI `stat`/`__xstat` and `geteuid` at per-ABI offsets, self-validated, failing closed on an unknown ABI.
 
