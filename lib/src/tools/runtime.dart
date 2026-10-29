@@ -33,6 +33,7 @@ import 'edit.dart';
 import 'read.dart';
 import 'roster.dart';
 import 'schema.dart';
+import 'search.dart';
 import 'tool.dart';
 import 'write.dart';
 
@@ -48,10 +49,15 @@ const int _maxSettleRetries = 16;
 const Set<String> _terminalStatuses = {'settled', 'failed', 'cancelled'};
 
 /// The tools every runtime has unless [ToolRuntime.attach] is given its own.
-const Map<String, Tool> _builtinTools = {
-  'read': ReadTool(),
-  'edit': EditTool(),
-  'write': WriteTool(),
+///
+/// [rg] is the one resolution of `rg` made at attach.
+Map<String, Tool> _builtinTools(Future<RgResolution> rg) => {
+  'read': const ReadTool(),
+  'edit': const EditTool(),
+  'write': const WriteTool(),
+  'grep': GrepTool(rg),
+  'find': FindTool(rg),
+  'ls': const LsTool(),
 };
 
 /// The node key `c-<12 hex>` of the provider call id [callId].
@@ -148,13 +154,21 @@ final class ToolRuntime {
       );
     }
     final prompts = PromptChannel(answerer);
+    // Resolved once, now. It runs on while attach finishes; a missing `rg`
+    // never fails attach, it fails the calls that need it.
+    final rg = resolveRg(
+      rgPath: config.rgPath,
+      configPath: kehaiHome == null
+          ? configFileName
+          : p.join(kehaiHome.path, configFileName),
+    );
     final runtime = ToolRuntime._(
       writer,
       store,
       workspace,
       config,
       yolo,
-      Map.unmodifiable({..._builtinTools, ...tools}),
+      Map.unmodifiable({..._builtinTools(rg), ...tools}),
       hooks ?? const AllowAllStage(),
       gate ??
           PermissionGate(

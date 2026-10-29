@@ -199,10 +199,10 @@ void main() {
         final h = await _attach(root);
 
         final item = await h.runtime.run(
-          _call('n1', 'grep', '{"pattern":"a"}'),
+          _call('n1', 'bash', '{"command":"a"}'),
         );
 
-        expect(item.output, contains('grep is not available'));
+        expect(item.output, contains('bash is not available'));
         expect(h.node('n1')['status'], 'failed');
         expect(h.statuses('n1'), ['pending', 'failed']);
       },

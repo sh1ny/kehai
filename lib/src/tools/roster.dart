@@ -133,8 +133,8 @@ final List<ToolDefinition> toolDefinitions = List.unmodifiable([
     name: 'grep',
     version: 1,
     description:
-        'Search file contents with a regular expression. Returns '
-        'path:line: text for each match.',
+        'Search file contents with a regular expression, under path or the '
+        'workspace. Returns path:line: text for each match.',
     schema: _object(
       {
         'pattern': _path,
@@ -149,7 +149,9 @@ final List<ToolDefinition> toolDefinitions = List.unmodifiable([
   ToolDefinition(
     name: 'find',
     version: 1,
-    description: 'List workspace files whose path matches a glob.',
+    description:
+        'List files whose path matches a glob, one path per line, under path '
+        'or the workspace.',
     schema: _object(
       {'glob': _path, 'path': _path, 'hidden': _bool, 'no_ignore': _bool},
       required: ['glob'],

@@ -1,0 +1,585 @@
+/// The search tools: `grep`, `find` and `ls` (design D6).
+///
+/// `grep` and `find` run `rg` as a child without a shell. Until the job
+/// supervisor lands they start it through [startArgv], which that group
+/// replaces. Their output streams through a [SearchLineRewriter] chunk by
+/// chunk and is never cut here; only the composer cuts.
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:path/path.dart' as p;
+
+import '../permissions/workspace_paths.dart';
+import '../results/composer.dart';
+import 'child_env.dart';
+import 'file_access.dart';
+import 'glob_match.dart';
+import 'tool.dart';
+
+/// The outcome of looking for `rg`.
+sealed class RgResolution {
+  const RgResolution();
+}
+
+/// A working `rg`.
+final class RgFound extends RgResolution {
+  /// Creates the resolution.
+  const RgFound(this.path, this.version);
+
+  /// The executable.
+  final String path;
+
+  /// The version `rg --version` reported.
+  final String version;
+}
+
+/// No working `rg`.
+final class RgMissing extends RgResolution {
+  /// Creates the resolution.
+  const RgMissing(this.configPath);
+
+  /// The user configuration file the error names.
+  final String configPath;
+
+  /// The error text of a call that needs `rg`.
+  String get message =>
+      'rg not found; install ripgrep or set rgPath in $configPath';
+}
+
+/// Finds `rg` once: [rgPath], else `PATH`; `rg --version` must succeed.
+///
+/// [environment] is only searched for `PATH`; it defaults to the process
+/// environment. A missing or unrunnable `rg` gives [RgMissing] naming
+/// [configPath].
+Future<RgResolution> resolveRg({
+  String? rgPath,
+  required String configPath,
+  Map<String, String>? environment,
+}) async {
+  final exe = rgPath ?? _findOnPath(environment ?? Platform.environment);
+  if (exe == null) return RgMissing(configPath);
+  try {
+    final result = await Process.run(
+      exe,
+      const ['--version'],
+      environment: childEnvironment(Platform.environment),
+      includeParentEnvironment: false,
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    final first = (result.stdout as String).split('\n').first.trim();
+    final match = RegExp(r'^ripgrep (\S+)').firstMatch(first);
+    if (result.exitCode != 0 || match == null) return RgMissing(configPath);
+    return RgFound(exe, match.group(1)!);
+  } on ProcessException {
+    return RgMissing(configPath);
+  }
+}
+
+String? _findOnPath(Map<String, String> environment) {
+  final key = environment.keys.firstWhere(
+    (k) => k.toUpperCase() == 'PATH',
+    orElse: () => '',
+  );
+  final path = environment[key];
+  if (path == null) return null;
+  final name = Platform.isWindows ? 'rg.exe' : 'rg';
+  for (final dir in path.split(Platform.isWindows ? ';' : ':')) {
+    if (dir.isEmpty) continue;
+    final candidate = p.join(dir, name);
+    if (FileSystemEntity.typeSync(candidate) == FileSystemEntityType.file) {
+      return p.absolute(candidate);
+    }
+  }
+  return null;
+}
+
+/// A started child, without a shell.
+final class ArgvRun {
+  /// Creates a run over the pieces of a started process.
+  ArgvRun({
+    required this.stdout,
+    required this.stderr,
+    required this.exitCode,
+    required this.kill,
+  });
+
+  /// The child's standard output.
+  final Stream<List<int>> stdout;
+
+  /// The first bytes of the child's standard error, read to the end.
+  final Future<List<int>> stderr;
+
+  /// The exit code.
+  final Future<int> exitCode;
+
+  /// Kills the child.
+  final void Function() kill;
+}
+
+/// How much standard error is kept.
+const int _stderrBytes = 16 * 1024;
+
+/// Starts [executable] with [arguments] directly (no shell) in
+/// [workingDirectory], with exactly [environment], and closes its stdin.
+///
+/// Throws a [ProcessException] when it cannot start.
+Future<ArgvRun> startArgv(
+  String executable,
+  List<String> arguments, {
+  required String workingDirectory,
+  required Map<String, String> environment,
+}) async {
+  final process = await Process.start(
+    executable,
+    arguments,
+    workingDirectory: workingDirectory,
+    environment: environment,
+    includeParentEnvironment: false,
+  );
+  unawaited(process.stdin.close().then<void>((_) {}, onError: (Object _) {}));
+  final errors = BytesBuilder(copy: false);
+  final stderr = process.stderr
+      .forEach((chunk) {
+        final room = _stderrBytes - errors.length;
+        if (room > 0) {
+          errors.add(chunk.length <= room ? chunk : chunk.sublist(0, room));
+        }
+      })
+      .then((_) => errors.takeBytes());
+  return ArgvRun(
+    stdout: process.stdout,
+    stderr: stderr,
+    exitCode: process.exitCode,
+    kill: () => process.kill(),
+  );
+}
+
+/// Rewrites rg's `path\0line:text` lines into `path:line: text`, or bare
+/// paths into workspace-relative ones, one chunk at a time.
+final class SearchLineRewriter {
+  /// Creates the rewriter.
+  ///
+  /// [prefix] is the directory rg ran in, relative to the workspace root, with
+  /// `/` separators and no trailing one; it is put before every path.
+  ///
+  /// With a [filter], a path (relative to the directory rg ran in) it does not
+  /// match drops its line, and the counters leave that line out.
+  SearchLineRewriter({required this.grep, this.prefix = '', this.filter})
+    : _prefixBytes = prefix.isEmpty
+          ? const []
+          : utf8.encode(prefix.endsWith('/') ? prefix : '$prefix/');
+
+  /// Whether lines are matches (true) or bare paths (false).
+  final bool grep;
+
+  /// The directory the paths are relative to.
+  final String prefix;
+
+  /// The glob a path must match to be emitted, or null for all.
+  final GlobMatcher? filter;
+
+  final List<int> _prefixBytes;
+  List<int> _carry = const [];
+  List<int>? _lastPath;
+  int _lines = 0;
+  int _files = 0;
+
+  /// Lines emitted.
+  int get lines => _lines;
+
+  /// Files emitted: distinct consecutive paths.
+  int get files => _files;
+
+  /// Takes [chunk]; returns the rewritten complete lines.
+  List<int> add(List<int> chunk) {
+    final data = _carry.isEmpty ? chunk : [..._carry, ...chunk];
+    final out = BytesBuilder(copy: false);
+    var start = 0;
+    while (true) {
+      final nl = data.indexOf(0x0a, start);
+      if (nl < 0) break;
+      _line(data, start, nl, out);
+      start = nl + 1;
+    }
+    _carry = start == data.length ? const [] : data.sublist(start);
+    return out.takeBytes();
+  }
+
+  /// Returns the rewritten rest at the end of the stream.
+  List<int> finish() {
+    final out = BytesBuilder(copy: false);
+    if (_carry.isNotEmpty) _line(_carry, 0, _carry.length, out);
+    _carry = const [];
+    return out.takeBytes();
+  }
+
+  void _line(List<int> data, int start, int end, BytesBuilder out) {
+    if (end == start) return;
+    var split = end;
+    if (grep) {
+      final zero = data.indexOf(0, start);
+      if (zero >= 0 && zero < end) split = zero;
+    }
+    final path = _path(data, start, split);
+    final accept = filter;
+    if (accept != null &&
+        !accept.matches(utf8.decode(path, allowMalformed: true))) {
+      return;
+    }
+    _lines++;
+    final last = _lastPath;
+    if (last == null || !_same(last, path)) {
+      _files++;
+      _lastPath = path;
+    }
+    out
+      ..add(_prefixBytes)
+      ..add(path);
+    if (grep && split < end) {
+      var i = split + 1;
+      while (i < end && data[i] >= 0x30 && data[i] <= 0x39) {
+        i++;
+      }
+      out.addByte(0x3a);
+      if (i > split + 1 && i < end && data[i] == 0x3a) {
+        out
+          ..add(data.sublist(split + 1, i))
+          ..add(const [0x3a, 0x20])
+          ..add(data.sublist(i + 1, end));
+      } else {
+        out
+          ..addByte(0x20)
+          ..add(data.sublist(split + 1, end));
+      }
+    }
+    out.addByte(0x0a);
+  }
+
+  /// The path bytes in `/` form without a leading `./`.
+  List<int> _path(List<int> data, int start, int end) {
+    var path = data.sublist(start, end);
+    if (Platform.isWindows) {
+      path = [for (final b in path) b == 0x5c ? 0x2f : b];
+    }
+    return path.length >= 2 && path[0] == 0x2e && path[1] == 0x2f
+        ? path.sublist(2)
+        : path;
+  }
+
+  static bool _same(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
+/// Where a search runs.
+final class _Target {
+  const _Target(this.cwd, this.file, this.prefix, this.exclusion);
+
+  /// The directory rg runs in.
+  final String cwd;
+
+  /// The file name when the search path is a single file, else null.
+  final String? file;
+
+  /// The directory of [cwd] relative to the workspace, with `/` separators.
+  final String prefix;
+
+  /// The glob that hides the credential files, when the search covers the
+  /// Kehai home.
+  final String? exclusion;
+
+  /// The note added to the summary when credential files were excluded.
+  String get note => exclusion == null ? '' : '; credential files excluded';
+}
+
+/// The search target of the call, or the outcome that ends it.
+(_Target?, ToolOutcome?) _resolveTarget(
+  ToolContext context,
+  Map<String, Object?> input, {
+  required bool directoryOnly,
+}) {
+  final raw = (input['path'] as String?) ?? '.';
+  final absolute = absolutePath(context.workspace, raw);
+  final denied = credentialDenial(context, absolute);
+  if (denied != null) return (null, denied);
+  final isFile = switch (FileSystemEntity.typeSync(absolute)) {
+    FileSystemEntityType.notFound => null,
+    FileSystemEntityType.directory => false,
+    _ => true,
+  };
+  if (isFile == null) return (null, failure('no such directory $raw'));
+  if (isFile && directoryOnly) {
+    return (null, failure('$raw is not a directory'));
+  }
+  final cwd = isFile ? p.dirname(absolute) : absolute;
+  final workspace = p.normalize(context.workspace.absolute.path);
+  final relative = p.equals(workspace, cwd)
+      ? ''
+      : p.isWithin(workspace, cwd)
+      ? p.posix.joinAll(p.split(p.relative(cwd, from: workspace)))
+      : p.posix.joinAll(p.split(cwd)).replaceFirst(RegExp(r'^//'), '/');
+  String? exclusion;
+  final home = context.kehaiHome;
+  if (home != null && !isFile) {
+    final homeReal = realPath(home.path) ?? home.absolute.path;
+    final root = realPath(cwd) ?? cwd;
+    if (isInside(root, homeReal)) {
+      final inside = p.relative(homeReal, from: root);
+      exclusion = inside == '.'
+          ? '!auth.*'
+          : '!${p.posix.joinAll(p.split(inside))}/auth.*';
+    }
+  }
+  return (
+    _Target(cwd, isFile ? p.basename(absolute) : null, relative, exclusion),
+    null,
+  );
+}
+
+const ToolOutcome _cancelled = ToolOutcome(
+  status: ResultStatus.error,
+  summary: 'cancelled',
+  complete: false,
+);
+
+String _plural(int n, String one, String many) =>
+    n == 1 ? '1 $one' : '$n $many';
+
+/// Runs `rg` with [arguments] in [target] and streams the rewritten output.
+///
+/// Exit 0 settles `ok` with [found]; exit 1 is `ok` with [none]; anything else
+/// is an error carrying rg's standard error.
+Future<ToolOutcome> _runRg(
+  ToolContext context,
+  RgFound rg,
+  _Target target,
+  List<String> arguments,
+  SearchLineRewriter rewriter,
+  String Function() found,
+  String none,
+) async {
+  if (context.cancel.isCancelled) return _cancelled;
+  final ArgvRun run;
+  try {
+    run = await startArgv(
+      rg.path,
+      arguments,
+      workingDirectory: target.cwd,
+      environment: childEnvironment(Platform.environment),
+    );
+  } on ProcessException catch (e) {
+    return failure('cannot run rg: ${e.message}');
+  }
+  final detach = context.cancel.listen(run.kill);
+  var closed = false;
+  try {
+    await for (final chunk in run.stdout) {
+      final out = rewriter.add(chunk);
+      if (out.isNotEmpty) await context.output.write(out);
+      if (context.output.isClosed) {
+        closed = true;
+        run.kill();
+        break;
+      }
+    }
+    if (!closed) {
+      final rest = rewriter.finish();
+      if (rest.isNotEmpty) await context.output.write(rest);
+    }
+    final code = await run.exitCode;
+    final errorText = utf8.decode(await run.stderr, allowMalformed: true);
+    if (context.cancel.isCancelled) return _cancelled;
+    if (closed) {
+      return const ToolOutcome(
+        status: ResultStatus.error,
+        summary: 'search stopped: output closed',
+        complete: false,
+      );
+    }
+    switch (code) {
+      case 0 || 1:
+        // The counts are of accepted lines only; rg may have found more.
+        return ToolOutcome(
+          summary: '${rewriter.lines == 0 ? none : found()}${target.note}',
+        );
+      default:
+        final text = errorText
+            .split('\n')
+            .map((l) => l.trim())
+            .where((l) => l.isNotEmpty)
+            .join(' ');
+        return ToolOutcome(
+          status: ResultStatus.error,
+          summary: text.isEmpty ? 'rg exited with code $code' : text,
+          complete: rewriter.lines == 0,
+        );
+    }
+  } finally {
+    detach();
+  }
+}
+
+Future<(RgFound?, ToolOutcome?)> _rgOf(Future<RgResolution> rg) async =>
+    switch (await rg) {
+      final RgFound found => (found, null),
+      final RgMissing missing => (null, failure(missing.message)),
+    };
+
+/// `grep`: a regular expression over file contents, through `rg`.
+final class GrepTool implements Tool {
+  /// Creates the tool over the [rg] resolution made at attach.
+  const GrepTool(this.rg);
+
+  /// The `rg` resolution.
+  final Future<RgResolution> rg;
+
+  @override
+  Future<ToolOutcome> run(
+    ToolContext context,
+    Map<String, Object?> input,
+  ) async {
+    final (found, missing) = await _rgOf(rg);
+    if (missing != null) return missing;
+    final (target, failed) = _resolveTarget(
+      context,
+      input,
+      directoryOnly: false,
+    );
+    if (failed != null) return failed;
+    final glob = input['glob'] as String?;
+    final rewriter = SearchLineRewriter(
+      grep: true,
+      prefix: target!.prefix,
+      filter: glob == null ? null : GlobMatcher(glob),
+    );
+    return _runRg(
+      context,
+      found!,
+      target,
+      [
+        '--no-config',
+        '--line-number',
+        '--no-heading',
+        '--color',
+        'never',
+        '--with-filename',
+        '--null',
+        if (input['ignore_case'] == true) '--ignore-case',
+        if (input['literal'] == true) '--fixed-strings',
+        // The call's glob is applied to the output, never given to rg, which
+        // would let it override ignore files and hidden rules.
+        if (target.exclusion != null) ...['--glob', target.exclusion!],
+        '-e',
+        input['pattern']! as String,
+        '--',
+        target.file ?? '.',
+      ],
+      rewriter,
+      () =>
+          '${_plural(rewriter.lines, 'match', 'matches')} in '
+          '${_plural(rewriter.files, 'file', 'files')} (rg ${found.version})',
+      'no matches',
+    );
+  }
+}
+
+/// `find`: file paths matching a glob, through `rg --files`.
+final class FindTool implements Tool {
+  /// Creates the tool over the [rg] resolution made at attach.
+  const FindTool(this.rg);
+
+  /// The `rg` resolution.
+  final Future<RgResolution> rg;
+
+  @override
+  Future<ToolOutcome> run(
+    ToolContext context,
+    Map<String, Object?> input,
+  ) async {
+    final (found, missing) = await _rgOf(rg);
+    if (missing != null) return missing;
+    final (target, failed) = _resolveTarget(
+      context,
+      input,
+      directoryOnly: true,
+    );
+    if (failed != null) return failed;
+    final rewriter = SearchLineRewriter(
+      grep: false,
+      prefix: target!.prefix,
+      filter: GlobMatcher(input['glob']! as String),
+    );
+    return _runRg(
+      context,
+      found!,
+      target,
+      [
+        '--no-config',
+        '--files',
+        '--color',
+        'never',
+        if (input['hidden'] == true) '--hidden',
+        if (input['no_ignore'] == true) '--no-ignore',
+        if (target.exclusion != null) ...['--glob', target.exclusion!],
+        '--',
+        '.',
+      ],
+      rewriter,
+      () => _plural(rewriter.lines, 'file', 'files'),
+      '0 files',
+    );
+  }
+}
+
+/// `ls`: one directory, in process.
+final class LsTool implements Tool {
+  /// Creates the tool.
+  const LsTool();
+
+  @override
+  Future<ToolOutcome> run(
+    ToolContext context,
+    Map<String, Object?> input,
+  ) async {
+    final raw = (input['path'] as String?) ?? '.';
+    final absolute = absolutePath(context.workspace, raw);
+    switch (FileSystemEntity.typeSync(absolute)) {
+      case FileSystemEntityType.notFound:
+        return failure('no such directory $raw');
+      case FileSystemEntityType.directory:
+        break;
+      default:
+        return failure('$raw is not a directory');
+    }
+    final entries = <(String, String)>[];
+    await for (final entry in Directory(absolute).list(followLinks: false)) {
+      if (context.cancel.isCancelled) return _cancelled;
+      entries.add((
+        p.basename(entry.path),
+        entry is Link
+            ? '@'
+            : entry is Directory
+            ? '/'
+            : '',
+      ));
+    }
+    entries.sort((a, b) => a.$1.compareTo(b.$1));
+    if (entries.isNotEmpty) {
+      await context.output.writeText(
+        '${entries.map((e) => '${e.$1}${e.$2}').join('\n')}\n',
+      );
+    }
+    return ToolOutcome(
+      summary: '$raw: ${_plural(entries.length, 'entry', 'entries')}',
+    );
+  }
+}

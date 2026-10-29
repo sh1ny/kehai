@@ -49,14 +49,14 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | file-tools → Edit preserves untouched bytes | File too large to edit | test/tools/edit_tool_test.dart | 20 MiB file is refused with the 16 MiB limit | green |
 | file-tools → Atomic file replacement | Write a new file | test/tools/write_tool_test.dart | write creates missing directories and reports created | green |
 | file-tools → Atomic file replacement | Rename fails | test/tools/write_tool_test.dart | failed rename leaves the target and no temporary file | green |
-| workspace-search → Ripgrep resolution | rg found on PATH | test/tools/search_tools_test.dart | rg resolves from rgPath or PATH and passes --version | red |
-| workspace-search → Ripgrep resolution | rg missing | test/tools/search_tools_test.dart | missing rg fails with the install hint naming the config path | red |
-| workspace-search → Content search | Matches rendered per line | test/tools/search_tools_test.dart | grep renders path:line: text from --null output | red |
-| workspace-search → Content search | No matches or invalid pattern | test/tools/search_tools_test.dart | rg exit 1 is ok and exit 2 is error with stderr | red |
-| workspace-search → File finding | Find Dart tests | test/tools/search_tools_test.dart | find lists test files through rg --files | red |
-| workspace-search → File finding | Missing search path | test/tools/search_tools_test.dart | missing search path is an error | red |
-| workspace-search → Directory listing | List a directory | test/tools/search_tools_test.dart | ls sorts entries with / and @ suffixes | red |
-| workspace-search → Directory listing | Not a directory | test/tools/search_tools_test.dart | ls on a file is an error | red |
+| workspace-search → Ripgrep resolution | rg found on PATH | test/tools/search_tools_test.dart | rg resolves from rgPath or PATH and passes --version | green |
+| workspace-search → Ripgrep resolution | rg missing | test/tools/search_tools_test.dart | missing rg fails with the install hint naming the config path | green |
+| workspace-search → Content search | Matches rendered per line | test/tools/search_tools_test.dart | grep renders path:line: text from --null output | green |
+| workspace-search → Content search | No matches or invalid pattern | test/tools/search_tools_test.dart | rg exit 1 is ok and exit 2 is error with stderr | green |
+| workspace-search → File finding | Find Dart tests | test/tools/search_tools_test.dart | find lists test files through rg --files | green |
+| workspace-search → File finding | Missing search path | test/tools/search_tools_test.dart | missing search path is an error | green |
+| workspace-search → Directory listing | List a directory | test/tools/search_tools_test.dart | ls sorts entries with / and @ suffixes | green |
+| workspace-search → Directory listing | Not a directory | test/tools/search_tools_test.dart | ls on a file is an error | green |
 | shell-tool → Real shell detection | Windows with Git Bash installed | test/shell/detect_test.dart | Git Bash beside git.exe wins and System32 bash is never chosen | red |
 | shell-tool → Real shell detection | No usable shell | test/shell/detect_test.dart | no shell found fails attach-time detection with a hint | red |
 | shell-tool → Command execution and status | Failing command | test/shell/bash_tool_test.dart | non-zero exit settles ok with exit status in the summary | red |
@@ -86,8 +86,8 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | tool-permissions → Ask otherwise, or explicit yolo | Yolo run | test/permissions/gate_test.dart | yolo approves without prompting except credential paths | green |
 | tool-permissions → Ask otherwise, or explicit yolo | No answerer, not yolo | test/permissions/gate_test.dart | headless unapproved call settles denied | green |
 | tool-permissions → Credential files never exposed | Read the credential file | test/permissions/credentials_test.dart | file tools refuse every auth.* in the Kehai home even under yolo | green |
-| tool-permissions → Credential files never exposed | Grep that would cover the home | test/permissions/credentials_test.dart | grep over the home excludes auth.* and says so | red |
-| tool-permissions → Credential files never exposed | Search during a credential write | test/permissions/credentials_test.dart | paused credential temp file is never matched or stored | red |
+| tool-permissions → Credential files never exposed | Grep that would cover the home | test/permissions/credentials_test.dart | grep over the home excludes auth.* and says so | green |
+| tool-permissions → Credential files never exposed | Search during a credential write | test/permissions/credentials_test.dart | paused credential temp file is never matched or stored | green |
 | tool-permissions → User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
 | tool-permissions → User configuration file | Invalid configuration | test/config/config_test.dart | unknown key or bad type refuses to start naming the path | green |
 | job-supervisor → One job node shape | Shell job recorded | test/jobs/supervisor_test.dart | echo hi job node holds no pid and resolves its outputs | red |
@@ -192,8 +192,8 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 7. Workspace search
 
-- [ ] 7.1 Write the failing `test/tools/search_tools_test.dart` rows, and the credential rows *Grep that would cover the home* and *Search during a credential write*. The second uses the credential store's existing pause seam to hold a temporary file open.
-- [ ] 7.2 Implement `rg` resolution at attach, `grep` (the `--null` transformer, the `auth.*` exclusion glob, `--no-config`, no `RIPGREP_CONFIG_PATH`), `find` and in-process `ls` per design D6. They run as shell-less jobs once group 9 lands; until then they run through the launcher directly. Verify that the search and credential rows pass and flip them green.
+- [x] 7.1 Write the failing `test/tools/search_tools_test.dart` rows, and the credential rows *Grep that would cover the home* and *Search during a credential write*. The second uses the credential store's existing pause seam to hold a temporary file open.
+- [x] 7.2 Implement `rg` resolution at attach, `grep` (the `--null` transformer, the `auth.*` exclusion glob, `--no-config`, no `RIPGREP_CONFIG_PATH`), `find` and in-process `ls` per design D6. They run as shell-less jobs once group 9 lands; until then they run through the launcher directly. Verify that the search and credential rows pass and flip them green.
 
 ## 8. Shell detection, environment and direct execution
 

@@ -51,6 +51,15 @@ export 'src/tools/edit.dart' show EditTool;
 export 'src/tools/read.dart'
     show ReadSeams, ReadSource, ReadSourceOpener, ReadTool;
 export 'src/tools/write.dart' show WriteTool;
+export 'src/tools/search.dart'
+    show
+        FindTool,
+        GrepTool,
+        LsTool,
+        RgFound,
+        RgMissing,
+        RgResolution,
+        resolveRg;
 export 'src/tools/ask.dart'
     show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
 export 'src/permissions/credentials.dart'
