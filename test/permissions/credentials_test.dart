@@ -225,6 +225,52 @@ void main() {
       },
     );
 
+    test('mixed-case credential names are excluded on Windows', () async {
+      final mixed = ['AUTH.JSON', 'Auth.Lock', 'Auth.Json.1234_0.TMP'];
+      final khome = Directory(p.join(ws.path, 'khome'))..createSync();
+      for (final name in mixed) {
+        File(p.join(khome.path, name)).writeAsStringSync(_secret);
+      }
+      File(p.join(khome.path, 'config.json')).writeAsStringSync(_secret);
+      final grep = GrepTool(Future.value(rg));
+      final find = FindTool(Future.value(rg));
+
+      // The home is named in a different case than the directory on disk.
+      for (final named in [
+        khome,
+        Directory(p.join(ws.path, 'KHOME')),
+        Directory(p.join(ws.path.toUpperCase(), 'Khome')),
+      ]) {
+        for (final path in <String?>[null, 'khome']) {
+          final reason = '${named.path} search ${path ?? '.'}';
+          final input = <String, Object?>{'path': ?path};
+          final (outcome, output) = await run(grep, named, {
+            'pattern': 'SECRET-TOKEN',
+            ...input,
+          });
+          expect(outcome.status, ResultStatus.ok, reason: reason);
+          expect(
+            outcome.summary,
+            contains('credential files excluded'),
+            reason: reason,
+          );
+          expect(output.lines, [
+            'khome/config.json:1: $_secret',
+          ], reason: reason);
+          final (found, foundOut) = await run(find, named, {
+            'glob': '*',
+            ...input,
+          });
+          expect(
+            found.summary,
+            contains('credential files excluded'),
+            reason: reason,
+          );
+          expect(foundOut.lines, ['khome/config.json'], reason: reason);
+        }
+      }
+    }, skip: Platform.isWindows ? null : 'Windows file names ignore case');
+
     test('grep over the home excludes auth.* and says so', () async {
       final visible = Directory(p.join(ws.path, 'khome'))..createSync();
       for (final name in _credentialNames) {

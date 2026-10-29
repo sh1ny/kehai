@@ -9,12 +9,24 @@ import 'package:path/path.dart' as p;
 
 import '../permissions/credentials.dart';
 import '../permissions/gate.dart' show credentialRefusal;
+import '../permissions/workspace_paths.dart';
 import '../results/composer.dart';
 import 'tool.dart';
 
-/// The absolute path the model's [raw] path names, relative to [workspace].
-String absolutePath(Directory workspace, String raw) =>
-    p.normalize(p.join(workspace.absolute.path, raw));
+/// The real path the model's [raw] path names, relative to [workspace].
+///
+/// This resolves the path with [realPath], the function the permission gate
+/// uses, so the path a tool opens is the one the gate approved. A `..` after a
+/// link is applied to the link's target, as POSIX does; a lexical collapse
+/// would name a different file than the one approved. A part that does not
+/// exist yet is appended to its nearest existing ancestor. When a link cannot
+/// be resolved, the gate has not approved the path, and the unresolved join is
+/// returned, normalized only where the platform resolves `..` lexically.
+String absolutePath(Directory workspace, String raw) {
+  final joined = p.join(workspace.absolute.path, raw);
+  return realPath(joined) ??
+      (p.style == p.Style.windows ? p.normalize(joined) : joined);
+}
 
 /// The outcome that refuses a credential file, or null when [absolute] is not
 /// one.

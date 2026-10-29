@@ -300,6 +300,10 @@ final class _Target {
   /// Kehai home.
   final String? exclusion;
 
+  /// The rg flag that carries [exclusion]: case-insensitive on Windows, where
+  /// the credential check and the file system ignore case.
+  String get exclusionFlag => Platform.isWindows ? '--iglob' : '--glob';
+
   /// The note added to the summary when credential files were excluded.
   String get note => exclusion == null ? '' : '; credential files excluded';
 }
@@ -329,7 +333,10 @@ String _escapeGlob(String component) =>
     return (null, failure('$raw is not a directory'));
   }
   final cwd = isFile ? p.dirname(absolute) : absolute;
-  final workspace = p.normalize(context.workspace.absolute.path);
+  // [absolute] is a real path, so the workspace is compared as one.
+  final workspace =
+      realPath(context.workspace.path) ??
+      p.normalize(context.workspace.absolute.path);
   final relative = p.equals(workspace, cwd)
       ? ''
       : p.isWithin(workspace, cwd)
@@ -622,7 +629,10 @@ final class GrepTool implements Tool {
         if (input['literal'] == true) '--fixed-strings',
         // The call's glob is applied to the output, never given to rg, which
         // would let it override ignore files and hidden rules.
-        if (target.exclusion != null) ...['--glob', target.exclusion!],
+        if (target.exclusion != null) ...[
+          target.exclusionFlag,
+          target.exclusion!,
+        ],
         '-e',
         input['pattern']! as String,
         '--',
@@ -674,7 +684,10 @@ final class FindTool implements Tool {
         'never',
         if (input['hidden'] == true) '--hidden',
         if (input['no_ignore'] == true) '--no-ignore',
-        if (target.exclusion != null) ...['--glob', target.exclusion!],
+        if (target.exclusion != null) ...[
+          target.exclusionFlag,
+          target.exclusion!,
+        ],
         '--',
         '.',
       ],
