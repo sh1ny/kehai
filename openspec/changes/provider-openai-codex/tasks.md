@@ -258,13 +258,19 @@ Ownership scenarios that need a second Unix user are driven through the injected
 ## 8. Integration and acceptance
 
 - [x] 8.1 Run `mise run check` on native Windows and on the WSL Linux runner (copy to ext4, low concurrency, clean up afterwards). Run `mise run openspec:validate` and `mise run secrets`. All must pass. Record the test counts per platform.
-- [ ] 8.2 Add `tool/provider_smoke.dart`, which runs a real tool round trip through `ChatGptAdapter` and prints the normalized events, with no token output. Turn 1 sends one trivial tool (`echo`, one string parameter) and instructions to call it; it must end with a `ToolCall` and `Completed(tool_use)`. Turn 2 sends the call and its output by `call_id` and must end with text and `Completed(end_turn)`. Any other outcome exits non-zero, naming it. Ask the user to run the acceptance check on native Windows, and on Linux if available:
+- [x] 8.2 Add `tool/provider_smoke.dart`, which runs a real tool round trip through `ChatGptAdapter` and prints the normalized events, with no token output. Turn 1 sends one trivial tool (`echo`, one string parameter) and instructions to call it; it must end with a `ToolCall` and `Completed(tool_use)`. Turn 2 sends the call and its output by `call_id` and must end with text and `Completed(end_turn)`. Any other outcome exits non-zero, naming it. Ask the user to run the acceptance check on native Windows, and on Linux if available:
   1. `kehai login openai` (browser, allowing ChatGPT plan usage), then `kehai doctor` showing the account and the model list;
   2. `dart run tool/provider_smoke.dart`, completing both turns: an actual tool call, then a text answer, each with usage;
   3. a second `kehai doctor` after forcing expiry (edit `expires_at` back), proving a silent refresh;
   4. `kehai logout openai`, reporting confirmed revocation, then `kehai login openai --no-browser` completed by pasting the redirect URL, proving the reused client and the paste path.
 
   Record each result as the user reports it: user-verified, and never marked passed on the user's behalf.
+
+  Results (user-verified 2026-10-29, native Windows and Linux under WSL; output pasted by the user):
+  1. User-verified on both: browser login as the user's account, then `doctor` with backend (DPAPI / private file 0600), plan usage enabled, account, expiry and 8 models.
+  2. User-verified on both: `tool/provider_smoke.dart` (model `gpt-6.1-sol`) gave an `echo` ToolCall with `Completed(tool_use)`, then text with `Completed(end_turn)`, each turn with usage; `smoke: passed`.
+  3. User-verified on both: after `tool/expire_credentials.dart` (added because the DPAPI record cannot be edited by hand), `doctor` showed `refresh: succeeded` and a new expiry.
+  4. User-verified on both: `logout openai` printed `logged out` (confirmed revocation), and `login openai --no-browser` reused the stored client id (`oaiapp_…`, not `dynamic_agent_client`) and logged in. Not exercised: the paste path. The loopback callback completed the login both times (WSL forwards localhost), and the user accepted that. Paste is covered only by the automated `cli_test.dart` login against `fake_openai`.
 
 ## Workflow follow-up
 
