@@ -206,7 +206,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 5. Login and logout
 
-- [ ] 5.1 Write the failing `test/auth/browser_login_test.dart` rows:
+- [x] 5.1 Write the failing `test/auth/browser_login_test.dart` rows:
   - A fake browser launcher follows the authorize URL to the fake auth server, which redirects to the callback with an issued client id.
   - The paste path feeds lines through an injected stdin stream.
   - Deadlines and the cancel token are injected, with short durations.
