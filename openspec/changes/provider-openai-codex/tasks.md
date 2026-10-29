@@ -257,7 +257,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 8. Integration and acceptance
 
-- [ ] 8.1 Run `mise run check` on native Windows and on the WSL Linux runner (copy to ext4, low concurrency, clean up afterwards). Run `mise run openspec:validate` and `mise run secrets`. All must pass. Record the test counts per platform.
+- [x] 8.1 Run `mise run check` on native Windows and on the WSL Linux runner (copy to ext4, low concurrency, clean up afterwards). Run `mise run openspec:validate` and `mise run secrets`. All must pass. Record the test counts per platform.
 - [ ] 8.2 Add `tool/provider_smoke.dart`, which runs a real tool round trip through `ChatGptAdapter` and prints the normalized events, with no token output. Turn 1 sends one trivial tool (`echo`, one string parameter) and instructions to call it; it must end with a `ToolCall` and `Completed(tool_use)`. Turn 2 sends the call and its output by `call_id` and must end with text and `Completed(end_turn)`. Any other outcome exits non-zero, naming it. Ask the user to run the acceptance check on native Windows, and on Linux if available:
   1. `kehai login openai` (browser, allowing ChatGPT plan usage), then `kehai doctor` showing the account and the model list;
   2. `dart run tool/provider_smoke.dart`, completing both turns: an actual tool call, then a text answer, each with usage;

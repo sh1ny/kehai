@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'package:kehai/src/auth/failure_text.dart';
 import 'package:test/test.dart';
 
-const _access = 'at_9f8e7d6c5b4a';
+const _access = 'at_9f8e7d6c5b4a'; // gitleaks:allow (fake test value)
 const _refresh = 'rt_1a2b3c4d5e6f';
-const _idToken = 'eyjhbgcioijsuzi1niisimtpzci6imsxin0';
+const _idToken =
+    'eyjhbgcioijsuzi1niisimtpzci6imsxin0'; // gitleaks:allow (fake test value)
 const _authCode = 'code_abcdef123456';
 const _verifier = 'dbjftjez4cvp_mb92k27uhbuju1p1r_ww1gfwfoejxk';
 const _state = 'state_0011223344';
