@@ -246,7 +246,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 7. CLI
 
-- [ ] 7.1 Write the failing `test/cli/cli_test.dart`. It runs `dart run bin/kehai.dart` as a process with `KEHAI_HOME` set to a temp dir, and the loopback-only `KEHAI_OPENAI_ISSUER`/`KEHAI_OPENAI_API_BASE` pointing at `fake_openai`. Include a test that a non-loopback override is rejected with exit 64.
+- [x] 7.1 Write the failing `test/cli/cli_test.dart`. It runs `dart run bin/kehai.dart` as a process with `KEHAI_HOME` set to a temp dir, and the loopback-only `KEHAI_OPENAI_ISSUER`/`KEHAI_OPENAI_API_BASE` pointing at `fake_openai`. Include a test that a non-loopback override is rejected with exit 64.
 - [ ] 7.2 Implement `bin/kehai.dart` and `lib/src/cli/` per D1:
   - `CommandRunner` with `login openai [--no-browser] [--enable-plan-usage]`, `logout openai [--forget]` and `doctor`;
   - exit codes 0, 1 and 64;
