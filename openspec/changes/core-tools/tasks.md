@@ -11,22 +11,22 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| tool-calls → Fixed versioned tool roster | Roster exposed as tool specs | test/tools/runtime_test.dart | specs list the eleven tools with versioned names and JSON schemas | red |
-| tool-calls → Fixed versioned tool roster | Unknown tool | test/tools/runtime_test.dart | unknown tool settles failed with envelope error and a stored result | red |
-| tool-calls → Arguments validated before anything runs | Valid arguments proceed | test/tools/runtime_test.dart | valid arguments reach the tool unchanged | red |
-| tool-calls → Arguments validated before anything runs | Malformed or invalid arguments | test/tools/runtime_test.dart | malformed JSON and schema violations fail before any effect | red |
-| tool-calls → Call node lifecycle in the tree | Successful call records its lifecycle | test/tools/runtime_test.dart | call node goes pending, running, settled with input and result reference | red |
-| tool-calls → Call node lifecycle in the tree | Provider call id unsafe as a path segment | test/tools/runtime_test.dart | unsafe call id is keyed c- plus 12 hex of its SHA-256 | red |
-| tool-calls → Call node lifecycle in the tree | Cancelled call still answers the model | test/tools/runtime_test.dart | cancelled call composes an error envelope with a handle | red |
-| tool-calls → Call node lifecycle in the tree | Terminal status is final | test/tools/runtime_test.dart | late update to a settled call returns stale and appends nothing | red |
+| tool-calls → Fixed versioned tool roster | Roster exposed as tool specs | test/tools/runtime_test.dart | specs list the eleven tools with versioned names and JSON schemas | green |
+| tool-calls → Fixed versioned tool roster | Unknown tool | test/tools/runtime_test.dart | unknown tool settles failed with envelope error and a stored result | green |
+| tool-calls → Arguments validated before anything runs | Valid arguments proceed | test/tools/runtime_test.dart | valid arguments reach the tool unchanged | green |
+| tool-calls → Arguments validated before anything runs | Malformed or invalid arguments | test/tools/runtime_test.dart | malformed JSON and schema violations fail before any effect | green |
+| tool-calls → Call node lifecycle in the tree | Successful call records its lifecycle | test/tools/runtime_test.dart | call node goes pending, running, settled with input and result reference | green |
+| tool-calls → Call node lifecycle in the tree | Provider call id unsafe as a path segment | test/tools/runtime_test.dart | unsafe call id is keyed c- plus 12 hex of its SHA-256 | green |
+| tool-calls → Call node lifecycle in the tree | Cancelled call still answers the model | test/tools/runtime_test.dart | cancelled call composes an error envelope with a handle | green |
+| tool-calls → Call node lifecycle in the tree | Terminal status is final | test/tools/runtime_test.dart | late update to a settled call returns stale and appends nothing | green |
 | tool-calls → Full output stored, composed only centrally | Large output stored whole, cut once | test/tools/central_truncation_test.dart | every tool's full bytes are stored and only the composer cuts | red |
-| tool-calls → Full output stored, composed only centrally | Rewind between storing a result and settling | test/tools/runtime_test.dart | settle waits for re-registered descriptor after rewind and resolves in a fork | red |
-| tool-calls → Full output stored, composed only centrally | Storage fails while output streams | test/tools/runtime_test.dart | storage failure records failed with accepted bytes and a handle-less envelope | red |
-| tool-calls → Full output stored, composed only centrally | Journal unusable | test/tools/runtime_test.dart | broken writer fails the run and refuses further calls | red |
-| tool-calls → Bounded parallel calls | Parallel calls overlap | test/tools/runtime_test.dart | two calls run concurrently and settle independently | red |
-| tool-calls → Bounded parallel calls | Admission over the bound | test/tools/runtime_test.dart | 41st call over 8 running plus 32 queued fails tool busy | red |
-| tool-calls → Turn cancellation | Ctrl-C cancels running and queued calls | test/tools/runtime_test.dart | cancelTurn cancels queued then running calls with reason user | red |
-| tool-calls → Turn cancellation | Cancellation after settlement | test/tools/runtime_test.dart | cancelTurn after settle changes nothing | red |
+| tool-calls → Full output stored, composed only centrally | Rewind between storing a result and settling | test/tools/runtime_test.dart | settle waits for re-registered descriptor after rewind and resolves in a fork | green |
+| tool-calls → Full output stored, composed only centrally | Storage fails while output streams | test/tools/runtime_test.dart | storage failure records failed with accepted bytes and a handle-less envelope | green |
+| tool-calls → Full output stored, composed only centrally | Journal unusable | test/tools/runtime_test.dart | broken writer fails the run and refuses further calls | green |
+| tool-calls → Bounded parallel calls | Parallel calls overlap | test/tools/runtime_test.dart | two calls run concurrently and settle independently | green |
+| tool-calls → Bounded parallel calls | Admission over the bound | test/tools/runtime_test.dart | 41st call over 8 running plus 32 queued fails tool busy | green |
+| tool-calls → Turn cancellation | Ctrl-C cancels running and queued calls | test/tools/runtime_test.dart | cancelTurn cancels queued then running calls with reason user | green |
+| tool-calls → Turn cancellation | Cancellation after settlement | test/tools/runtime_test.dart | cancelTurn after settle changes nothing | green |
 | file-tools → Numbered read with block anchors | Read a 40-line file | test/tools/read_tool_test.dart | 40-line file anchors lines 1, 17 and 33 | red |
 | file-tools → Numbered read with block anchors | Empty file | test/tools/read_tool_test.dart | empty file reads 0 lines ok | red |
 | file-tools → Numbered read with block anchors | Path is not a readable text file | test/tools/read_tool_test.dart | missing, directory and NUL-in-8-KiB paths give their errors | red |
@@ -166,8 +166,8 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 4. Tool runtime and call lifecycle
 
-- [ ] 4.1 Write the failing `test/tools/runtime_test.dart` rows (tool-calls, except the central-truncation row), using a fake tool that exposes pause seams.
-- [ ] 4.2 Implement `lib/src/tools/runtime.dart`:
+- [x] 4.1 Write the failing `test/tools/runtime_test.dart` rows (tool-calls, except the central-truncation row), using a fake tool that exposes pause seams.
+- [x] 4.2 Implement `lib/src/tools/runtime.dart`:
   - `ToolRuntime.attach`, the roster and `ToolSpec` schemas, and argument validation;
   - call keys, and the lifecycle through `applyGuarded` with the descriptor check;
   - the 8 running / 32 queued admission bound;

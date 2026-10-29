@@ -1,0 +1,732 @@
+/// The tool-call runtime: one lifecycle for every model tool call.
+///
+/// A call is validated, recorded as the tree node `body/calls/<key>`, passed
+/// through the hook and permission stages, run by its [Tool], and settled. Its
+/// whole output goes to the result store; the model sees only the envelope
+/// the central composer renders from the stored result. Every node update is
+/// one guarded append (`SessionWriter.applyGuarded`) that checks ownership
+/// (the node exists, carries this call's `attempt` and is not terminal), and
+/// the terminal update, which references the stored result, additionally
+/// needs the result's descriptor in the tree (design D3 and D9, ADR 0010).
+library;
+
+import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as p;
+
+import '../config/user_config.dart';
+import '../provider/provider.dart';
+import '../results/composer.dart';
+import '../results/descriptor.dart';
+import '../results/result_store.dart';
+import '../session/errors.dart';
+import '../session/record.dart';
+import '../session/writer.dart';
+import 'roster.dart';
+import 'schema.dart';
+import 'tool.dart';
+
+/// The most calls that run at once.
+const int maxRunningCalls = 8;
+
+/// The most calls that wait, in arrival order, for a running slot.
+const int maxQueuedCalls = 32;
+
+/// How many times a terminal record is retried after its descriptor vanished.
+const int _maxSettleRetries = 16;
+
+const Set<String> _terminalStatuses = {'settled', 'failed', 'cancelled'};
+
+/// The node key `c-<12 hex>` of the provider call id [callId].
+///
+/// It is the first 12 hex digits of the SHA-256 of the UTF-8 call id, so any
+/// provider id becomes a valid path segment.
+String callKey(String callId) =>
+    'c-${sha256.convert(utf8.encode(callId)).toString().substring(0, 12)}';
+
+/// A call node was removed, replaced or finalized by someone else, so the
+/// runtime's update was refused and nothing was appended.
+///
+/// This happens when a rewind removed the node while its call was running.
+final class StaleCallError implements Exception {
+  /// Creates the error for the node [key].
+  const StaleCallError(this.key);
+
+  /// The node key.
+  final String key;
+
+  @override
+  String toString() => 'StaleCallError: call $key no longer owns its node';
+}
+
+/// Test seams of the runtime.
+final class ToolRuntimeSeams {
+  /// Creates seams; every callback is optional.
+  const ToolRuntimeSeams({this.beforeSettle, this.onStale});
+
+  /// Runs after a call's result descriptor is registered and before the
+  /// record that references it is appended; a rewind may land here.
+  final Future<void> Function(String key)? beforeSettle;
+
+  /// Runs when a guarded update to the call node [key] came back `stale`.
+  final void Function(String key)? onStale;
+}
+
+/// Runs tool calls against one session.
+///
+/// Created by [attach]. Calls are submitted with [run]; up to
+/// [maxRunningCalls] run at once and up to [maxQueuedCalls] wait. A tool
+/// failure never throws from [run]: the model always gets an envelope. The
+/// only exceptions are the writer's `StorageError`, after which the runtime
+/// admits nothing more (the session must be reopened), and a [StaleCallError].
+final class ToolRuntime {
+  ToolRuntime._(
+    this.writer,
+    this.store,
+    this.workspace,
+    this.config,
+    this.yolo,
+    this._tools,
+    this._hooks,
+    this._gate,
+    this._seams,
+  );
+
+  /// Attaches a runtime to [writer] and [store].
+  ///
+  /// [tools] are the available implementations by tool name; a roster tool
+  /// without one fails its calls as unavailable. [hooks] and [gate] are the
+  /// stages every call passes before it runs, in that order, after its
+  /// arguments were validated; they default to [AllowAllStage] until the hook
+  /// runner and the permission gate (which reads [yolo]) are plugged in.
+  ///
+  /// Resume finalization (design D12) runs here before any call is admitted.
+  static Future<ToolRuntime> attach(
+    SessionWriter writer,
+    ResultStore store, {
+    required Directory workspace,
+    UserConfig config = const UserConfig(),
+    bool yolo = false,
+    Map<String, Tool> tools = const {},
+    CallStage? hooks,
+    CallStage? gate,
+    ToolRuntimeSeams seams = const ToolRuntimeSeams(),
+  }) async {
+    final runtime = ToolRuntime._(
+      writer,
+      store,
+      workspace,
+      config,
+      yolo,
+      Map.unmodifiable(tools),
+      hooks ?? const AllowAllStage(),
+      gate ?? const AllowAllStage(),
+      seams,
+    );
+    await runtime._finalizeOnResume();
+    return runtime;
+  }
+
+  /// The session writer.
+  final SessionWriter writer;
+
+  /// The result store of the same session.
+  final ResultStore store;
+
+  /// The workspace root.
+  final Directory workspace;
+
+  /// The user configuration.
+  final UserConfig config;
+
+  /// Whether the user asked to skip permission prompts.
+  final bool yolo;
+
+  final Map<String, Tool> _tools;
+  final CallStage _hooks;
+  final CallStage _gate;
+  final ToolRuntimeSeams _seams;
+
+  final Map<String, ToolDefinition> _definitions = {
+    for (final d in toolDefinitions) d.name: d,
+  };
+  final Map<String, _Live> _live = {};
+  final Queue<_Live> _waiting = Queue();
+  int _running = 0;
+  StorageError? _fatal;
+  bool _closed = false;
+
+  /// The eleven tools the model may call, with their argument schemas.
+  late final List<ToolSpec> specs = List.unmodifiable([
+    for (final d in toolDefinitions) d.spec,
+  ]);
+
+  /// Runs [call] and returns the output that answers it.
+  ///
+  /// The output is the composed envelope for the call's stored result. Throws
+  /// the writer's `StorageError` when the journal is unusable, and from then
+  /// on for every later call.
+  Future<ToolOutputItem> run(ToolCall call) async {
+    _ensureUsable();
+    final live = _Live(call, callKey(call.callId));
+    if (_live.containsKey(live.key)) {
+      throw StateError('call id ${call.callId} is already running');
+    }
+    _live[live.key] = live;
+    try {
+      final text = await _drive(live);
+      return ToolOutputItem(callId: call.callId, output: text);
+    } on StaleCallError {
+      live.token.cancel();
+      rethrow;
+    } finally {
+      if (!live.terminal.isCompleted) live.terminal.complete('lost');
+      _leave(live);
+      _live.remove(live.key);
+    }
+  }
+
+  /// Cancels every pending and running call with reason `user`.
+  ///
+  /// Pending calls are cancelled first, then running ones. Each is recorded
+  /// `cancelled` before this returns. Jobs already moved to the background are
+  /// not touched. Returns how many calls ended `cancelled`; a call that
+  /// settled first is not counted.
+  Future<int> cancelTurn() => _cancelAll('user');
+
+  /// Stops admitting calls and cancels the ones still live.
+  Future<void> close() async {
+    _closed = true;
+    await _cancelAll('shutdown');
+  }
+
+  Future<int> _cancelAll(String reason) async {
+    final calls = _live.values.toList();
+    var cancelled = 0;
+    for (final running in [false, true]) {
+      final group = [
+        for (final c in calls)
+          if (c.running == running) c,
+      ];
+      for (final call in group) {
+        call.cancelReason ??= reason;
+        call.token.cancel();
+      }
+      final ended = await Future.wait(group.map((c) => c.terminal.future));
+      cancelled += ended.where((status) => status == 'cancelled').length;
+    }
+    return cancelled;
+  }
+
+  /// Finalizes calls a crashed engine left `pending` or `running` (design
+  /// D12). Nothing to finalize exists before the job supervisor and resume
+  /// land, so this does nothing yet; it runs before any call is admitted.
+  Future<void> _finalizeOnResume() async {}
+
+  void _ensureUsable() {
+    if (_closed) throw StateError('the tool runtime is closed');
+    final fatal = _fatal;
+    if (fatal != null) throw fatal;
+    if (writer.state != WriterState.ready) {
+      throw _fatal = const StorageError(
+        'the session writer is not usable; reopen the session',
+      );
+    }
+  }
+
+  Future<String> _drive(_Live live) async {
+    final call = live.call;
+    final definition = _definitions[call.name];
+    final input = parseArguments(call.argumentsJson);
+    live
+      ..tool = call.name
+      ..version = definition?.version ?? 0
+      ..input = input ?? call.argumentsJson;
+
+    // Validation fails a call before it takes a slot or has any effect.
+    var failure = _validationFailure(call.name, definition, input);
+    var queued = false;
+    if (failure == null) {
+      if (_running < maxRunningCalls) {
+        _running++;
+        live.holdsSlot = true;
+      } else if (_waiting.length < maxQueuedCalls) {
+        _waiting.add(live);
+        queued = true;
+      } else {
+        failure = (
+          'tool busy',
+          'tool busy: $maxRunningCalls calls running and $maxQueuedCalls '
+              'waiting',
+        );
+      }
+    }
+
+    if (!await _create(live)) {
+      throw StateError('call id ${call.callId} was already used');
+    }
+    if (failure != null) {
+      final (summary, body) = failure;
+      return _finishText(
+        live,
+        'failed',
+        ResultStatus.error,
+        summary,
+        body,
+        reason: summary,
+      );
+    }
+    if (queued) {
+      await Future.any([live.granted.future, live.token.whenCancelled]);
+      if (!live.granted.isCompleted) {
+        _waiting.remove(live);
+        return _cancelledBeforeRun(live);
+      }
+    }
+    return _execute(live, input!);
+  }
+
+  (String, String)? _validationFailure(
+    String name,
+    ToolDefinition? definition,
+    Map<String, Object?>? input,
+  ) {
+    if (definition == null) return ('unknown tool', 'unknown tool $name');
+    if (input == null) return ('invalid arguments', notAnObjectMessage);
+    final violations = validateArguments(definition.schema, input);
+    if (violations.isNotEmpty) {
+      return (
+        'invalid arguments',
+        'invalid arguments for $name:\n${violations.join('\n')}',
+      );
+    }
+    if (!_tools.containsKey(name)) {
+      return ('tool unavailable', '$name is not available in this build');
+    }
+    return null;
+  }
+
+  Future<String> _execute(_Live live, Map<String, Object?> input) async {
+    if (live.token.isCancelled) return _cancelledBeforeRun(live);
+    final stageCall = StageCall(
+      tool: live.tool,
+      callKey: live.key,
+      callId: live.call.callId,
+      input: input,
+    );
+    // Seam: hooks (group 11) run first, then the permission gate (group 5).
+    for (final (stage, field) in [(_hooks, 'hooks'), (_gate, 'permission')]) {
+      final outcome = await _runStage(stage, stageCall, live);
+      if (outcome == null) return _cancelledBeforeRun(live);
+      if (outcome.record != null) live.extra[field] = outcome.record;
+      live.diag.addAll(outcome.diag);
+      final denied = outcome.denyReason;
+      if (denied != null) {
+        return _finishText(
+          live,
+          'settled',
+          ResultStatus.denied,
+          'denied',
+          denied,
+        );
+      }
+      if (live.token.isCancelled) return _cancelledBeforeRun(live);
+    }
+
+    await _update(live, {'status': 'running', ...live.takeExtra()});
+    live.running = true;
+
+    final pipe = OutputPipe();
+    final stored = store.storeResult(pipe.chunks());
+    final context = ToolContext(
+      callKey: live.key,
+      callId: live.call.callId,
+      output: pipe,
+      cancel: live.token,
+      workspace: workspace,
+      config: config,
+    );
+    final tool = _invoke(_tools[live.tool]!, context, input);
+    final first = await Future.any<_Step>([
+      tool.then(_ToolDone.new),
+      live.token.whenCancelled.then((_) => const _Cancelled()),
+      stored.then(_StoreEnded.new),
+    ]);
+    switch (first) {
+      case _ToolDone(:final outcome):
+        pipe.close();
+        return _terminate(
+          live,
+          lifecycle: 'settled',
+          envelope: outcome.status,
+          summary: outcome.summary,
+          write: await stored,
+          complete: outcome.complete,
+        );
+      case _Cancelled():
+        pipe.close();
+        final write = await stored;
+        unawaited(_late(live, tool));
+        return _terminate(
+          live,
+          lifecycle: 'cancelled',
+          envelope: ResultStatus.error,
+          summary: 'cancelled: ${live.cancelReason}',
+          write: write,
+          complete: false,
+          reason: live.cancelReason,
+        );
+      case _StoreEnded(:final write):
+        // The store stopped listening, so the producer must stop too.
+        live.token.cancel();
+        pipe.close();
+        unawaited(_late(live, tool));
+        return _terminate(
+          live,
+          lifecycle: 'failed',
+          envelope: ResultStatus.error,
+          summary: 'storage failure',
+          write: write,
+          complete: false,
+        );
+    }
+  }
+
+  /// Runs a stage, or returns `null` when the turn is cancelled first.
+  Future<StageOutcome?> _runStage(
+    CallStage stage,
+    StageCall call,
+    _Live live,
+  ) async {
+    Future<StageOutcome> check() async {
+      try {
+        return await stage.check(call, live.token);
+      } on Object catch (e) {
+        return StageOutcome.deny('stage failed: $e');
+      }
+    }
+
+    return Future.any<StageOutcome?>([
+      check(),
+      live.token.whenCancelled.then((_) => null),
+    ]);
+  }
+
+  Future<ToolOutcome> _invoke(
+    Tool tool,
+    ToolContext context,
+    Map<String, Object?> input,
+  ) async {
+    try {
+      return await tool.run(context, input);
+    } on Object catch (e) {
+      return ToolOutcome(
+        status: ResultStatus.error,
+        summary: 'tool error: $e',
+        complete: false,
+      );
+    }
+  }
+
+  /// A completion that arrives after the call was already finalized. The
+  /// ownership guard refuses it; nothing is appended.
+  Future<void> _late(_Live live, Future<ToolOutcome> tool) async {
+    try {
+      // Only after the call's own terminal record: a completion that merely
+      // arrives first must not win against the finalization in progress.
+      await live.terminal.future;
+      final outcome = await tool;
+      final result = await _guarded(live, {
+        'status': 'settled',
+        'envelope': outcome.status.name,
+        'summary': outcome.summary,
+      });
+      if (result is Refused) _seams.onStale?.call(live.key);
+    } on Object {
+      // The call is final; a late completion must never surface.
+    }
+  }
+
+  Future<String> _cancelledBeforeRun(_Live live) => _finishText(
+    live,
+    'cancelled',
+    ResultStatus.error,
+    'cancelled: ${live.cancelReason}',
+    '',
+    reason: live.cancelReason,
+  );
+
+  /// Stores [body] as the call's result and records the terminal state.
+  Future<String> _finishText(
+    _Live live,
+    String lifecycle,
+    ResultStatus envelope,
+    String summary,
+    String body, {
+    String? reason,
+  }) async {
+    final write = await store.storeResult(
+      body.isEmpty
+          ? const Stream<List<int>>.empty()
+          : Stream.value(utf8.encode(body)),
+    );
+    return _terminate(
+      live,
+      lifecycle: lifecycle,
+      envelope: envelope,
+      summary: summary,
+      write: write,
+      complete: lifecycle != 'cancelled',
+      reason: reason,
+    );
+  }
+
+  /// Records the terminal state for [write] and composes the model text.
+  Future<String> _terminate(
+    _Live live, {
+    required String lifecycle,
+    required ResultStatus envelope,
+    required String summary,
+    required ResultWrite write,
+    required bool complete,
+    String? reason,
+  }) async {
+    final ResultDescriptor descriptor;
+    var whole = complete;
+    switch (write) {
+      case ResultComplete(descriptor: final d):
+        descriptor = d;
+      case ResultProducerFailed(descriptor: final d):
+        descriptor = d;
+        whole = false;
+      case ResultStorageFailed():
+        return _storageFailure(live, write);
+    }
+    await _settle(live, descriptor, {
+      'status': lifecycle,
+      'envelope': envelope.name,
+      'summary': summary,
+      'result': {'handle': descriptor.handle, 'complete': whole},
+      'reason': ?reason,
+      ...live.takeExtra(),
+    });
+    live.terminal.complete(lifecycle);
+    final file = File(
+      p.join(store.sessionDir.path, resultsDirName, descriptor.sha256),
+    );
+    final text = await composeResult(
+      live.tool,
+      envelope,
+      summary,
+      descriptor,
+      file,
+    );
+    return text + _diagLines(live);
+  }
+
+  /// The one handle-less outcome: the result could not be stored.
+  Future<String> _storageFailure(_Live live, ResultStorageFailed write) async {
+    await _settle(live, null, {
+      'status': 'failed',
+      'envelope': 'error',
+      'summary': 'storage failure',
+      'reason': 'storage: ${write.error}',
+      'accepted': write.bytesAccepted,
+      ...live.takeExtra(),
+    });
+    live.terminal.complete('failed');
+    return composeStorageFailure(live.tool, write.error, write.bytesAccepted) +
+        _diagLines(live);
+  }
+
+  String _diagLines(_Live live) =>
+      [for (final (source, text) in live.diag) '\n[diag $source] $text'].join();
+
+  /// Registers [descriptor], then appends the terminal [fields].
+  ///
+  /// When a rewind between the two removed the descriptor, the append is
+  /// refused with `descriptors missing`; the descriptor is registered again
+  /// and the same record retried under the same ownership guard.
+  Future<void> _settle(
+    _Live live,
+    ResultDescriptor? descriptor,
+    Map<String, Object?> fields,
+  ) async {
+    if (descriptor != null) await _write(() => writer.recordResult(descriptor));
+    await _seams.beforeSettle?.call(live.key);
+    for (var attempt = 0; ; attempt++) {
+      final outcome = await _guarded(live, fields);
+      switch (outcome) {
+        case Applied():
+          return;
+        case Refused(reason: 'descriptors missing')
+            when descriptor != null && attempt < _maxSettleRetries:
+          await _write(() => writer.recordResult(descriptor));
+        case Refused(reason: 'stale'):
+          _seams.onStale?.call(live.key);
+          throw StaleCallError(live.key);
+        case Refused():
+          throw StateError(
+            'the record for call ${live.key} was refused: $outcome',
+          );
+      }
+    }
+  }
+
+  /// Appends the non-terminal update [fields] under the ownership guard.
+  Future<void> _update(_Live live, Map<String, Object?> fields) async {
+    final outcome = await _guarded(live, fields);
+    if (outcome is Refused) {
+      _seams.onStale?.call(live.key);
+      throw StaleCallError(live.key);
+    }
+  }
+
+  /// Merges [fields] into the call node when this call still owns it: the
+  /// node exists, carries this `attempt` and is not terminal.
+  Future<GuardedOutcome> _guarded(_Live live, Map<String, Object?> fields) =>
+      _write(
+        () => writer.applyGuarded((read) {
+          final node = read(live.path);
+          if (node is! Map<String, Object?> ||
+              node['attempt'] != live.attempt ||
+              _terminalStatuses.contains(node['status'])) {
+            return const GuardedRefusal('stale');
+          }
+          return GuardedAppend(
+            JournalRecord(
+              turn: writer.currentTurn,
+              path: live.path,
+              op: Op.merge,
+              value: fields,
+            ),
+          );
+        }),
+      );
+
+  /// Records the `pending` node with the call's input; false when a node with
+  /// this key already exists.
+  Future<bool> _create(_Live live) async {
+    final outcome = await _write(
+      () => writer.applyGuarded((read) {
+        if (read(live.path) != null) return const GuardedRefusal('exists');
+        return GuardedAppend(
+          JournalRecord(
+            turn: writer.currentTurn,
+            path: live.path,
+            op: Op.set,
+            value: {
+              'tool': live.tool,
+              'version': live.version,
+              'callId': live.call.callId,
+              'attempt': live.attempt,
+              'input': live.input,
+              'status': 'pending',
+            },
+          ),
+        );
+      }),
+    );
+    return outcome is Applied;
+  }
+
+  /// Runs a writer operation; a broken journal becomes the runtime's fatal
+  /// error, which every later call then throws.
+  Future<T> _write<T>(Future<T> Function() operation) async {
+    try {
+      return await operation();
+    } on StorageError catch (e) {
+      _fatal ??= e;
+      rethrow;
+    } on SessionError catch (e) {
+      if (e.reason == 'writer broken') {
+        throw _fatal ??= const StorageError('the session writer is broken');
+      }
+      rethrow;
+    }
+  }
+
+  /// Gives back a call's running slot, or its place in the queue, and hands
+  /// freed slots to the waiting calls in arrival order.
+  void _leave(_Live live) {
+    _waiting.remove(live);
+    if (live.holdsSlot) {
+      live.holdsSlot = false;
+      _running--;
+    }
+    while (_running < maxRunningCalls && _waiting.isNotEmpty) {
+      final next = _waiting.removeFirst();
+      next.holdsSlot = true;
+      _running++;
+      next.granted.complete();
+    }
+  }
+}
+
+/// What ended the wait of a running call.
+sealed class _Step {
+  const _Step();
+}
+
+final class _ToolDone extends _Step {
+  const _ToolDone(this.outcome);
+
+  final ToolOutcome outcome;
+}
+
+final class _Cancelled extends _Step {
+  const _Cancelled();
+}
+
+final class _StoreEnded extends _Step {
+  const _StoreEnded(this.write);
+
+  final ResultWrite write;
+}
+
+/// The runtime's state for one live call.
+final class _Live {
+  _Live(this.call, this.key) : attempt = _newAttempt();
+
+  final ToolCall call;
+  final String key;
+  final String attempt;
+  final CancelToken token = CancelToken();
+  final Completer<void> granted = Completer<void>();
+  final Completer<String> terminal = Completer<String>();
+  final Map<String, Object?> extra = {};
+  final List<(String, String)> diag = [];
+
+  String tool = '';
+  int version = 0;
+  Object? input;
+  bool holdsSlot = false;
+  bool running = false;
+  String? cancelReason;
+  bool _diagTaken = false;
+
+  String get path => 'body/calls/$key';
+
+  /// The stage records and diagnostics not yet merged into the node.
+  Map<String, Object?> takeExtra() {
+    final out = <String, Object?>{...extra};
+    extra.clear();
+    if (diag.isNotEmpty && !_diagTaken) {
+      _diagTaken = true;
+      out['diag'] = [
+        for (final (source, text) in diag) {'source': source, 'text': text},
+      ];
+    }
+    return out;
+  }
+}
+
+String _newAttempt() {
+  final random = Random.secure();
+  return List.generate(16, (_) => random.nextInt(16).toRadixString(16)).join();
+}

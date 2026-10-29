@@ -42,3 +42,7 @@ export 'src/auth/login_controller.dart' show LoginFailure;
 export 'src/auth/browser_login.dart'
     show BrowserLauncher, BrowserLogin, LoginResult;
 export 'src/auth/logout.dart' show logoutOpenAi;
+export 'src/tools/roster.dart' show ToolDefinition, toolDefinitions;
+export 'src/tools/runtime.dart';
+export 'src/tools/schema.dart' show parseArguments, validateArguments;
+export 'src/tools/tool.dart';
