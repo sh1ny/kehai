@@ -25,8 +25,8 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | credential-store → Trusted credential home path | Home owned by another user | test/auth/home_trust_test.dart | home owned by another user is rejected | green |
 | credential-store → Atomic credential replacement | Successful replacement | test/auth/credential_store_test.dart | replacement returns new record and leaves no temp file | green |
 | credential-store → Atomic credential replacement | Interrupted write | test/auth/credential_store_test.dart | failure before rename keeps the previous record | green |
-| credential-store → Cross-process credential lock | Two processes refresh at once | test/auth/refresher_process_test.dart | two processes refreshing send exactly one refresh | red |
-| credential-store → Cross-process credential lock | Holder dies | test/auth/refresher_process_test.dart | killed lock holder does not block the next process | red |
+| credential-store → Cross-process credential lock | Two processes refresh at once | test/auth/refresher_process_test.dart | two processes refreshing send exactly one refresh | green |
+| credential-store → Cross-process credential lock | Holder dies | test/auth/refresher_process_test.dart | killed lock holder does not block the next process | green |
 | credential-store → Credentials never leave the boundary | Doctor output is token-free | test/cli/cli_test.dart | doctor output contains no stored token | red |
 | credential-store → Credentials never leave the boundary | Authorize URL handoff | test/auth/browser_login_test.dart | authorize url with state and nonce appears once on stdout and as launcher argument, nowhere else | red |
 | credential-store → Credentials never leave the boundary | Rejected pasted URL is not echoed | test/auth/browser_login_test.dart | rejected pasted url is not echoed | red |
@@ -202,7 +202,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - clearing on a terminal outcome only when the refresh token is unchanged.
 
   Verify that `refresher_test.dart` passes and flip its rows green.
-- [ ] 4.4 Write `test/auth/refresher_process_test.dart`, which spawns two Dart processes (fixtures under `test/fixtures/`) against one fake server and one home. Then make it pass: one refresh for two processes, and a killed holder that does not block the next. Run it on Windows and the WSL runner, and flip both rows green.
+- [x] 4.4 Write `test/auth/refresher_process_test.dart`, which spawns two Dart processes (fixtures under `test/fixtures/`) against one fake server and one home. Then make it pass: one refresh for two processes, and a killed holder that does not block the next. Run it on Windows and the WSL runner, and flip both rows green.
 
 ## 5. Login and logout
 
