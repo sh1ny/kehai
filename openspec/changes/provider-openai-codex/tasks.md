@@ -129,8 +129,8 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | provider-auth → Terminal refresh failure | Token replaced meanwhile | test/auth/refresher_test.dart | terminal failure keeps a token set stored meanwhile | green |
 | provider-auth → Rejected client and other refresh errors | Client rejected | test/auth/refresher_test.dart | invalid_client is invalid_request naming logout --forget | green |
 | provider-auth → Rejected client and other refresh errors | Unknown 400 | test/auth/refresher_test.dart | unknown 400 code is invalid_request | green |
-| provider-auth → Logout revokes the session | Revocation confirmed | test/auth/logout_test.dart | logout posts revocation form and reports logged out | red |
-| provider-auth → Logout revokes the session | Revocation not confirmed | test/auth/logout_test.dart | failed revocation still clears tokens and says not confirmed | red |
+| provider-auth → Logout revokes the session | Revocation confirmed | test/auth/logout_test.dart | logout posts revocation form and reports logged out | green |
+| provider-auth → Logout revokes the session | Revocation not confirmed | test/auth/logout_test.dart | failed revocation still clears tokens and says not confirmed | green |
 | provider-auth → Doctor report | Healthy subscription | test/cli/cli_test.dart | doctor prints account backend expiry models and exits zero | red |
 | provider-auth → Doctor report | Not logged in | test/cli/cli_test.dart | doctor without tokens or a disabled registration reports not logged in and exits non-zero | red |
 | provider-auth → Doctor report | Plan usage not enabled | test/cli/cli_test.dart | doctor with plan usage disabled names enable-plan-usage and exits non-zero | red |
@@ -224,7 +224,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - static pages, `close(force: true)`, and the 10-minute deadline.
 
   Verify that `browser_login_test.dart` passes on Windows and the WSL runner, and flip its rows green.
-- [ ] 5.3 Write the failing `test/auth/logout_test.dart` rows, then implement logout per D6a: discovery, the revocation form, clearing in `finally`, advancing `generation` (also with no token set, for host-only and tokenless-registration records), and `--forget` with or without a token set. Verify the tests pass and flip the rows green.
+- [x] 5.3 Write the failing `test/auth/logout_test.dart` rows, then implement logout per D6a: discovery, the revocation form, clearing in `finally`, advancing `generation` (also with no token set, for host-only and tokenless-registration records), and `--forget` with or without a token set. Verify the tests pass and flip the rows green.
 
 ## 6. Provider interface and ChatGPT plan adapter
 
