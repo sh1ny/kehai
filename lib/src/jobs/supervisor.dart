@@ -11,10 +11,12 @@ import '../auth/posix_ffi.dart';
 import '../results/descriptor.dart';
 import '../results/live_result.dart';
 import '../results/result_store.dart';
+import '../session/path.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
 import '../shell/detect.dart';
 import '../shell/launch.dart';
+import 'recovery.dart';
 
 /// The most jobs that may be live (`pending` or `running`) at once.
 const int maxLiveJobs = 16;
@@ -240,10 +242,14 @@ final class JobHooks {
     this.afterPending,
     this.afterStart,
     this.beforeRunning,
+    this.beforeIntent,
     this.afterIntent,
+    this.afterStreamPublish,
     this.afterPublish,
     this.afterRegister,
     this.beforeClear,
+    this.beforeOrphan,
+    this.afterOrphan,
   });
 
   /// After the reservation, before the launch record.
@@ -258,8 +264,14 @@ final class JobHooks {
   /// Before the `running` record.
   final Future<void> Function(String id)? beforeRunning;
 
+  /// After the streams were sealed, before the intent is recorded.
+  final Future<void> Function(String id)? beforeIntent;
+
   /// After the handoff intent committed.
   final Future<void> Function(String id)? afterIntent;
+
+  /// After one stream's spool was renamed; gets the job id and the stream.
+  final Future<void> Function(String id, String stream)? afterStreamPublish;
 
   /// After the spools were renamed.
   final Future<void> Function(String id)? afterPublish;
@@ -269,6 +281,14 @@ final class JobHooks {
 
   /// After the job settled, before the intent is removed.
   final Future<void> Function(String id)? beforeClear;
+
+  /// Recovery only: before a launch record's output mapping moves to
+  /// `meta/orphans`.
+  final Future<void> Function(String id)? beforeOrphan;
+
+  /// Recovery only: after the output mapping committed, before the launch
+  /// record is cleared.
+  final Future<void> Function(String id)? afterOrphan;
 }
 
 /// The durations of the termination and drain sequences.
@@ -389,6 +409,10 @@ final class JobSupervisor {
   ///
   /// [groupSignal] and [windows] replace the libc `kill` and the platform
   /// check, so tests can exercise a termination path on any host.
+  ///
+  /// With [reconcile] (the default) the supervisor subscribes to the writer
+  /// and runs one reconciliation pass after every committed rewind and after
+  /// every `ResyncRequired` (design D11).
   JobSupervisor(
     this.writer,
     this.store, {
@@ -396,8 +420,23 @@ final class JobSupervisor {
     this.timings = const JobTimings(),
     GroupSignal? groupSignal,
     bool? windows,
+    bool reconcile = true,
   }) : _signal = groupSignal ?? _libcSignal,
-       _windows = windows ?? Platform.isWindows;
+       _windows = windows ?? Platform.isWindows,
+       recovery = JobRecovery(writer, store, hooks: hooks) {
+    if (reconcile) _subscribe();
+  }
+
+  /// Settles or orphans what no owner is left for; used at attach and by the
+  /// reconciler.
+  final JobRecovery recovery;
+
+  /// The keys of the calls the runtime owns; their nodes are left to it.
+  Set<String> Function() liveCallKeys = () => const {};
+
+  /// Runs at the end of every reconciliation pass; the runtime cancels its
+  /// calls whose nodes a rewind removed.
+  void Function() afterReconcile = () {};
 
   /// The session writer.
   final SessionWriter writer;
@@ -415,6 +454,10 @@ final class JobSupervisor {
   final bool _windows;
   final Map<String, _Job> _jobs = {};
   bool _closed = false;
+  StreamSubscription<CommittedUpdate>? _watch;
+  bool _resync = false;
+  bool _again = false;
+  Future<void>? _passes;
 
   /// The jobs holding an admission slot: `pending`, `running` or draining.
   int get liveCount => _jobs.values.where((j) => j.slotHeld).length;
@@ -472,6 +515,8 @@ final class JobSupervisor {
   /// Cancels every live job as `shutdown` and waits for their handoffs.
   Future<void> close() async {
     _closed = true;
+    await _watch?.cancel();
+    _watch = null;
     final jobs = _jobs.values.toList();
     for (final job in jobs) {
       unawaited(_cancel(job, 'shutdown'));
@@ -480,6 +525,104 @@ final class JobSupervisor {
       for (final job in jobs)
         job.done.future.then<void>((_) {}, onError: (Object _) {}),
     ]);
+    await _passes;
+  }
+
+  // -- the reconciler (design D11) -------------------------------------
+
+  /// Completes once no reconciliation pass is requested or running.
+  ///
+  /// A pass is requested when the writer delivers a committed rewind, so this
+  /// first lets pending deliveries arrive.
+  Future<void> reconciled() async {
+    await Future<void>.delayed(Duration.zero);
+    for (var running = _passes; running != null; running = _passes) {
+      await running;
+    }
+  }
+
+  void _subscribe() {
+    _watch = writer.subscribe().listen(
+      (update) {
+        if (update.record.op == Op.rewind) _requestPass();
+      },
+      onError: (Object error) {
+        if (error is ResyncRequired) _resync = true;
+      },
+      onDone: () {
+        _watch = null;
+        if (_closed || writer.state != WriterState.ready) return;
+        _subscribe();
+        if (_resync) {
+          _resync = false;
+          _requestPass();
+        }
+      },
+    );
+  }
+
+  /// Asks for a pass; passes are serialized, so a request during a pass
+  /// reruns it afterwards.
+  void _requestPass() {
+    if (_closed) return;
+    _again = true;
+    _passes ??= _runPasses();
+  }
+
+  Future<void> _runPasses() async {
+    try {
+      while (_again && !_closed) {
+        _again = false;
+        try {
+          await _reconcile();
+        } on Object {
+          // A broken journal fails every other operation too; the pass has
+          // nowhere to report it.
+        }
+      }
+    } finally {
+      _passes = null;
+    }
+  }
+
+  /// One level-triggered pass over the tree and the runtime map.
+  Future<void> _reconcile() async {
+    final tree = writer.tree;
+    final kills = <Future<void>>[];
+    for (final job in _jobs.values.toList()) {
+      if (!job.nodeCommitted || job.phase == _Phase.handoff) continue;
+      final node = tree.get(SessionPath.parse(job.path));
+      if (node is Map<String, Object?> && node['launch'] == job.launch) {
+        continue;
+      }
+      // The node is gone or superseded: end the process as cancellation does.
+      // A reservation whose process has not started yet is left alone: its
+      // `running` record comes back stale, which terminates the process the
+      // moment it exists and lists it under `meta/orphans` (design D8).
+      if (job.proc == null) continue;
+      job.cancelRequested = true;
+      job.cancelReason ??= 'rewound';
+      kills.add(_killRewound(job));
+    }
+    await Future.wait(kills);
+    await recovery.reconcile(
+      liveLaunches: {for (final job in _jobs.values) job.launch},
+      liveCalls: liveCallKeys(),
+    );
+    afterReconcile();
+  }
+
+  Future<void> _killRewound(_Job job) async {
+    final cleanup = await _startTermination(job);
+    await _append(
+      (read) => GuardedAppend(
+        _record('meta/orphans/${job.id}', Op.merge, {
+          'cmd': job.request.cmd,
+          'rewoundTo': writer.currentTurn,
+          'cleanup': cleanup,
+        }),
+      ),
+    );
   }
 
   Future<void> _run(_Job job) async {
@@ -513,23 +656,23 @@ final class JobSupervisor {
     );
     if (launched is! Applied) throw StateError('launch ${job.launch} exists');
     final request = job.request;
-    final pending = await _append(
-      (read) => read(job.path) != null
-          ? const GuardedRefusal('exists')
-          : GuardedAppend(
-              _record(job.path, Op.set, {
-                'kind': request.kind.wire,
-                'cmd': request.cmd,
-                'cwd': request.cwd,
-                'shell': request.shell,
-                'call': ?request.call,
-                'launch': job.launch,
-                'state': 'pending',
-                'spool': job.spools,
-              }),
-            ),
-    );
+    final pending = await _append((read) {
+      if (read(job.path) != null) return const GuardedRefusal('exists');
+      return GuardedAppend(
+        _record(job.path, Op.set, {
+          'kind': request.kind.wire,
+          'cmd': request.cmd,
+          'cwd': request.cwd,
+          'shell': request.shell,
+          'call': ?request.call,
+          'launch': job.launch,
+          'state': 'pending',
+          'spool': job.spools,
+        }),
+      );
+    });
     if (pending is! Applied) throw StateError('job ${job.id} exists');
+    // Owned from here on: a node that is gone after this is a rewind's doing.
     job.nodeCommitted = true;
     await _hook(hooks.afterPending, job);
     for (final stream in jobStreams) {
@@ -810,6 +953,7 @@ final class JobSupervisor {
     }
 
     // 1. Intent.
+    await _hook(hooks.beforeIntent, job);
     final streamsJson = {
       for (final s in jobStreams)
         s: {
@@ -839,7 +983,9 @@ final class JobSupervisor {
 
     // 2. Publish.
     for (final s in jobStreams) {
-      await store.publish(job.spools[s]!, sealed[s]!);
+      // Serialized with `snapshot`, which reads the spool or its published file.
+      await job.gates[s]!.run(() => store.publish(job.spools[s]!, sealed[s]!));
+      await hooks.afterStreamPublish?.call(job.id, s);
     }
     await _hook(hooks.afterPublish, job);
 

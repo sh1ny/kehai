@@ -102,32 +102,32 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | job-supervisor → Bounded output drain | Hook whose descendant holds the pipe | test/jobs/drain_test.dart | [unix] hook with held pipe meets its deadline and frees its slot | green |
 | job-supervisor → Job tool | Follow a backgrounded command | test/tools/job_tool_test.dart | output snapshot is incomplete while running and wait returns exit | green |
 | job-supervisor → Job tool | Unknown or finished job | test/tools/job_tool_test.dart | unknown id errors and cancel of a settled job is a no-op | green |
-| job-supervisor → Generic rewind reconciliation | Rewind past a job's start | test/jobs/reconcile_test.dart | rewind before start kills the process and records the orphan | red |
-| job-supervisor → Generic rewind reconciliation | Rewind restores a finished job as running | test/jobs/reconcile_test.dart | restored running node without runtime is cancelled rewound | red |
-| job-supervisor → Generic rewind reconciliation | Rewind leaves a live job's start in place | test/jobs/reconcile_test.dart | rewind after start leaves the job running to its settle | red |
-| job-supervisor → Stale callbacks rejected | Output arrives after rewind removed the job | test/jobs/reconcile_test.dart | exit after removal returns stale and appends nothing | red |
-| job-supervisor → Stale callbacks rejected | Race between settle and cancel | test/jobs/reconcile_test.dart | concurrent exit and cancel record exactly one terminal state | red |
-| job-supervisor → Stale callbacks rejected | Stale update from a live process | test/jobs/reconcile_test.dart | stale update for a live process terminates it and records the orphan | red |
+| job-supervisor → Generic rewind reconciliation | Rewind past a job's start | test/jobs/reconcile_test.dart | rewind before start kills the process and records the orphan | green |
+| job-supervisor → Generic rewind reconciliation | Rewind restores a finished job as running | test/jobs/reconcile_test.dart | restored running node without runtime is cancelled rewound | green |
+| job-supervisor → Generic rewind reconciliation | Rewind leaves a live job's start in place | test/jobs/reconcile_test.dart | rewind after start leaves the job running to its settle | green |
+| job-supervisor → Stale callbacks rejected | Output arrives after rewind removed the job | test/jobs/reconcile_test.dart | exit after removal returns stale and appends nothing | green |
+| job-supervisor → Stale callbacks rejected | Race between settle and cancel | test/jobs/reconcile_test.dart | concurrent exit and cancel record exactly one terminal state | green |
+| job-supervisor → Stale callbacks rejected | Stale update from a live process | test/jobs/reconcile_test.dart | stale update for a live process terminates it and records the orphan | green |
 | job-supervisor → Launch ownership | Rewind between pending and process start | test/jobs/launch_test.dart | rewind during launch kills the started process and never records running | green |
 | job-supervisor → Launch ownership | Cancel while launching | test/jobs/launch_test.dart | cancel during launch records cancelled user and never running | green |
-| job-supervisor → Resume finalizes tool and job nodes | Crash during a running command | test/jobs/resume_test.dart | killed engine reopens with call and job cancelled interrupted, not rerun | red |
-| job-supervisor → Resume finalizes tool and job nodes | Crash before any output existed | test/jobs/resume_test.dart | pending call gets an interrupted result with complete false | red |
-| job-supervisor → Resume finalizes tool and job nodes | Crash with output already spooled | test/jobs/resume_test.dart | spooled 300 lines are adopted complete false and the spool is gone | red |
-| job-supervisor → Resume finalizes tool and job nodes | Fork child with live jobs | test/jobs/resume_test.dart | fork child finalizes its copy while the parent job runs on | red |
-| job-supervisor → Resume finalizes tool and job nodes | Finalization append fails | test/jobs/resume_test.dart | storage error during finalization fails attach and admits nothing | red |
-| job-supervisor → Crash-safe result handoff | Crash during the result handoff | test/jobs/handoff_test.dart | crash at each handoff step recovers every stream on attach | red |
-| job-supervisor → Crash-safe result handoff | Crash during attach | test/jobs/handoff_test.dart | second attach registers and settles once | red |
-| job-supervisor → Crash-safe result handoff | Rewind between registration and settling | test/jobs/handoff_test.dart | settle waits for re-registered descriptors after rewind | red |
-| job-supervisor → Crash-safe result handoff | Rewind, then crash, during the handoff | test/jobs/handoff_test.dart | rewind then crash still settles with all three streams | red |
-| job-supervisor → Crash-safe result handoff | Reopen right after settling | test/jobs/handoff_test.dart | attach only clears the leftover launch record | red |
-| job-supervisor → Crash-safe result handoff | Intent cleanup for every owner state | test/jobs/handoff_test.dart | clear succeeds for settled, absent and superseded jobs and repeats harmlessly | red |
-| job-supervisor → Crash-safe result handoff | Crash during the orphan transfer | test/jobs/handoff_test.dart | crash around the orphan record keeps the mapping and clears once | red |
-| job-supervisor → Crash-safe result handoff | Rewind before the intent | test/jobs/handoff_test.dart | rewind before or during sealing lists spools under meta/orphans | red |
-| job-supervisor → Crash-safe result handoff | Cancel or rewind a running job before its intent | test/jobs/handoff_test.dart | running job without intent is killed within the grace on cancel and rewind | red |
-| job-supervisor → Crash-safe result handoff | Rewind between settling and clearing | test/jobs/handoff_test.dart | clear is refused while running and the settle repeats | red |
-| job-supervisor → Crash-safe result handoff | Cancelled or timed-out output stays incomplete after a crash | test/jobs/handoff_test.dart | cancelled and deadline intents recover complete false | red |
-| job-supervisor → Crash-safe result handoff | Fork child inherits a handoff intent | test/jobs/handoff_test.dart | inherited intent settles cancelled interrupted in the child only | red |
-| job-supervisor → Crash-safe result handoff | Consumer during the handoff | test/jobs/handoff_test.dart | subscriber, job tool and fork see no unresolvable handle at each pause | red |
+| job-supervisor → Resume finalizes tool and job nodes | Crash during a running command | test/jobs/resume_test.dart | killed engine reopens with call and job cancelled interrupted, not rerun | green |
+| job-supervisor → Resume finalizes tool and job nodes | Crash before any output existed | test/jobs/resume_test.dart | pending call gets an interrupted result with complete false | green |
+| job-supervisor → Resume finalizes tool and job nodes | Crash with output already spooled | test/jobs/resume_test.dart | spooled 300 lines are adopted complete false and the spool is gone | green |
+| job-supervisor → Resume finalizes tool and job nodes | Fork child with live jobs | test/jobs/resume_test.dart | fork child finalizes its copy while the parent job runs on | green |
+| job-supervisor → Resume finalizes tool and job nodes | Finalization append fails | test/jobs/resume_test.dart | storage error during finalization fails attach and admits nothing | green |
+| job-supervisor → Crash-safe result handoff | Crash during the result handoff | test/jobs/handoff_test.dart | crash at each handoff step recovers every stream on attach | green |
+| job-supervisor → Crash-safe result handoff | Crash during attach | test/jobs/handoff_test.dart | second attach registers and settles once | green |
+| job-supervisor → Crash-safe result handoff | Rewind between registration and settling | test/jobs/handoff_test.dart | settle waits for re-registered descriptors after rewind | green |
+| job-supervisor → Crash-safe result handoff | Rewind, then crash, during the handoff | test/jobs/handoff_test.dart | rewind then crash still settles with all three streams | green |
+| job-supervisor → Crash-safe result handoff | Reopen right after settling | test/jobs/handoff_test.dart | attach only clears the leftover launch record | green |
+| job-supervisor → Crash-safe result handoff | Intent cleanup for every owner state | test/jobs/handoff_test.dart | clear succeeds for settled, absent and superseded jobs and repeats harmlessly | green |
+| job-supervisor → Crash-safe result handoff | Crash during the orphan transfer | test/jobs/handoff_test.dart | crash around the orphan record keeps the mapping and clears once | green |
+| job-supervisor → Crash-safe result handoff | Rewind before the intent | test/jobs/handoff_test.dart | rewind before or during sealing lists spools under meta/orphans | green |
+| job-supervisor → Crash-safe result handoff | Cancel or rewind a running job before its intent | test/jobs/handoff_test.dart | running job without intent is killed within the grace on cancel and rewind | green |
+| job-supervisor → Crash-safe result handoff | Rewind between settling and clearing | test/jobs/handoff_test.dart | clear is refused while running and the settle repeats | green |
+| job-supervisor → Crash-safe result handoff | Cancelled or timed-out output stays incomplete after a crash | test/jobs/handoff_test.dart | cancelled and deadline intents recover complete false | green |
+| job-supervisor → Crash-safe result handoff | Fork child inherits a handoff intent | test/jobs/handoff_test.dart | inherited intent settles cancelled interrupted in the child only | green |
+| job-supervisor → Crash-safe result handoff | Consumer during the handoff | test/jobs/handoff_test.dart | subscriber, job tool and fork see no unresolvable handle at each pause | green |
 | hook-deadlines → User-configured pre-tool hooks | Hook sees the call | test/hooks/hooks_test.dart | hook stdin carries the call JSON | red |
 | hook-deadlines → User-configured pre-tool hooks | Hooks in repository files | test/hooks/hooks_test.dart | hooks declared in the repository are never run | red |
 | hook-deadlines → Hook outcome | Deny-class hook refuses | test/hooks/hooks_test.dart | exit 2 denies the call before any effect | red |
@@ -221,9 +221,9 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 10. Handoff, reconciler and resume
 
-- [ ] 10.1 Write the failing `test/jobs/handoff_test.dart` rows, using handoff pause seams and a killed-engine fixture (`test/fixtures/run_job_then_wait.dart`).
-- [ ] 10.2 Implement the five-step handoff, including the intent, cleanup and descriptor guards, the orphan transfer and the stale paths, per design D8. Verify that every non-attach row of `handoff_test.dart` passes.
-- [ ] 10.3 Write the failing `test/jobs/reconcile_test.dart` and `test/jobs/resume_test.dart` rows. Implement the D11 reconciler (on rewind and `ResyncRequired`, level-triggered, serialized) and the D12 attach finalization (launch records first, the per-stream table, the foreign-session rule, live calls, the leftover count). Verify that `reconcile_test.dart`, `resume_test.dart` and all of `handoff_test.dart` pass, on Windows and through the WSL runner, and flip their rows green.
+- [x] 10.1 Write the failing `test/jobs/handoff_test.dart` rows, using handoff pause seams and a killed-engine fixture (`test/fixtures/run_job_then_wait.dart`).
+- [x] 10.2 Implement the five-step handoff, including the intent, cleanup and descriptor guards, the orphan transfer and the stale paths, per design D8. Verify that every non-attach row of `handoff_test.dart` passes.
+- [x] 10.3 Write the failing `test/jobs/reconcile_test.dart` and `test/jobs/resume_test.dart` rows. Implement the D11 reconciler (on rewind and `ResyncRequired`, level-triggered, serialized) and the D12 attach finalization (launch records first, the per-stream table, the foreign-session rule, live calls, the leftover count). Verify that `reconcile_test.dart`, `resume_test.dart` and all of `handoff_test.dart` pass, on Windows and through the WSL runner, and flip their rows green.
 
 ## 11. Hooks
 

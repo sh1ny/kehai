@@ -20,6 +20,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../config/user_config.dart';
+import '../jobs/recovery.dart';
 import '../jobs/supervisor.dart';
 import '../permissions/gate.dart';
 import '../provider/provider.dart';
@@ -27,6 +28,7 @@ import '../results/composer.dart';
 import '../results/descriptor.dart';
 import '../results/result_store.dart';
 import '../session/errors.dart';
+import '../session/path.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
 import '../shell/detect.dart';
@@ -202,7 +204,15 @@ final class ToolRuntime {
       detection,
       JobSupervisor(writer, store, hooks: jobHooks),
     );
-    await runtime._finalizeOnResume();
+    runtime.jobs
+      ..liveCallKeys = (() => runtime._live.keys.toSet())
+      ..afterReconcile = runtime._cancelRewoundCalls;
+    try {
+      runtime.resumed = await runtime.jobs.recovery.resume();
+    } on Object {
+      await runtime.jobs.close();
+      rethrow;
+    }
     return runtime;
   }
 
@@ -232,6 +242,9 @@ final class ToolRuntime {
 
   /// The supervisor of every process the tools start (design D8).
   final JobSupervisor jobs;
+
+  /// What attach finalized before it admitted any call (design D12).
+  ResumeReport resumed = ResumeReport.none;
 
   final Map<String, Tool> _tools;
   final CallStage _hooks;
@@ -325,10 +338,21 @@ final class ToolRuntime {
     return cancelled;
   }
 
-  /// Finalizes calls a crashed engine left `pending` or `running` (design
-  /// D12). Nothing to finalize exists before the job supervisor and resume
-  /// land, so this does nothing yet; it runs before any call is admitted.
-  Future<void> _finalizeOnResume() async {}
+  /// Cancels the live calls whose nodes a rewind removed or replaced (design
+  /// D11). The call's update would be refused as stale anyway; this stops its
+  /// tool early.
+  void _cancelRewoundCalls() {
+    final tree = writer.tree;
+    for (final live in _live.values) {
+      if (!live.created || live.token.isCancelled) continue;
+      final node = tree.get(SessionPath.parse(live.path));
+      if (node is Map<String, Object?> && node['attempt'] == live.attempt) {
+        continue;
+      }
+      live.cancelReason ??= 'rewound';
+      live.token.cancel();
+    }
+  }
 
   void _ensureUsable() {
     if (_closed) throw StateError('the tool runtime is closed');
@@ -756,6 +780,7 @@ final class ToolRuntime {
         );
       }),
     );
+    if (outcome is Applied) live.created = true;
     return outcome is Applied;
   }
 
@@ -831,6 +856,7 @@ final class _Live {
   Object? input;
   bool holdsSlot = false;
   bool running = false;
+  bool created = false;
   String? cancelReason;
   bool _diagTaken = false;
 

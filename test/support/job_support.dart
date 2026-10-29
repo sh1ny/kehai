@@ -50,6 +50,7 @@ final class JobHarness {
     JobTimings timings = const JobTimings(),
     GroupSignal? groupSignal,
     bool? windows,
+    bool reconcile = true,
   }) async {
     final root = await tempDir();
     final cwd = await tempDir();
@@ -62,6 +63,7 @@ final class JobHarness {
       timings: timings,
       groupSignal: groupSignal,
       windows: windows,
+      reconcile: reconcile,
     );
     addTearDown(supervisor.close);
     return JobHarness._(writer, store, supervisor, posixShell()!, cwd.path);
@@ -226,3 +228,191 @@ final class Pause {
     await release.future;
   }
 }
+
+/// Engine processes known to have exited.
+final Expando<bool> _exited = Expando('exited');
+
+/// A run of `test/fixtures/run_job_then_wait.dart`: an engine in its own
+/// process that the test kills.
+final class EngineRun {
+  EngineRun._(
+    this.process,
+    this.pid,
+    this.jobPid,
+    this.jobId,
+    this.dir, {
+    required this.longJob,
+  });
+
+  /// The `dart run` process.
+  final Process process;
+
+  /// The pid of the fixture itself (a child of [process]).
+  final int pid;
+
+  /// The pid of the job's process, or 0.
+  final int jobPid;
+
+  /// The id of the job.
+  final String jobId;
+
+  /// The session directory.
+  final Directory dir;
+
+  /// Whether the job's process is still running when the engine dies.
+  final bool longJob;
+
+  bool _killed = false;
+
+  /// Kills the engine without any chance to clean up, and the job's tree.
+  ///
+  /// A pid is only signalled while its process is known to live: a finished
+  /// process's pid may already belong to someone else.
+  Future<void> kill() async {
+    if (_killed) return;
+    _killed = true;
+    // Once the engine is gone its pids, and the job's, may be reused.
+    if (_exited[process] ?? false) return;
+    if (Platform.isWindows) {
+      // The tree of the `dart run` process holds the fixture and the job.
+      Process.runSync('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+    } else {
+      if (longJob && jobPid != 0) {
+        Process.runSync('kill', ['-KILL', '--', '-$jobPid']);
+      }
+      if (pid != 0) Process.killPid(pid, ProcessSignal.sigkill);
+      process.kill(ProcessSignal.sigkill);
+    }
+    await process.exitCode;
+  }
+}
+
+/// Starts the fixture in [mode], with its handoff parked at [point], and
+/// returns once it reports ready. The engine is killed when the test ends.
+Future<EngineRun> runEngine(String mode, {String point = 'none'}) async {
+  final root = await tempDir();
+  final process = await Process.start(Platform.resolvedExecutable, [
+    'run',
+    'test/fixtures/run_job_then_wait.dart',
+    root.path,
+    mode,
+    point,
+  ]);
+  unawaited(process.stderr.drain<void>());
+  unawaited(process.exitCode.then((_) => _exited[process] = true));
+  final lines = process.stdout
+      .transform(utf8.decoder)
+      .transform(const LineSplitter());
+  EngineRun? run;
+  addTearDown(() async {
+    final started = run;
+    if (started != null) {
+      await started.kill();
+    } else if (_exited[process] ?? false) {
+      return;
+    } else if (Platform.isWindows) {
+      Process.runSync('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+    } else {
+      process.kill(ProcessSignal.sigkill);
+    }
+  });
+  final line = await lines
+      .firstWhere((l) => l.startsWith('READY ') || l == 'ENDED')
+      .timeout(
+        const Duration(seconds: 90),
+        onTimeout: () => fail('the engine fixture never got ready ($mode)'),
+      );
+  if (line == 'ENDED') fail('the engine fixture ended without parking ($mode)');
+  final parts = line.split(' ');
+  return run = EngineRun._(
+    process,
+    int.parse(parts[1]),
+    int.parse(parts[2]),
+    parts[3],
+    Directory(parts.skip(4).join(' ')),
+    longJob: mode != 'quick',
+  );
+}
+
+/// A reopened session with a runtime attached.
+final class Reopened {
+  Reopened._(this.writer, this.store, this.runtime);
+
+  /// The writer of the reopened session.
+  final SessionWriter writer;
+
+  /// Its result store.
+  final ResultStore store;
+
+  /// The attached runtime.
+  final ToolRuntime runtime;
+
+  /// The tree node at [path], or null.
+  Object? at(String path) => writer.tree.get(SessionPath.parse(path));
+
+  /// The map at [path].
+  Map<String, Object?> node(String path) => at(path)! as Map<String, Object?>;
+
+  /// The journal records, in order.
+  List<JournalRecord> records() => [
+    for (final line in journalOf(writer.sessionDir).readAsLinesSync())
+      JournalRecord.parse(line),
+  ];
+
+  /// The bytes of stream [name] of the job node at [path].
+  String stream(String path, String name) {
+    final handle = (node(path)[name]! as Map<String, Object?>)['handle']!;
+    return utf8.decode(
+      resolveHandle(
+        writer.tree,
+        writer.sessionDir,
+        handle as String,
+      ).file.readAsBytesSync(),
+    );
+  }
+
+  /// The `complete` flag of stream [name] of the job node at [path].
+  bool? complete(String path, String name) =>
+      (node(path)[name]! as Map<String, Object?>)['complete'] as bool?;
+
+  /// The spool files left under `results/`.
+  List<String> spools() => [
+    for (final f in Directory(
+      p.join(writer.sessionDir.path, resultsDirName),
+    ).listSync())
+      if (p.basename(f.path).startsWith('.spool-')) p.basename(f.path),
+  ];
+}
+
+/// Opens the session in [dir] for writing; [before] may change it first.
+Future<SessionWriter> reopenWriter(Directory dir) async {
+  final writer = await SessionWriter.open(dir);
+  addTearDown(writer.close);
+  return writer;
+}
+
+/// Attaches a runtime to [writer]; the runtime closes when the test ends.
+Future<Reopened> attachTo(
+  SessionWriter writer, {
+  JobHooks hooks = const JobHooks(),
+}) async {
+  final store = ResultStore(writer.sessionDir);
+  final runtime = await ToolRuntime.attach(
+    writer,
+    store,
+    workspace: writer.sessionDir,
+    gate: const AllowAllStage(),
+    jobHooks: hooks,
+  );
+  addTearDown(runtime.close);
+  return Reopened._(writer, store, runtime);
+}
+
+/// Reopens the session in [dir] and attaches a runtime.
+Future<Reopened> reopen(
+  Directory dir, {
+  JobHooks hooks = const JobHooks(),
+}) async => attachTo(await reopenWriter(dir), hooks: hooks);
+
+/// The number of journal records of [writer]'s session.
+int journalLength(Directory dir) => journalOf(dir).readAsLinesSync().length;

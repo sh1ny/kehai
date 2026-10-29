@@ -155,6 +155,7 @@ final class BashTool implements Tool {
         cmd: command,
         cwd: directCwd,
         deadline: deadline,
+        call: context.callKey,
         launch: () async {
           try {
             final process = await startDirect(
@@ -184,6 +185,7 @@ final class BashTool implements Tool {
       command,
       cwd: cwd,
       environment: shellEnvironment(environment, passthrough: passthrough),
+      call: context.callKey,
       deadline: deadline,
     );
   }

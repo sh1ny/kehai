@@ -112,8 +112,14 @@ final class LiveResult {
   Future<ResultWrite> snapshot() async {
     final accepted = _tally.bytes;
     if (_sealed == null) await _file.flush();
-    final path = p.join(_store.sessionDir.path, resultsDirName, spoolName);
-    return _store.storeResult(File(path).openRead(0, accepted));
+    final dir = p.join(_store.sessionDir.path, resultsDirName);
+    var source = File(p.join(dir, spoolName));
+    final sealed = _sealed;
+    if (sealed != null && !source.existsSync()) {
+      // Sealed and published: the bytes live under their content address.
+      source = File(p.join(dir, sealed.sha256));
+    }
+    return _store.storeResult(source.openRead(0, accepted));
   }
 
   /// Flushes and closes the spool and returns its descriptor.

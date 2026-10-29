@@ -24,7 +24,7 @@ Supersedes: none
 ### Job nodes: `jobs/<id>`
 
 - **Id:** `j-` plus 8 random hex digits.
-- **Shape:** one shape for every process the engine starts: `kind` (`shell` or `hook`), `cmd`, `cwd`, `shell` (`null` for argv-direct jobs such as `rg`), `call` (the owning call key), `launch` (a fresh random token per launch), `state` (`pending`, `running`, `settled`, `failed` or `cancelled`), `started`, `ended`, `exit`, `signal` intent, `spool` (its temporary output file names), `cleanup`, `reason`, and the `stdout`, `stderr` and `output` result references `{handle, complete}`.
+- **Shape:** one shape for every process the engine starts: `kind` (`shell` or `hook`), `cmd`, `cwd`, `shell` (`null` for argv-direct jobs such as `rg`), `call` (the owning call key), `launch` (a fresh random token per launch), `state` (`pending`, `running`, `settled`, `failed` or `cancelled`), `started`, `ended`, `exit`, `signal` intent, `spool` (its temporary output file names), `cleanup`, `reason`, and the `stdout`, `stderr` and `output` result references `{handle, complete}`. A stream recovered with no bytes on disk has no reference; it is listed in `absent` instead, never stored as an empty success.
 - **No PIDs.** The node never holds a process id or OS handle. Process handles are ephemeral runtime capabilities; PID reuse makes a stored PID unsafe.
 
 Both `body` and `jobs` are turn-anchored v1 roots, so rewind and fork cover calls and jobs with no new code.

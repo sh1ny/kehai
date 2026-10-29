@@ -80,4 +80,5 @@ export 'src/shell/direct_exec.dart'
         startDirect;
 export 'src/shell/launch.dart'
     show ShellProcess, shellArguments, startProcess, startShell;
+export 'src/jobs/recovery.dart';
 export 'src/jobs/supervisor.dart';
