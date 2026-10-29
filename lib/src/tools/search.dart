@@ -1,9 +1,9 @@
 /// The search tools: `grep`, `find` and `ls` (design D6).
 ///
-/// `grep` and `find` run `rg` as a child without a shell. Until the job
-/// supervisor lands they start it through [startArgv], which that group
-/// replaces. Their output streams through a [SearchLineRewriter] chunk by
-/// chunk and is never cut here; only the composer cuts.
+/// `grep` and `find` run `rg` as a shell-less job of the supervisor when the
+/// context has one (else as a direct child, through [startArgv]). Their output
+/// streams through a [SearchLineRewriter] chunk by chunk and is never cut
+/// here; only the composer cuts.
 library;
 
 import 'dart:async';
@@ -13,8 +13,11 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
+import '../jobs/supervisor.dart';
 import '../permissions/workspace_paths.dart';
 import '../results/composer.dart';
+import '../results/result_store.dart';
+import '../shell/launch.dart';
 import 'child_env.dart';
 import 'file_access.dart';
 import 'glob_match.dart';
@@ -356,9 +359,146 @@ String _plural(int n, String one, String many) =>
 
 /// Runs `rg` with [arguments] in [target] and streams the rewritten output.
 ///
+/// With a job supervisor in the context, `rg` runs as a shell-less job and its
+/// stored output is rewritten as it is read back; a context without one
+/// starts the child directly.
+///
 /// Exit 0 settles `ok` with [found]; exit 1 is `ok` with [none]; anything else
 /// is an error carrying rg's standard error.
 Future<ToolOutcome> _runRg(
+  ToolContext context,
+  RgFound rg,
+  _Target target,
+  List<String> arguments,
+  SearchLineRewriter rewriter,
+  String Function() found,
+  String none,
+) async {
+  if (context.cancel.isCancelled) return _cancelled;
+  final jobs = context.jobs;
+  if (jobs == null) {
+    return _runRgDirect(context, rg, target, arguments, rewriter, found, none);
+  }
+  final setsid = Platform.isWindows ? null : context.shell?.shell?.setsid;
+  final JobHandle handle;
+  try {
+    handle = jobs.start(
+      JobRequest(
+        kind: JobKind.shell,
+        cmd: ['rg', ...arguments].join(' '),
+        cwd: target.cwd,
+        call: context.callKey,
+        deadline: _rgDeadline,
+        launch: () async => ShellProcess(
+          await startProcess(
+            rg.path,
+            arguments,
+            workingDirectory: target.cwd,
+            environment: childEnvironment(Platform.environment),
+            setsid: setsid,
+          ),
+          groupKnown: setsid != null,
+        ),
+      ),
+    );
+  } on TooManyLiveJobs catch (e) {
+    return failure(e.message);
+  }
+  final detach = context.cancel.listen(
+    () => unawaited(jobs.cancelJob(handle.id)),
+  );
+  try {
+    final JobResult result;
+    try {
+      result = await handle.result;
+    } on Object catch (e) {
+      return failure('cannot run rg: $e');
+    }
+    if (context.cancel.isCancelled) return _cancelled;
+    if (result.state == 'failed') {
+      return failure('cannot run rg: ${result.reason ?? 'launch failed'}');
+    }
+    if (result.state != 'settled') {
+      return ToolOutcome(
+        status: ResultStatus.error,
+        summary: 'rg ${result.reason == 'deadline' ? 'timed out' : 'stopped'}',
+        complete: false,
+      );
+    }
+    final directory = p.join(jobs.store.sessionDir.path, resultsDirName);
+    final stdout = result.streams['stdout'];
+    if (stdout != null) {
+      final file = File(p.join(directory, stdout.descriptor.sha256));
+      await for (final chunk in file.openRead()) {
+        final out = rewriter.add(chunk);
+        if (out.isNotEmpty) await context.output.write(out);
+        if (context.output.isClosed) {
+          return const ToolOutcome(
+            status: ResultStatus.error,
+            summary: 'search stopped: output closed',
+            complete: false,
+          );
+        }
+      }
+      final rest = rewriter.finish();
+      if (rest.isNotEmpty) await context.output.write(rest);
+    }
+    final stderr = result.streams['stderr'];
+    var errorText = '';
+    if (stderr != null && stderr.descriptor.bytes > 0) {
+      final file = File(p.join(directory, stderr.descriptor.sha256));
+      final head = BytesBuilder(copy: false);
+      await for (final chunk in file.openRead(0, _stderrBytes)) {
+        head.add(chunk);
+      }
+      errorText = utf8.decode(head.takeBytes(), allowMalformed: true);
+    }
+    return _rgOutcome(
+      result.exit ?? -1,
+      errorText,
+      rewriter,
+      found,
+      none,
+      target,
+    );
+  } finally {
+    detach();
+  }
+}
+
+/// How long an `rg` job may run.
+const Duration _rgDeadline = Duration(seconds: 600);
+
+ToolOutcome _rgOutcome(
+  int code,
+  String errorText,
+  SearchLineRewriter rewriter,
+  String Function() found,
+  String none,
+  _Target target,
+) {
+  switch (code) {
+    case 0 || 1:
+      // The counts are of accepted lines only; rg may have found more.
+      return ToolOutcome(
+        summary: '${rewriter.lines == 0 ? none : found()}${target.note}',
+      );
+    default:
+      final text = errorText
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .join(' ');
+      return ToolOutcome(
+        status: ResultStatus.error,
+        summary: text.isEmpty ? 'rg exited with code $code' : text,
+        complete: rewriter.lines == 0,
+      );
+  }
+}
+
+/// Runs `rg` as a direct child, for a context without a job supervisor.
+Future<ToolOutcome> _runRgDirect(
   ToolContext context,
   RgFound rg,
   _Target target,

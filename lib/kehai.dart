@@ -50,6 +50,8 @@ export 'src/tools/atomic_write.dart' show FileWriteSeams, RenameFile;
 export 'src/tools/edit.dart' show EditTool;
 export 'src/tools/read.dart'
     show ReadSeams, ReadSource, ReadSourceOpener, ReadTool;
+export 'src/tools/bash.dart' show BashTool, defaultForegroundBudget;
+export 'src/tools/job_tool.dart' show JobTool, defaultJobWait;
 export 'src/tools/write.dart' show WriteTool;
 export 'src/tools/search.dart'
     show
@@ -78,3 +80,4 @@ export 'src/shell/direct_exec.dart'
         startDirect;
 export 'src/shell/launch.dart'
     show ShellProcess, shellArguments, startProcess, startShell;
+export 'src/jobs/supervisor.dart';

@@ -14,7 +14,10 @@ import 'dart:io';
 
 import '../config/user_config.dart';
 import '../provider/provider.dart';
+import '../jobs/supervisor.dart';
 import '../results/composer.dart';
+import '../results/descriptor.dart';
+import '../shell/detect.dart';
 import 'ask.dart';
 
 /// What a tool reports when it finishes.
@@ -30,10 +33,17 @@ final class ToolOutcome {
     this.status = ResultStatus.ok,
     required this.summary,
     this.complete = true,
+    this.result,
   });
 
   /// The envelope status of the call.
   final ResultStatus status;
+
+  /// A result that is already stored, which the call answers with instead of
+  /// the bytes written to [ToolContext.output] (the job supervisor stores a
+  /// job's output itself). Whatever was written is stored as usual and not
+  /// used.
+  final ResultDescriptor? result;
 
   /// The summary shown in the envelope header.
   final String summary;
@@ -70,7 +80,20 @@ final class ToolContext {
     required this.config,
     this.prompts,
     this.kehaiHome,
+    this.shell,
+    this.jobs,
+    this.permission,
   });
+
+  /// The shell detected at attach, or null when the context has none.
+  final ShellDetection? shell;
+
+  /// The job supervisor, or null when the context has none.
+  final JobSupervisor? jobs;
+
+  /// The permission record the gate made for this call (`{'decision': ...,
+  /// 'by': ...}`), or null when no gate recorded one.
+  final Map<String, Object?>? permission;
 
   /// The call's node key, `c-<12 hex>`.
   final String callKey;

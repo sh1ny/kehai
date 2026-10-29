@@ -20,6 +20,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../config/user_config.dart';
+import '../jobs/supervisor.dart';
 import '../permissions/gate.dart';
 import '../provider/provider.dart';
 import '../results/composer.dart';
@@ -30,7 +31,9 @@ import '../session/record.dart';
 import '../session/writer.dart';
 import '../shell/detect.dart';
 import 'ask.dart';
+import 'bash.dart';
 import 'edit.dart';
+import 'job_tool.dart';
 import 'read.dart';
 import 'roster.dart';
 import 'schema.dart';
@@ -59,6 +62,8 @@ Map<String, Tool> _builtinTools(Future<RgResolution> rg) => {
   'grep': GrepTool(rg),
   'find': FindTool(rg),
   'ls': const LsTool(),
+  'bash': const BashTool(),
+  'job': const JobTool(),
 };
 
 /// The node key `c-<12 hex>` of the provider call id [callId].
@@ -117,6 +122,7 @@ final class ToolRuntime {
     this._seams,
     this.kehaiHome,
     this.shell,
+    this.jobs,
   );
 
   /// Attaches a runtime to [writer] and [store].
@@ -152,6 +158,7 @@ final class ToolRuntime {
     CallStage? hooks,
     CallStage? gate,
     ToolRuntimeSeams seams = const ToolRuntimeSeams(),
+    JobHooks jobHooks = const JobHooks(),
   }) async {
     if (gate == null && kehaiHome == null) {
       throw ArgumentError.value(
@@ -193,6 +200,7 @@ final class ToolRuntime {
       seams,
       kehaiHome,
       detection,
+      JobSupervisor(writer, store, hooks: jobHooks),
     );
     await runtime._finalizeOnResume();
     return runtime;
@@ -222,6 +230,9 @@ final class ToolRuntime {
   /// The shell detected at attach, or what was tried when none was found.
   final ShellDetection shell;
 
+  /// The supervisor of every process the tools start (design D8).
+  final JobSupervisor jobs;
+
   final Map<String, Tool> _tools;
   final CallStage _hooks;
   final CallStage _gate;
@@ -238,7 +249,18 @@ final class ToolRuntime {
 
   /// The eleven tools the model may call, with their argument schemas.
   late final List<ToolSpec> specs = List.unmodifiable([
-    for (final d in toolDefinitions) d.spec,
+    for (final d in toolDefinitions)
+      if (d.name == 'bash')
+        ToolSpec(
+          name: d.name,
+          description:
+              '${d.description} ${shell.shell == null ? 'No shell was found '
+                        '(${shell.failure}); calls fail.' : 'The shell is '
+                        '${shell.shell!.name}.'}',
+          parametersJsonSchema: d.schema,
+        )
+      else
+        d.spec,
   ]);
 
   /// Runs [call] and returns the output that answers it.
@@ -274,10 +296,15 @@ final class ToolRuntime {
   /// settled first is not counted.
   Future<int> cancelTurn() => _cancelAll('user');
 
-  /// Stops admitting calls and cancels the ones still live.
+  /// Cancels job [id] (design D10) and returns how it ended; see
+  /// [JobSupervisor.cancelJob].
+  Future<CancelOutcome> cancelJob(String id) => jobs.cancelJob(id);
+
+  /// Stops admitting calls and cancels the ones still live, jobs included.
   Future<void> close() async {
     _closed = true;
     await _cancelAll('shutdown');
+    await jobs.close();
   }
 
   Future<int> _cancelAll(String reason) async {
@@ -401,11 +428,15 @@ final class ToolRuntime {
       callId: live.call.callId,
       input: input,
     );
+    Map<String, Object?>? permission;
     // Hooks (group 11) run first, then the permission gate.
     for (final (stage, field) in [(_hooks, 'hooks'), (_gate, 'permission')]) {
       final outcome = await _runStage(stage, stageCall, live);
       if (outcome == null) return _cancelledBeforeRun(live);
       if (outcome.record != null) live.extra[field] = outcome.record;
+      if (field == 'permission' && outcome.record is Map<String, Object?>) {
+        permission = outcome.record! as Map<String, Object?>;
+      }
       live.diag.addAll(outcome.diag);
       final denied = outcome.denyReason;
       if (denied != null) {
@@ -434,6 +465,9 @@ final class ToolRuntime {
       config: config,
       prompts: prompts,
       kehaiHome: kehaiHome,
+      shell: shell,
+      jobs: jobs,
+      permission: permission,
     );
     final tool = _invoke(_tools[live.tool]!, context, input);
     final first = await Future.any<_Step>([
@@ -444,12 +478,18 @@ final class ToolRuntime {
     switch (first) {
       case _ToolDone(:final outcome):
         pipe.close();
+        final written = await stored;
+        // A tool that answers with a result the job supervisor stored has
+        // nothing of its own to store.
+        final answer = outcome.result;
         return _terminate(
           live,
           lifecycle: 'settled',
           envelope: outcome.status,
           summary: outcome.summary,
-          write: await stored,
+          write: answer != null && written is! ResultStorageFailed
+              ? ResultComplete(answer)
+              : written,
           complete: outcome.complete,
         );
       case _Cancelled():

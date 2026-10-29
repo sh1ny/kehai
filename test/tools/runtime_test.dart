@@ -199,10 +199,10 @@ void main() {
         final h = await _attach(root);
 
         final item = await h.runtime.run(
-          _call('n1', 'bash', '{"command":"a"}'),
+          _call('n1', 'read_more', '{"handle":"r/abc"}'),
         );
 
-        expect(item.output, contains('bash is not available'));
+        expect(item.output, contains('read_more is not available'));
         expect(h.node('n1')['status'], 'failed');
         expect(h.statuses('n1'), ['pending', 'failed']);
       },

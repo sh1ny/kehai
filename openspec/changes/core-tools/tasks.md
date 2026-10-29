@@ -59,14 +59,14 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | workspace-search → Directory listing | Not a directory | test/tools/search_tools_test.dart | ls on a file is an error | green |
 | shell-tool → Real shell detection | Windows with Git Bash installed | test/shell/detect_test.dart | Git Bash beside git.exe wins and System32 bash is never chosen | green |
 | shell-tool → Real shell detection | No usable shell | test/shell/detect_test.dart | no shell found fails attach-time detection with a hint | green |
-| shell-tool → Command execution and status | Failing command | test/shell/bash_tool_test.dart | non-zero exit settles ok with exit status in the summary | red |
-| shell-tool → Command execution and status | Command reads stdin | test/shell/bash_tool_test.dart | stdin is closed at once so a reader sees EOF | red |
-| shell-tool → Streamed output persistence | Interleaved streams kept in order | test/shell/bash_tool_test.dart | stdout, stderr and combined output keep arrival order | red |
-| shell-tool → Streamed output persistence | Output larger than memory budgets | test/shell/bash_tool_test.dart | [slow] 1 GiB of output streams to disk with bounded memory | red |
+| shell-tool → Command execution and status | Failing command | test/shell/bash_tool_test.dart | non-zero exit settles error with exit status in the summary | green |
+| shell-tool → Command execution and status | Command reads stdin | test/shell/bash_tool_test.dart | stdin is closed at once so a reader sees EOF | green |
+| shell-tool → Streamed output persistence | Interleaved streams kept in order | test/shell/bash_tool_test.dart | stdout, stderr and combined output keep arrival order | green |
+| shell-tool → Streamed output persistence | Output larger than memory budgets | test/shell/bash_tool_test.dart | [slow] 1 GiB of output streams to disk with bounded memory | green |
 | shell-tool → Credential-free child environment | API key not inherited | test/shell/env_test.dart | provider and KEHAI_ secret variables are absent in the child | green |
 | shell-tool → Credential-free child environment | User passthrough exception | test/shell/env_test.dart | configured passthrough variable reaches the child | green |
-| shell-tool → Foreground budget hands off to a job | Long command becomes a job | test/shell/bash_tool_test.dart | budget expiry settles partial with the job id while the job runs | red |
-| shell-tool → Foreground budget hands off to a job | Budget out of range | test/shell/bash_tool_test.dart | timeout_s outside 1–600 fails validation | red |
+| shell-tool → Foreground budget hands off to a job | Long command becomes a job | test/shell/bash_tool_test.dart | budget expiry settles partial with the job id while the job runs | green |
+| shell-tool → Foreground budget hands off to a job | Budget out of range | test/shell/bash_tool_test.dart | timeout_s outside 1–600 fails validation | green |
 | user-ask → Structured question | Choice answered | test/tools/ask_tool_test.dart | chosen answer returns {"choice":...} | green |
 | user-ask → Structured question | Invalid question | test/tools/ask_tool_test.dart | more than 10 choices fails validation | green |
 | user-ask → Answerer channel | Answer outside the choices | test/tools/ask_tool_test.dart | out-of-choice answer is re-asked with the allowed list | green |
@@ -90,26 +90,26 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | tool-permissions → Credential files never exposed | Search during a credential write | test/permissions/credentials_test.dart | paused credential temp file is never matched or stored | green |
 | tool-permissions → User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
 | tool-permissions → User configuration file | Invalid configuration | test/config/config_test.dart | unknown key or bad type refuses to start naming the path | green |
-| job-supervisor → One job node shape | Shell job recorded | test/jobs/supervisor_test.dart | echo hi job node holds no pid and resolves its outputs | red |
-| job-supervisor → One job node shape | Launch failure | test/jobs/supervisor_test.dart | vanished shell fails the job pending to failed and clears its launch record | red |
-| job-supervisor → Bounded live jobs | Background jobs fill the bound | test/jobs/supervisor_test.dart | 17th live job is refused until one is cancelled | red |
-| job-supervisor → Bounded live jobs | Bound frees on exit | test/jobs/supervisor_test.dart | exit frees the slot before the next admission | red |
-| job-supervisor → Job deadline | Background job reaches its deadline | test/jobs/cancel_test.dart | deadline_s 2 cancels with reason deadline and keeps output | red |
-| job-supervisor → Job deadline | Process ignores termination | test/jobs/cancel_test.dart | [unix] SIGTERM-trapping job is killed after the 2 s grace | red |
-| job-supervisor → Cancellation terminates the process tree | Child processes die with the job | test/jobs/cancel_test.dart | [unix] cancel kills the shell and both children with cleanup confirmed | red |
-| job-supervisor → Cancellation terminates the process tree | Cleanup cannot be proven | test/jobs/cancel_test.dart | [windows] tree kill records cleanup uncertain; surviving probe does too | red |
-| job-supervisor → Bounded output drain | Escaped descendant holds the output pipe | test/jobs/drain_test.dart | [unix] held pipe is force-closed within the bound on exit, cancel and rewind | red |
-| job-supervisor → Bounded output drain | Hook whose descendant holds the pipe | test/jobs/drain_test.dart | [unix] hook with held pipe meets its deadline and frees its slot | red |
-| job-supervisor → Job tool | Follow a backgrounded command | test/tools/job_tool_test.dart | output snapshot is incomplete while running and wait returns exit | red |
-| job-supervisor → Job tool | Unknown or finished job | test/tools/job_tool_test.dart | unknown id errors and cancel of a settled job is a no-op | red |
+| job-supervisor → One job node shape | Shell job recorded | test/jobs/supervisor_test.dart | echo hi job node holds no pid and resolves its outputs | green |
+| job-supervisor → One job node shape | Launch failure | test/jobs/supervisor_test.dart | vanished shell fails the job pending to failed and clears its launch record | green |
+| job-supervisor → Bounded live jobs | Background jobs fill the bound | test/jobs/supervisor_test.dart | 17th live job is refused until one is cancelled | green |
+| job-supervisor → Bounded live jobs | Bound frees on exit | test/jobs/supervisor_test.dart | exit frees the slot before the next admission | green |
+| job-supervisor → Job deadline | Background job reaches its deadline | test/jobs/cancel_test.dart | deadline_s 2 cancels with reason deadline and keeps output | green |
+| job-supervisor → Job deadline | Process ignores termination | test/jobs/cancel_test.dart | [unix] SIGTERM-trapping job is killed after the 2 s grace | green |
+| job-supervisor → Cancellation terminates the process tree | Child processes die with the job | test/jobs/cancel_test.dart | [unix] cancel kills the shell and both children with cleanup confirmed | green |
+| job-supervisor → Cancellation terminates the process tree | Cleanup cannot be proven | test/jobs/cancel_test.dart | [windows] tree kill records cleanup uncertain; surviving probe does too | green |
+| job-supervisor → Bounded output drain | Escaped descendant holds the output pipe | test/jobs/drain_test.dart | [unix] held pipe is force-closed within the bound on exit, cancel and rewind | green |
+| job-supervisor → Bounded output drain | Hook whose descendant holds the pipe | test/jobs/drain_test.dart | [unix] hook with held pipe meets its deadline and frees its slot | green |
+| job-supervisor → Job tool | Follow a backgrounded command | test/tools/job_tool_test.dart | output snapshot is incomplete while running and wait returns exit | green |
+| job-supervisor → Job tool | Unknown or finished job | test/tools/job_tool_test.dart | unknown id errors and cancel of a settled job is a no-op | green |
 | job-supervisor → Generic rewind reconciliation | Rewind past a job's start | test/jobs/reconcile_test.dart | rewind before start kills the process and records the orphan | red |
 | job-supervisor → Generic rewind reconciliation | Rewind restores a finished job as running | test/jobs/reconcile_test.dart | restored running node without runtime is cancelled rewound | red |
 | job-supervisor → Generic rewind reconciliation | Rewind leaves a live job's start in place | test/jobs/reconcile_test.dart | rewind after start leaves the job running to its settle | red |
 | job-supervisor → Stale callbacks rejected | Output arrives after rewind removed the job | test/jobs/reconcile_test.dart | exit after removal returns stale and appends nothing | red |
 | job-supervisor → Stale callbacks rejected | Race between settle and cancel | test/jobs/reconcile_test.dart | concurrent exit and cancel record exactly one terminal state | red |
 | job-supervisor → Stale callbacks rejected | Stale update from a live process | test/jobs/reconcile_test.dart | stale update for a live process terminates it and records the orphan | red |
-| job-supervisor → Launch ownership | Rewind between pending and process start | test/jobs/launch_test.dart | rewind during launch kills the started process and never records running | red |
-| job-supervisor → Launch ownership | Cancel while launching | test/jobs/launch_test.dart | cancel during launch records cancelled user and never running | red |
+| job-supervisor → Launch ownership | Rewind between pending and process start | test/jobs/launch_test.dart | rewind during launch kills the started process and never records running | green |
+| job-supervisor → Launch ownership | Cancel while launching | test/jobs/launch_test.dart | cancel during launch records cancelled user and never running | green |
 | job-supervisor → Resume finalizes tool and job nodes | Crash during a running command | test/jobs/resume_test.dart | killed engine reopens with call and job cancelled interrupted, not rerun | red |
 | job-supervisor → Resume finalizes tool and job nodes | Crash before any output existed | test/jobs/resume_test.dart | pending call gets an interrupted result with complete false | red |
 | job-supervisor → Resume finalizes tool and job nodes | Crash with output already spooled | test/jobs/resume_test.dart | spooled 300 lines are adopted complete false and the spool is gone | red |
@@ -208,16 +208,16 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 9. Job supervisor and the bash and job tools
 
-- [ ] 9.1 Write the failing `test/jobs/supervisor_test.dart`, `test/jobs/launch_test.dart` and `test/jobs/cancel_test.dart` rows, using the launch pause seam.
-- [ ] 9.2 Implement `lib/src/jobs/supervisor.dart` per design D8 and D10:
+- [x] 9.1 Write the failing `test/jobs/supervisor_test.dart`, `test/jobs/launch_test.dart` and `test/jobs/cancel_test.dart` rows, using the launch pause seam.
+- [x] 9.2 Implement `lib/src/jobs/supervisor.dart` per design D8 and D10:
   - the reservation, the launch record, `pending`, spool creation and `running`;
   - the 16-job live bound; the `launching`/`running`/`handoff` phases;
   - deadlines; cancellation through FFI `kill(-pgid)` with the 2 s grace and the probe, and `taskkill /T /F` on Windows.
 
   Verify that the three files pass and flip their rows green.
-- [ ] 9.3 Write the failing `test/jobs/drain_test.dart` rows (a fixture that `setsid`s a descendant holding stdout). Implement the bounded drain and the forced close. Verify that both rows pass through the WSL runner and flip them green.
-- [ ] 9.4 Write the failing `test/shell/bash_tool_test.dart` and `test/tools/job_tool_test.dart` rows. Implement `bash` (the foreground budget handing off to a job, `timeout_s` and `deadline_s` validation, streamed stdout/stderr/output with backpressure) and `job` (`status`, `wait`, `output` snapshot, `cancel`). Verify that both files pass (with `[slow]` included) and flip their rows green.
-- [ ] 9.5 Route group 7's `rg` invocations through the supervisor as shell-less jobs. Verify that `search_tools_test.dart` stays green.
+- [x] 9.3 Write the failing `test/jobs/drain_test.dart` rows (a fixture that `setsid`s a descendant holding stdout). Implement the bounded drain and the forced close. Verify that both rows pass through the WSL runner and flip them green.
+- [x] 9.4 Write the failing `test/shell/bash_tool_test.dart` and `test/tools/job_tool_test.dart` rows. Implement `bash` (the foreground budget handing off to a job, `timeout_s` and `deadline_s` validation, streamed stdout/stderr/output with backpressure) and `job` (`status`, `wait`, `output` snapshot, `cancel`). Verify that both files pass (with `[slow]` included) and flip their rows green.
+- [x] 9.5 Route group 7's `rg` invocations through the supervisor as shell-less jobs. Verify that `search_tools_test.dart` stays green.
 
 ## 10. Handoff, reconciler and resume
 
