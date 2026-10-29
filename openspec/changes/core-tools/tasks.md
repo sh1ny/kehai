@@ -150,14 +150,14 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 2. Writer and result-store seams
 
-- [ ] 2.1 Write failing tests in `test/session/writer_guarded_test.dart`:
+- [x] 2.1 Write failing tests in `test/session/writer_guarded_test.dart`:
   - `applyGuarded(build)` appends the built record;
   - it returns `stale` when the ownership guard fails at the queue head, even with a rewind queued just before;
   - it returns `descriptors missing` (listing the handles) for any record referencing an unregistered handle;
   - a refusal appends nothing.
 
   Also write failing tests in `test/results/live_result_test.dart` for `ResultStore.begin(spoolName)`: `snapshot`, `seal` without a rename, `publish` (including the existing same-size rule) and `adopt`, all against real files.
-- [ ] 2.2 Implement `SessionWriter.applyGuarded` inside `decide` (`writer.dart:650`), with the result-reference scan, and the live writer in `lib/src/results/`. The journal format is unchanged. Verify that both test files pass, and that `mise run test -- test/session test/results` stays green.
+- [x] 2.2 Implement `SessionWriter.applyGuarded` inside `decide` (`writer.dart:650`), with the result-reference scan, and the live writer in `lib/src/results/`. The journal format is unchanged. Verify that both test files pass, and that `mise run test -- test/session test/results` stays green.
 
 ## 3. User configuration
 

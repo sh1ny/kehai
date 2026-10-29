@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'descriptor.dart';
+import 'live_result.dart';
 
 /// The session subdirectory that holds result bytes files.
 const String resultsDirName = 'results';
@@ -96,6 +97,59 @@ final class ResultStore {
 
   /// The injected test seams.
   final ResultStoreHooks hooks;
+
+  /// Opens the spool `results/<spoolName>` for a result still being produced.
+  ///
+  /// [spoolName] is `.spool-<launch>-<stream>`; an existing file of that name
+  /// is overwritten. Use [adopt] to take one over instead.
+  Future<LiveResult> begin(String spoolName) async {
+    checkSpoolName(spoolName);
+    final dir = Directory(p.join(sessionDir.path, resultsDirName))
+      ..createSync(recursive: true);
+    final file = await File(p.join(dir.path, spoolName))
+        .open(mode: FileMode.writeOnly);
+    return LiveResult(this, spoolName, file);
+  }
+
+  /// Hashes the existing spool [spoolName] and returns its descriptor.
+  ///
+  /// Throws a [ResultError] when the spool does not exist.
+  Future<ResultDescriptor> adopt(String spoolName) async {
+    checkSpoolName(spoolName);
+    return await describeSpool(
+      File(p.join(sessionDir.path, resultsDirName, spoolName)),
+    );
+  }
+
+  /// Renames the sealed spool [spoolName] to `results/<sha256>` of [descriptor].
+  ///
+  /// When the final name already exists with the same size the spool is
+  /// deleted; an existing file of another size is replaced. When the spool is
+  /// gone but the final name holds the bytes, a repeated publish does
+  /// nothing. Writes no journal record. Throws a [ResultError] when neither
+  /// exists, or when the spool's size is not the descriptor's.
+  Future<void> publish(String spoolName, ResultDescriptor descriptor) async {
+    checkSpoolName(spoolName);
+    descriptor.validate();
+    final dir = p.join(sessionDir.path, resultsDirName);
+    final spool = File(p.join(dir, spoolName));
+    final target = File(p.join(dir, descriptor.sha256));
+    final sameSize =
+        target.existsSync() && target.lengthSync() == descriptor.bytes;
+    if (!spool.existsSync()) {
+      if (sameSize) return;
+      throw ResultError('spool missing: $spoolName');
+    }
+    if (spool.lengthSync() != descriptor.bytes) {
+      throw ResultError('spool $spoolName does not match ${descriptor.handle}');
+    }
+    if (sameSize) {
+      await spool.delete();
+    } else {
+      if (target.existsSync()) await target.delete();
+      await spool.rename(target.path);
+    }
+  }
 
   /// Stores [source] whole and returns the outcome.
   ///

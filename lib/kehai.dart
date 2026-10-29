@@ -18,6 +18,7 @@ export 'src/session/writer.dart';
 export 'src/results/composer.dart';
 export 'src/results/descriptor.dart';
 export 'src/results/line_scanner.dart';
+export 'src/results/live_result.dart' show LiveResult;
 export 'src/results/reader.dart';
 export 'src/results/search.dart';
 export 'src/results/handles.dart';
