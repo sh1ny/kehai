@@ -182,7 +182,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 4. OAuth client and refresher
 
-- [ ] 4.1 Write the failing `test/auth/refresher_test.dart` rows against `fake_openai`:
+- [x] 4.1 Write the failing `test/auth/refresher_test.dart` rows against `fake_openai`:
   - near-expiry refresh, omitted token, transient, lost response, after lost response, and that a refresh leaves `generation` unchanged;
   - external logout, account replacement;
   - parallel and shared-failure refreshes;

@@ -261,12 +261,17 @@ final class TokenScript {
     return body;
   }, delay: delay);
 
-  /// An error body `{"error": code}` with [status].
+  /// An error body `{"error": code}` with [status], sent after [delay].
   factory TokenScript.error(
     int status,
     String code, {
     Map<String, Object?> extra = const {},
-  }) => TokenScript._((_, _) => {'error': code, ...extra}, status: status);
+    Duration delay = Duration.zero,
+  }) => TokenScript._(
+    (_, _) => {'error': code, ...extra},
+    status: status,
+    delay: delay,
+  );
 
   /// A JSON [body] with [status].
   factory TokenScript.json(int status, Object? body) =>
