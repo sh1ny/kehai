@@ -74,7 +74,9 @@ final List<ToolDefinition> toolDefinitions = List.unmodifiable([
     version: 1,
     description:
         'Edit a text file by line numbers as last read. Name the anchor of '
-        'every 16-line block the operations touch.',
+        'every 16-line block the operations touch. Operations: replace '
+        '(start..end), insert (after a line, 0 for the top) and delete; '
+        'text is split into lines at line breaks.',
     schema: _object(
       {
         'path': _path,

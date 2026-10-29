@@ -46,9 +46,15 @@ export 'src/tools/roster.dart' show ToolDefinition, toolDefinitions;
 export 'src/tools/runtime.dart';
 export 'src/tools/schema.dart' show parseArguments, validateArguments;
 export 'src/tools/tool.dart';
+export 'src/tools/atomic_write.dart' show FileWriteSeams, RenameFile;
+export 'src/tools/edit.dart' show EditTool;
+export 'src/tools/read.dart'
+    show ReadSeams, ReadSource, ReadSourceOpener, ReadTool;
+export 'src/tools/write.dart' show WriteTool;
 export 'src/tools/ask.dart'
     show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
-export 'src/permissions/credentials.dart' show isCredentialPath;
+export 'src/permissions/credentials.dart'
+    show isCredentialPath, isCredentialTarget;
 export 'src/permissions/gate.dart' show PermissionGate;
 export 'src/permissions/workspace_paths.dart' show isInside, realPath;
 export 'src/shell/proof.dart' show ProvenCommand, proveReadOnly, tokenizeSimple;

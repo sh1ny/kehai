@@ -27,28 +27,28 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | tool-calls → Bounded parallel calls | Admission over the bound | test/tools/runtime_test.dart | 41st call over 8 running plus 32 queued fails tool busy | green |
 | tool-calls → Turn cancellation | Ctrl-C cancels running and queued calls | test/tools/runtime_test.dart | cancelTurn cancels queued then running calls with reason user | green |
 | tool-calls → Turn cancellation | Cancellation after settlement | test/tools/runtime_test.dart | cancelTurn after settle changes nothing | green |
-| file-tools → Numbered read with block anchors | Read a 40-line file | test/tools/read_tool_test.dart | 40-line file anchors lines 1, 17 and 33 | red |
-| file-tools → Numbered read with block anchors | Empty file | test/tools/read_tool_test.dart | empty file reads 0 lines ok | red |
-| file-tools → Numbered read with block anchors | Path is not a readable text file | test/tools/read_tool_test.dart | missing, directory and NUL-in-8-KiB paths give their errors | red |
-| file-tools → Anchor hash definition | Hash matches the reference vectors | test/tools/xxhash32_test.dart | xxHash32 matches published vectors; whitespace and CRLF variants hash equal | red |
-| file-tools → Anchor hash definition | Streamed hash equals the definition | test/tools/block_hash_test.dart | streamed hash equals whole-block hash for mixed runs across chunk sizes | red |
-| file-tools → Anchor hash definition | Content change in one block | test/tools/block_hash_test.dart | recorded vector block 17 changes only its own hash | red |
-| file-tools → Read window snaps to blocks | Offset inside a block | test/tools/read_tool_test.dart | offset 20 limit 10 renders lines 17–32 of 100 | red |
-| file-tools → Read window snaps to blocks | Offset beyond the file or oversized file | test/tools/read_tool_test.dart | offset past end and 70 MiB without limit are refused | red |
-| file-tools → Read window snaps to blocks | One huge line | test/tools/read_tool_test.dart | [slow] 2 GiB single line reads whole with working set under 1 MiB | red |
-| file-tools → Read window snaps to blocks | Newline-dense file | test/tools/read_tool_test.dart | [slow] 64 MiB of newlines reads with working set under 1 MiB at any limit | red |
-| file-tools → Read window snaps to blocks | File changes during a read | test/tools/read_tool_test.dart | size or mtime change between passes fails file changed during read | red |
-| file-tools → Anchored edit operations | Replace and insert in one edit | test/tools/edit_tool_test.dart | replace and insert apply on original numbering in one rename | red |
-| file-tools → Anchored edit operations | Overlapping or out-of-range operations | test/tools/edit_tool_test.dart | overlapping and out-of-range ops are rejected unchanged | red |
-| file-tools → Anchored edit operations | Edit that changes nothing | test/tools/edit_tool_test.dart | no-op edit is rejected and the file is not rewritten | red |
-| file-tools → Stale and moved anchors rejected loudly | Line inserted above a block | test/tools/edit_tool_test.dart | moved block reports stale anchor with its new hash | red |
-| file-tools → Stale and moved anchors rejected loudly | Several stale anchors reported together | test/tools/edit_tool_test.dart | every stale anchor is listed in one rejection | red |
-| file-tools → Stale and moved anchors rejected loudly | Missing or malformed anchor | test/tools/edit_tool_test.dart | unnamed touched block and non-block anchor are rejected | red |
-| file-tools → Edit preserves untouched bytes | CRLF file with one LF line | test/tools/edit_tool_test.dart | BOM and per-line endings survive an edit byte for byte | red |
-| file-tools → Edit preserves untouched bytes | Invalid UTF-8 | test/tools/edit_tool_test.dart | invalid UTF-8 file is refused unchanged | red |
-| file-tools → Edit preserves untouched bytes | File too large to edit | test/tools/edit_tool_test.dart | 20 MiB file is refused with the 16 MiB limit | red |
-| file-tools → Atomic file replacement | Write a new file | test/tools/write_tool_test.dart | write creates missing directories and reports created | red |
-| file-tools → Atomic file replacement | Rename fails | test/tools/write_tool_test.dart | failed rename leaves the target and no temporary file | red |
+| file-tools → Numbered read with block anchors | Read a 40-line file | test/tools/read_tool_test.dart | 40-line file anchors lines 1, 17 and 33 | green |
+| file-tools → Numbered read with block anchors | Empty file | test/tools/read_tool_test.dart | empty file reads 0 lines ok | green |
+| file-tools → Numbered read with block anchors | Path is not a readable text file | test/tools/read_tool_test.dart | missing, directory and NUL-in-8-KiB paths give their errors | green |
+| file-tools → Anchor hash definition | Hash matches the reference vectors | test/tools/xxhash32_test.dart | xxHash32 matches published vectors; whitespace and CRLF variants hash equal | green |
+| file-tools → Anchor hash definition | Streamed hash equals the definition | test/tools/block_hash_test.dart | streamed hash equals whole-block hash for mixed runs across chunk sizes | green |
+| file-tools → Anchor hash definition | Content change in one block | test/tools/block_hash_test.dart | recorded vector block 17 changes only its own hash | green |
+| file-tools → Read window snaps to blocks | Offset inside a block | test/tools/read_tool_test.dart | offset 20 limit 10 renders lines 17–32 of 100 | green |
+| file-tools → Read window snaps to blocks | Offset beyond the file or oversized file | test/tools/read_tool_test.dart | offset past end and 70 MiB without limit are refused | green |
+| file-tools → Read window snaps to blocks | One huge line | test/tools/read_tool_test.dart | [slow] 2 GiB single line reads whole with working set under 1 MiB | green |
+| file-tools → Read window snaps to blocks | Newline-dense file | test/tools/read_tool_test.dart | [slow] 64 MiB of newlines reads with working set under 1 MiB at any limit | green |
+| file-tools → Read window snaps to blocks | File changes during a read | test/tools/read_tool_test.dart | size or mtime change between passes fails file changed during read | green |
+| file-tools → Anchored edit operations | Replace and insert in one edit | test/tools/edit_tool_test.dart | replace and insert apply on original numbering in one rename | green |
+| file-tools → Anchored edit operations | Overlapping or out-of-range operations | test/tools/edit_tool_test.dart | overlapping and out-of-range ops are rejected unchanged | green |
+| file-tools → Anchored edit operations | Edit that changes nothing | test/tools/edit_tool_test.dart | no-op edit is rejected and the file is not rewritten | green |
+| file-tools → Stale and moved anchors rejected loudly | Line inserted above a block | test/tools/edit_tool_test.dart | moved block reports stale anchor with its new hash | green |
+| file-tools → Stale and moved anchors rejected loudly | Several stale anchors reported together | test/tools/edit_tool_test.dart | every stale anchor is listed in one rejection | green |
+| file-tools → Stale and moved anchors rejected loudly | Missing or malformed anchor | test/tools/edit_tool_test.dart | unnamed touched block and non-block anchor are rejected | green |
+| file-tools → Edit preserves untouched bytes | CRLF file with one LF line | test/tools/edit_tool_test.dart | BOM and per-line endings survive an edit byte for byte | green |
+| file-tools → Edit preserves untouched bytes | Invalid UTF-8 | test/tools/edit_tool_test.dart | invalid UTF-8 file is refused unchanged | green |
+| file-tools → Edit preserves untouched bytes | File too large to edit | test/tools/edit_tool_test.dart | 20 MiB file is refused with the 16 MiB limit | green |
+| file-tools → Atomic file replacement | Write a new file | test/tools/write_tool_test.dart | write creates missing directories and reports created | green |
+| file-tools → Atomic file replacement | Rename fails | test/tools/write_tool_test.dart | failed rename leaves the target and no temporary file | green |
 | workspace-search → Ripgrep resolution | rg found on PATH | test/tools/search_tools_test.dart | rg resolves from rgPath or PATH and passes --version | red |
 | workspace-search → Ripgrep resolution | rg missing | test/tools/search_tools_test.dart | missing rg fails with the install hint naming the config path | red |
 | workspace-search → Content search | Matches rendered per line | test/tools/search_tools_test.dart | grep renders path:line: text from --null output | red |
@@ -85,7 +85,7 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | tool-permissions → Ask otherwise, or explicit yolo | User denies an edit | test/permissions/gate_test.dart | denied prompt settles denied without effect | green |
 | tool-permissions → Ask otherwise, or explicit yolo | Yolo run | test/permissions/gate_test.dart | yolo approves without prompting except credential paths | green |
 | tool-permissions → Ask otherwise, or explicit yolo | No answerer, not yolo | test/permissions/gate_test.dart | headless unapproved call settles denied | green |
-| tool-permissions → Credential files never exposed | Read the credential file | test/permissions/credentials_test.dart | file tools refuse every auth.* in the Kehai home even under yolo | red |
+| tool-permissions → Credential files never exposed | Read the credential file | test/permissions/credentials_test.dart | file tools refuse every auth.* in the Kehai home even under yolo | green |
 | tool-permissions → Credential files never exposed | Grep that would cover the home | test/permissions/credentials_test.dart | grep over the home excludes auth.* and says so | red |
 | tool-permissions → Credential files never exposed | Search during a credential write | test/permissions/credentials_test.dart | paused credential temp file is never matched or stored | red |
 | tool-permissions → User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
@@ -184,11 +184,11 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 6. File tools
 
-- [ ] 6.1 Write the failing `test/tools/xxhash32_test.dart` and `test/tools/block_hash_test.dart` rows. Record the published reference vectors, and a 40-line block-17 vector before and after the one-character change, in `test/fixtures/anchors/`.
-- [ ] 6.2 Implement `lib/src/tools/xxhash32.dart` and the streaming block hasher, with committed and speculative states, per design D4. Verify that both files pass at chunk sizes 1, 7 and 65536, and flip their rows green.
-- [ ] 6.3 Write the failing `test/tools/read_tool_test.dart` rows. Implement `read` as two passes per block, with the window snap, the 64 MiB rule, the change check and the binary sniff. Measure the working set through a counting reader seam. Verify that `read_tool_test.dart` passes (with `[slow]` included) and flip its rows green.
-- [ ] 6.4 Write the failing `test/tools/edit_tool_test.dart` and `test/tools/write_tool_test.dart` rows. Implement `edit` (op validation, anchor coverage, bottom-up apply, per-line endings, the BOM, the UTF-8 and 16 MiB refusals, the pre-rename recheck, `later anchors:`) and `write` with atomic replacement per design D5. Use an injected rename seam for the failing-rename row. Verify that both files pass and flip their rows green.
-- [ ] 6.5 Write the failing `test/permissions/credentials_test.dart` row *Read the credential file*. Implement the resolved-path `auth.*` refusal shared by the file tools. Verify that it passes, under `--yolo` too, and flip the row green.
+- [x] 6.1 Write the failing `test/tools/xxhash32_test.dart` and `test/tools/block_hash_test.dart` rows. Record the published reference vectors, and a 40-line block-17 vector before and after the one-character change, in `test/fixtures/anchors/`.
+- [x] 6.2 Implement `lib/src/tools/xxhash32.dart` and the streaming block hasher, with committed and speculative states, per design D4. Verify that both files pass at chunk sizes 1, 7 and 65536, and flip their rows green.
+- [x] 6.3 Write the failing `test/tools/read_tool_test.dart` rows. Implement `read` as two passes per block, with the window snap, the 64 MiB rule, the change check and the binary sniff. Measure the working set through a counting reader seam. Verify that `read_tool_test.dart` passes (with `[slow]` included) and flip its rows green.
+- [x] 6.4 Write the failing `test/tools/edit_tool_test.dart` and `test/tools/write_tool_test.dart` rows. Implement `edit` (op validation, anchor coverage, bottom-up apply, per-line endings, the BOM, the UTF-8 and 16 MiB refusals, the pre-rename recheck, `later anchors:`) and `write` with atomic replacement per design D5. Use an injected rename seam for the failing-rename row. Verify that both files pass and flip their rows green.
+- [x] 6.5 Write the failing `test/permissions/credentials_test.dart` row *Read the credential file*. Implement the resolved-path `auth.*` refusal shared by the file tools. Verify that it passes, under `--yolo` too, and flip the row green.
 
 ## 7. Workspace search
 

@@ -29,9 +29,12 @@ import '../session/errors.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
 import 'ask.dart';
+import 'edit.dart';
+import 'read.dart';
 import 'roster.dart';
 import 'schema.dart';
 import 'tool.dart';
+import 'write.dart';
 
 /// The most calls that run at once.
 const int maxRunningCalls = 8;
@@ -43,6 +46,13 @@ const int maxQueuedCalls = 32;
 const int _maxSettleRetries = 16;
 
 const Set<String> _terminalStatuses = {'settled', 'failed', 'cancelled'};
+
+/// The tools every runtime has unless [ToolRuntime.attach] is given its own.
+const Map<String, Tool> _builtinTools = {
+  'read': ReadTool(),
+  'edit': EditTool(),
+  'write': WriteTool(),
+};
 
 /// The node key `c-<12 hex>` of the provider call id [callId].
 ///
@@ -98,6 +108,7 @@ final class ToolRuntime {
     this._gate,
     this.prompts,
     this._seams,
+    this.kehaiHome,
   );
 
   /// Attaches a runtime to [writer] and [store].
@@ -143,7 +154,7 @@ final class ToolRuntime {
       workspace,
       config,
       yolo,
-      Map.unmodifiable(tools),
+      Map.unmodifiable({..._builtinTools, ...tools}),
       hooks ?? const AllowAllStage(),
       gate ??
           PermissionGate(
@@ -156,6 +167,7 @@ final class ToolRuntime {
           ),
       prompts,
       seams,
+      kehaiHome,
     );
     await runtime._finalizeOnResume();
     return runtime;
@@ -178,6 +190,9 @@ final class ToolRuntime {
 
   /// The channel the answerer replies through, by call key.
   final PromptChannel prompts;
+
+  /// The Kehai home, or null when the runtime was given a gate instead.
+  final Directory? kehaiHome;
 
   final Map<String, Tool> _tools;
   final CallStage _hooks;
@@ -390,6 +405,7 @@ final class ToolRuntime {
       workspace: workspace,
       config: config,
       prompts: prompts,
+      kehaiHome: kehaiHome,
     );
     final tool = _invoke(_tools[live.tool]!, context, input);
     final first = await Future.any<_Step>([

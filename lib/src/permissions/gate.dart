@@ -65,8 +65,7 @@ final class PermissionGate implements CallStage {
   @override
   Future<StageOutcome> check(StageCall call, CancelToken cancel) async {
     final root = realPath(workspace.path);
-    final home = realPath(kehaiHome.path);
-    if (_touchesCredential(call, home)) {
+    if (_touchesCredential(call)) {
       return const StageOutcome.deny(
         credentialRefusal,
         record: {'decision': 'deny', 'by': 'builtin', 'rule': 'credential'},
@@ -101,21 +100,10 @@ final class PermissionGate implements CallStage {
 
   String _resolve(String path) => p.join(workspace.absolute.path, path);
 
-  bool _touchesCredential(StageCall call, String? home) {
+  bool _touchesCredential(StageCall call) {
     final paths = _pathsOf(call);
     if (paths == null) return false;
-    for (final path in paths) {
-      final lexical = p.normalize(_resolve(path));
-      final real = realPath(_resolve(path));
-      // The real path catches a link to a credential file; the lexical one
-      // catches a credential name whose directory cannot be resolved.
-      for (final candidate in [lexical, ?real]) {
-        if (isCredentialPath(candidate, home ?? kehaiHome.absolute.path)) {
-          return true;
-        }
-      }
-    }
-    return false;
+    return paths.any((path) => isCredentialTarget(_resolve(path), kehaiHome));
   }
 
   Map<String, Object?>? _builtin(StageCall call, String root) {

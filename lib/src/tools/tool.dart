@@ -69,6 +69,7 @@ final class ToolContext {
     required this.workspace,
     required this.config,
     this.prompts,
+    this.kehaiHome,
   });
 
   /// The call's node key, `c-<12 hex>`.
@@ -92,6 +93,11 @@ final class ToolContext {
 
   /// The answerer channel of the runtime, or null when the context has none.
   final PromptChannel? prompts;
+
+  /// The Kehai home, whose `auth.*` credential files the file tools refuse
+  /// even when the permission gate let the call through; null when the
+  /// context has none.
+  final Directory? kehaiHome;
 }
 
 /// One tool implementation.
