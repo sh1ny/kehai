@@ -121,19 +121,38 @@ Future<void> launchSystemBrowser(
 Stream<String> boundedLines(
   Stream<List<int>> input, {
   int maxBytes = openAiMaxPastedLineBytes,
-}) async* {
+}) {
+  // Not an `async*` generator: cancelling a generator that waits on `input`
+  // only completes when `input` next delivers, so a login that ended with the
+  // terminal silent would never stop reading standard input.
   final line = <int>[];
-  await for (final chunk in input) {
-    for (final byte in chunk) {
-      if (byte == 0x0a) {
-        yield _decodeLine(line);
-        line.clear();
-      } else if (line.length <= maxBytes) {
-        line.add(byte);
-      }
-    }
-  }
-  if (line.isNotEmpty) yield _decodeLine(line);
+  late final StreamController<String> controller;
+  StreamSubscription<List<int>>? source;
+  controller = StreamController<String>(
+    onListen: () {
+      source = input.listen(
+        (chunk) {
+          for (final byte in chunk) {
+            if (byte == 0x0a) {
+              controller.add(_decodeLine(line));
+              line.clear();
+            } else if (line.length <= maxBytes) {
+              line.add(byte);
+            }
+          }
+        },
+        onError: controller.addError,
+        onDone: () {
+          if (line.isNotEmpty) controller.add(_decodeLine(line));
+          controller.close();
+        },
+      );
+    },
+    onPause: () => source?.pause(),
+    onResume: () => source?.resume(),
+    onCancel: () => source?.cancel(),
+  );
+  return controller.stream;
 }
 
 String _decodeLine(List<int> bytes) {

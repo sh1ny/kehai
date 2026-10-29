@@ -13,7 +13,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | credential-store → Platform credential backend | Unix file is private | test/auth/credential_store_test.dart | [unix] stored auth.json is 0600 in a 0700 home with version 1 and all three parts | green |
 | credential-store → Platform credential backend | Windows file is encrypted | test/auth/credential_store_test.dart | [windows] auth.dpapi holds no token text and round-trips | green |
 | credential-store → Platform credential backend | Wrong DPAPI entropy cannot decrypt | test/auth/credential_store_test.dart | [windows] blob fails to decrypt under another entropy | green |
-| credential-store → Credential record parts | Logged in only with a token set | test/cli/cli_test.dart | tokenless enabled registration reports not logged in and fails reauth; disabled one fails not_permitted | red |
+| credential-store → Credential record parts | Logged in only with a token set | test/cli/cli_test.dart | tokenless enabled registration reports not logged in and fails reauth; disabled one fails not_permitted | green |
 | credential-store → Fail closed without a secure backend | Unix permissions too open | test/auth/credential_store_test.dart | [unix] group or other bits on auth.json refuse the load | green |
 | credential-store → Fail closed without a secure backend | Unsafe Unix home or link | test/auth/credential_store_test.dart | [unix] symlinked home, symlinked or non-regular auth.json are refused | green |
 | credential-store → Fail closed without a secure backend | Secure write unavailable | test/auth/credential_store_test.dart | failing protect or open call stores nothing and leaves no file | green |
@@ -27,17 +27,17 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | credential-store → Atomic credential replacement | Interrupted write | test/auth/credential_store_test.dart | failure before rename keeps the previous record | green |
 | credential-store → Cross-process credential lock | Two processes refresh at once | test/auth/refresher_process_test.dart | two processes refreshing send exactly one refresh | green |
 | credential-store → Cross-process credential lock | Holder dies | test/auth/refresher_process_test.dart | killed lock holder does not block the next process | green |
-| credential-store → Credentials never leave the boundary | Doctor output is token-free | test/cli/cli_test.dart | doctor output contains no stored token | red |
+| credential-store → Credentials never leave the boundary | Doctor output is token-free | test/cli/cli_test.dart | doctor output contains no stored token | green |
 | credential-store → Credentials never leave the boundary | Authorize URL handoff | test/auth/browser_login_test.dart | authorize url with state and nonce appears once on stdout and as launcher argument, nowhere else | green |
 | credential-store → Credentials never leave the boundary | Rejected pasted URL is not echoed | test/auth/browser_login_test.dart | rejected pasted url is not echoed | green |
 | credential-store → Credentials never leave the boundary | Subprocess environment is token-free | test/auth/browser_login_test.dart | browser launcher environment contains no token | green |
 | credential-store → Locally composed failure text | Failure messages are token-free | test/auth/failure_text_test.dart | echoed secrets in message, code or param never surface | green |
 | credential-store → Locally composed failure text | Server message is not relayed | test/auth/failure_text_test.dart | server message and detail fields are dropped | green |
 | credential-store → Locally composed failure text | Suspicious error code | test/auth/failure_text_test.dart | uppercase, long or secret-bearing codes become unrecognized | green |
-| credential-store → Logout clears stored tokens | Logout with credentials | test/cli/cli_test.dart | logout clears tokens, keeps host id and registration, doctor reports not logged in | red |
-| credential-store → Logout clears stored tokens | Logout without credentials | test/cli/cli_test.dart | logout without tokens prints not logged in, exits zero, sends no revocation, advances generation | red |
-| credential-store → Logout clears stored tokens | Forget the registration | test/cli/cli_test.dart | logout --forget while logged in revokes and keeps only host id and generation | red |
-| credential-store → Logout clears stored tokens | Forget after logout | test/cli/cli_test.dart | logout then logout --forget sends no revocation and keeps only host id and generation | red |
+| credential-store → Logout clears stored tokens | Logout with credentials | test/cli/cli_test.dart | logout clears tokens, keeps host id and registration, doctor reports not logged in | green |
+| credential-store → Logout clears stored tokens | Logout without credentials | test/cli/cli_test.dart | logout without tokens prints not logged in, exits zero, sends no revocation, advances generation | green |
+| credential-store → Logout clears stored tokens | Forget the registration | test/cli/cli_test.dart | logout --forget while logged in revokes and keeps only host id and generation | green |
+| credential-store → Logout clears stored tokens | Forget after logout | test/cli/cli_test.dart | logout then logout --forget sends no revocation and keeps only host id and generation | green |
 | model-provider → Normalized turn stream | Text answer | test/provider/chatgpt_adapter_test.dart | text deltas then usage then completed end_turn | green |
 | model-provider → Normalized turn stream | Stream ends early | test/provider/chatgpt_adapter_test.dart | early close ends with protocol failure | green |
 | model-provider → Complete tool calls | Two parallel tool calls | test/provider/chatgpt_adapter_test.dart | two function calls emit two complete tool calls and tool_use | green |
@@ -131,10 +131,10 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | provider-auth → Rejected client and other refresh errors | Unknown 400 | test/auth/refresher_test.dart | unknown 400 code is invalid_request | green |
 | provider-auth → Logout revokes the session | Revocation confirmed | test/auth/logout_test.dart | logout posts revocation form and reports logged out | green |
 | provider-auth → Logout revokes the session | Revocation not confirmed | test/auth/logout_test.dart | failed revocation still clears tokens and says not confirmed | green |
-| provider-auth → Doctor report | Healthy subscription | test/cli/cli_test.dart | doctor prints account backend expiry models and exits zero | red |
-| provider-auth → Doctor report | Not logged in | test/cli/cli_test.dart | doctor without tokens or a disabled registration reports not logged in and exits non-zero | red |
-| provider-auth → Doctor report | Plan usage not enabled | test/cli/cli_test.dart | doctor with plan usage disabled names enable-plan-usage and exits non-zero | red |
-| provider-auth → Doctor report | Empty model list | test/cli/cli_test.dart | doctor with no listed models reports no models available | red |
+| provider-auth → Doctor report | Healthy subscription | test/cli/cli_test.dart | doctor prints account backend expiry models and exits zero | green |
+| provider-auth → Doctor report | Not logged in | test/cli/cli_test.dart | doctor without tokens or a disabled registration reports not logged in and exits non-zero | green |
+| provider-auth → Doctor report | Plan usage not enabled | test/cli/cli_test.dart | doctor with plan usage disabled names enable-plan-usage and exits non-zero | green |
+| provider-auth → Doctor report | Empty model list | test/cli/cli_test.dart | doctor with no listed models reports no models available | green |
 
 ## 1. ADR, dependencies and fakes
 
@@ -247,7 +247,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 ## 7. CLI
 
 - [x] 7.1 Write the failing `test/cli/cli_test.dart`. It runs `dart run bin/kehai.dart` as a process with `KEHAI_HOME` set to a temp dir, and the loopback-only `KEHAI_OPENAI_ISSUER`/`KEHAI_OPENAI_API_BASE` pointing at `fake_openai`. Include a test that a non-loopback override is rejected with exit 64.
-- [ ] 7.2 Implement `bin/kehai.dart` and `lib/src/cli/` per D1:
+- [x] 7.2 Implement `bin/kehai.dart` and `lib/src/cli/` per D1:
   - `CommandRunner` with `login openai [--no-browser] [--enable-plan-usage]`, `logout openai [--forget]` and `doctor`;
   - exit codes 0, 1 and 64;
   - doctor sections: backend and path, login state and plan-usage state, account (email, subject, plan when known), expiry, refresh result, and models capped at 200 lines with a count;
