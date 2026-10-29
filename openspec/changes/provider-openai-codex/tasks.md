@@ -166,7 +166,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 3. Credential store
 
-- [ ] 3.1 Write the failing `test/auth/home_trust_test.dart` (six rows) against an injected `stat` seam, plus one real-FFI `[unix]` test asserting that FFI `st_mode` agrees with `FileStat.mode` on a temp dir.
+- [x] 3.1 Write the failing `test/auth/home_trust_test.dart` (six rows) against an injected `stat` seam, plus one real-FFI `[unix]` test asserting that FFI `st_mode` agrees with `FileStat.mode` on a temp dir.
 - [ ] 3.2 Implement `lib/src/auth/home_trust.dart` per design D6 *Trusted home path*:
   - canonicalization, the home-not-a-symlink check, and the ownership/mode/sticky rule;
   - FFI `stat`/`__xstat` and `geteuid` at per-ABI offsets, self-validated, failing closed on an unknown ABI.
