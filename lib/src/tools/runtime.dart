@@ -536,7 +536,7 @@ final class ToolRuntime {
         final answer = outcome.result;
         return _terminate(
           live,
-          lifecycle: 'settled',
+          lifecycle: outcome.failed ? 'failed' : 'settled',
           envelope: outcome.status,
           summary: outcome.summary,
           write: answer != null && written is! ResultStorageFailed
@@ -544,17 +544,27 @@ final class ToolRuntime {
               : written,
           complete: outcome.complete,
           composed: outcome.composed && answer == null,
+          reason: outcome.failed ? outcome.reason ?? outcome.summary : null,
+          policy: outcome.policy,
         );
       case _Cancelled():
         pipe.close();
-        final write = await stored;
+        final written = await stored;
         unawaited(_late(live, tool));
+        // A call whose output lives in its job answers with what the job
+        // printed; the job is terminated through the supervisor first.
+        final partial = await jobs.cancelCallJob(
+          live.key,
+          reason: live.cancelReason ?? 'user',
+        );
         return _terminate(
           live,
           lifecycle: 'cancelled',
           envelope: ResultStatus.error,
           summary: 'cancelled: ${live.cancelReason}',
-          write: write,
+          write: partial != null && written is! ResultStorageFailed
+              ? ResultComplete(partial)
+              : written,
           complete: false,
           reason: live.cancelReason,
         );
@@ -673,6 +683,7 @@ final class ToolRuntime {
     required bool complete,
     String? reason,
     bool composed = false,
+    ResultPolicy? policy,
   }) async {
     final ResultDescriptor descriptor;
     var whole = complete;
@@ -699,7 +710,14 @@ final class ToolRuntime {
     );
     final text = composed && whole
         ? await file.readAsString()
-        : await composeResult(live.tool, envelope, summary, descriptor, file);
+        : await composeResult(
+            live.tool,
+            envelope,
+            summary,
+            descriptor,
+            file,
+            policy: policy,
+          );
     return text + _diagLines(live);
   }
 

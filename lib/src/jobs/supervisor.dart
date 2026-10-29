@@ -499,6 +499,30 @@ final class JobSupervisor {
     return JobCancelled(await job.done.future);
   }
 
+  /// Terminates the live shell job started for call [call] and returns the
+  /// output it stored, or `null` when the call has no live job or the job left
+  /// no output (a cancelled call answers with what its job printed).
+  Future<ResultDescriptor?> cancelCallJob(
+    String call, {
+    String reason = 'user',
+  }) async {
+    final job = _jobs.values
+        .where((j) => j.request.call == call && j.request.kind == JobKind.shell)
+        .firstOrNull;
+    if (job == null) return null;
+    try {
+      final outcome = await cancelJob(job.id, reason: reason);
+      final result = switch (outcome) {
+        JobCancelled(:final result) => result,
+        JobAlreadyExited() => await job.done.future,
+        JobNotLive() => null,
+      };
+      return result?.streams['output']?.descriptor;
+    } on Object {
+      return null;
+    }
+  }
+
   /// Stores the output so far of stream [stream] of live job [id] as its own
   /// result and returns the outcome, or `null` when the job is not live.
   Future<ResultWrite?> snapshot(String id, String stream) async {

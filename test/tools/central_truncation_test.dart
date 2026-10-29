@@ -175,6 +175,7 @@ void main() {
         ToolCall call, {
         required bool large,
         List<int>? full,
+        ResultPolicy? policy,
       }) async {
         final item = await runtime.run(call);
         final node = nodeOf(call.callId);
@@ -200,6 +201,7 @@ void main() {
           node['summary']! as String,
           result.descriptor,
           result.file,
+          policy: policy,
         );
         expect(item.output, composed, reason: call.name);
 
@@ -288,6 +290,8 @@ void main() {
         _call('t-job', 'job', {'id': jobs.keys.single, 'action': 'output'}),
         large: true,
         full: utf8.encode(seq),
+        // `job output` composes with the `bash` cut (head and tail).
+        policy: ResultPolicy.bash,
       );
 
       // grep, find and ls: long listings.

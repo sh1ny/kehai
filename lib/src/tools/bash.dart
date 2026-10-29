@@ -78,7 +78,13 @@ final class BashTool implements Tool {
     try {
       handle = jobs.start(request);
     } on TooManyLiveJobs catch (e) {
-      return failure(e.message);
+      // The call settles `failed` with the bound message; nothing started.
+      return ToolOutcome(
+        status: ResultStatus.error,
+        summary: e.message,
+        complete: false,
+        failed: true,
+      );
     }
 
     var finished = false;
@@ -251,13 +257,17 @@ final class BashTool implements Tool {
         );
       case 'cancelled':
         final reason = result.reason ?? 'cancelled';
+        final cleanup = result.cleanup;
+        final unproven = cleanup != null && cleanup.startsWith('uncertain')
+            ? '; cleanup $cleanup'
+            : '';
         return ToolOutcome(
           status: reason == 'deadline'
               ? ResultStatus.timeout
               : ResultStatus.error,
           summary: reason == 'deadline'
-              ? 'job reached its deadline and was terminated$tag$note'
-              : 'job cancelled: $reason$tag$note',
+              ? 'job reached its deadline and was terminated$tag$note$unproven'
+              : 'job cancelled: $reason$tag$note$unproven',
           complete: false,
           result: descriptor,
         );
@@ -267,6 +277,8 @@ final class BashTool implements Tool {
           summary: 'failed to start: ${result.reason ?? 'unknown'}$tag$note',
           complete: false,
           result: descriptor,
+          failed: true,
+          reason: result.reason,
         );
     }
   }

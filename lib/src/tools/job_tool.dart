@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 
 import '../jobs/supervisor.dart';
+import '../results/composer.dart';
 import '../results/handles.dart';
 import '../results/result_store.dart';
 import '../session/path.dart';
@@ -136,6 +137,7 @@ final class JobTool implements Tool {
           summary: 'job $id is running; output so far',
           complete: false,
           result: descriptor,
+          policy: ResultPolicy.bash,
         );
       case ResultProducerFailed() || ResultStorageFailed():
         return failure('job $id output could not be stored');
@@ -160,6 +162,7 @@ final class JobTool implements Tool {
             'output',
         complete: whole,
         result: resolved.descriptor,
+        policy: ResultPolicy.bash,
       );
     } on Object catch (e) {
       return failure('job $id output unavailable: $e');
@@ -178,11 +181,20 @@ final class JobTool implements Tool {
     final outcome = await jobs.cancelJob(id);
     switch (outcome) {
       case JobCancelled(:final result):
-        return ToolOutcome(
-          summary:
-              'job $id ${result.state}'
-              '${result.reason == null ? '' : ' (${result.reason})'}',
-        );
+        // The cancel result reports whether the process tree is proven gone.
+        final cleanup = result.cleanup;
+        final summary =
+            'job $id ${result.state}'
+            '${result.reason == null ? '' : ' (${result.reason})'}'
+            '${cleanup == null ? '' : '; cleanup $cleanup'}';
+        final lines = [
+          summary,
+          'state: ${result.state}',
+          if (result.reason != null) 'reason: ${result.reason}',
+          if (cleanup != null) 'cleanup: $cleanup',
+        ];
+        await context.output.writeText('${lines.join('\n')}\n');
+        return ToolOutcome(summary: summary);
       case JobAlreadyExited():
         return ToolOutcome(summary: outcome.message);
       case JobNotLive():

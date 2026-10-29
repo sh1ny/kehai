@@ -28,6 +28,7 @@ final class BashHarness {
   static Future<BashHarness> create({
     Map<String, Object?>? permission,
     UserConfig config = const UserConfig(),
+    ShellDetection? shell,
   }) async {
     final root = await tempDir();
     final workspace = await tempDir();
@@ -38,6 +39,7 @@ final class BashHarness {
       store,
       workspace: workspace,
       config: config,
+      shell: shell,
       gate: RecordingStage(permission),
     );
     addTearDown(runtime.close);

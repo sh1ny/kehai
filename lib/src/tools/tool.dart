@@ -35,6 +35,9 @@ final class ToolOutcome {
     this.complete = true,
     this.result,
     this.composed = false,
+    this.failed = false,
+    this.reason,
+    this.policy,
   });
 
   /// The envelope status of the call.
@@ -56,6 +59,19 @@ final class ToolOutcome {
   /// stored result (`read_more`, `search_result`). The runtime stores them
   /// and answers with them unchanged instead of composing them again.
   final bool composed;
+
+  /// Whether the call itself failed (a job that could not launch, a refused
+  /// 17th job) rather than ended with a result. The call node then settles
+  /// `failed` instead of `settled`.
+  final bool failed;
+
+  /// Why a [failed] call failed, recorded as the node's `reason`; defaults to
+  /// [summary].
+  final String? reason;
+
+  /// The composer policy for this answer, or `null` for the tool's default
+  /// ([ResultPolicy.forTool]).
+  final ResultPolicy? policy;
 }
 
 /// Where a tool streams its output.
