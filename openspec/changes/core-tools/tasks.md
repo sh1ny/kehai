@@ -88,8 +88,8 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | tool-permissions → Credential files never exposed | Read the credential file | test/permissions/credentials_test.dart | file tools refuse every auth.* in the Kehai home even under yolo | red |
 | tool-permissions → Credential files never exposed | Grep that would cover the home | test/permissions/credentials_test.dart | grep over the home excludes auth.* and says so | red |
 | tool-permissions → Credential files never exposed | Search during a credential write | test/permissions/credentials_test.dart | paused credential temp file is never matched or stored | red |
-| tool-permissions → User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | red |
-| tool-permissions → User configuration file | Invalid configuration | test/config/config_test.dart | unknown key or bad type refuses to start naming the path | red |
+| tool-permissions → User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
+| tool-permissions → User configuration file | Invalid configuration | test/config/config_test.dart | unknown key or bad type refuses to start naming the path | green |
 | job-supervisor → One job node shape | Shell job recorded | test/jobs/supervisor_test.dart | echo hi job node holds no pid and resolves its outputs | red |
 | job-supervisor → One job node shape | Launch failure | test/jobs/supervisor_test.dart | vanished shell fails the job pending to failed and clears its launch record | red |
 | job-supervisor → Bounded live jobs | Background jobs fill the bound | test/jobs/supervisor_test.dart | 17th live job is refused until one is cancelled | red |
@@ -135,7 +135,7 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | hook-deadlines → Engine-enforced hook deadline | Hung optional hook | test/hooks/hooks_test.dart | hung optional hook with timeout_ms 500 lets the call proceed within 3 s | red |
 | hook-deadlines → Engine-enforced hook deadline | Hung deny-class hook | test/hooks/hooks_test.dart | hung deny-class hook denies within 3 s | red |
 | hook-deadlines → Default hook deadline above shell startup | Startup measured and default checked | test/hooks/hook_default_test.dart | default deadline is at least 3x the recorded p95 and at least 2 s | red |
-| hook-deadlines → Default hook deadline above shell startup | Invalid timeout configured | test/config/config_test.dart | invalid timeout_ms refuses to start | red |
+| hook-deadlines → Default hook deadline above shell startup | Invalid timeout configured | test/config/config_test.dart | invalid timeout_ms refuses to start | green |
 
 ## 1. ADR and architecture index
 
@@ -161,8 +161,8 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 3. User configuration
 
-- [ ] 3.1 Write failing `test/config/config_test.dart` rows: missing configuration, invalid configuration, invalid `timeout_ms`, plus extra cases for `rgPath`, `env.passthrough`, `allow` and `hooks` parsing. All read only `<kehai home>/config.json`.
-- [ ] 3.2 Implement `lib/src/config/` per design D15. The parser is strict: an unknown key, a wrong type or an out-of-range value refuses to start, and the message names the path. Verify that `config_test.dart` passes and flip its rows green.
+- [x] 3.1 Write failing `test/config/config_test.dart` rows: missing configuration, invalid configuration, invalid `timeout_ms`, plus extra cases for `rgPath`, `env.passthrough`, `allow` and `hooks` parsing. All read only `<kehai home>/config.json`.
+- [x] 3.2 Implement `lib/src/config/` per design D15. The parser is strict: an unknown key, a wrong type or an out-of-range value refuses to start, and the message names the path. Verify that `config_test.dart` passes and flip its rows green.
 
 ## 4. Tool runtime and call lifecycle
 

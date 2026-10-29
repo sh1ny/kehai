@@ -23,6 +23,7 @@ export 'src/results/reader.dart';
 export 'src/results/search.dart';
 export 'src/results/handles.dart';
 export 'src/results/result_store.dart';
+export 'src/config/user_config.dart';
 export 'src/provider/provider.dart';
 export 'src/provider/chatgpt_adapter.dart' show ChatGptAdapter;
 export 'src/auth/failure_text.dart' show FailureKind;
