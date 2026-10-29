@@ -55,7 +55,9 @@ const SseProtocolError _tooLarge = SseProtocolError('SSE event exceeds 8 MiB');
 /// [openAiMaxSseEventBytes]; the buffered bytes are dropped first. A final
 /// event with no terminating blank line is discarded.
 Stream<SseEvent> parseSse(Stream<List<int>> source) async* {
-  final line = BytesBuilder(copy: false);
+  // Copying: lines grow one byte at a time, and a non-copying builder
+  // would keep a separate allocation per byte.
+  final line = BytesBuilder();
   var data = BytesBuilder(copy: false);
   var dataBytes = 0;
   var hasData = false;

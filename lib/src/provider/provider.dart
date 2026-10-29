@@ -326,15 +326,50 @@ final class ProviderFailure implements Exception {
 /// A one-shot cancellation signal.
 final class CancelToken {
   final Completer<void> _completer = Completer<void>();
+  final Set<_CancelListener> _listeners = {};
 
   /// Whether [cancel] was called.
   bool get isCancelled => _completer.isCompleted;
 
   /// A future that completes when [cancel] is called.
+  ///
+  /// A callback attached here stays reachable until the token is cancelled;
+  /// an operation that may end first uses [listen] instead.
   Future<void> get whenCancelled => _completer.future;
+
+  /// The number of callbacks attached with [listen] and not yet detached.
+  int get listenerCount => _listeners.length;
+
+  /// Calls [onCancel] in a microtask once [cancel] is called, or at once
+  /// (also in a microtask) when the token is already cancelled.
+  ///
+  /// Returns a function that detaches [onCancel], so a token reused across
+  /// operations does not keep finished ones alive.
+  void Function() listen(void Function() onCancel) {
+    if (isCancelled) {
+      scheduleMicrotask(onCancel);
+      return () {};
+    }
+    final listener = _CancelListener(onCancel);
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
 
   /// Cancels; later calls do nothing.
   void cancel() {
-    if (!_completer.isCompleted) _completer.complete();
+    if (_completer.isCompleted) return;
+    _completer.complete();
+    final listeners = _listeners.toList();
+    _listeners.clear();
+    for (final listener in listeners) {
+      scheduleMicrotask(listener.onCancel);
+    }
   }
+}
+
+/// One [CancelToken.listen] registration, compared by identity.
+final class _CancelListener {
+  _CancelListener(this.onCancel);
+
+  final void Function() onCancel;
 }

@@ -246,16 +246,15 @@ final class _Turn {
   StreamSubscription<SseEvent>? _sse;
   final List<ToolCall> _held = [];
   final Set<String> _heldIds = {};
+  void Function()? _detachCancel;
 
   Stream<ProviderEvent> get stream => _controller.stream;
 
   void _start() {
     final cancel = _cancel;
     if (cancel != null) {
-      unawaited(
-        cancel.whenCancelled.then(
-          (_) => _fail(localFailure(_text, FailureKind.cancelled, sent: _sent)),
-        ),
+      _detachCancel = cancel.listen(
+        () => _fail(localFailure(_text, FailureKind.cancelled, sent: _sent)),
       );
     }
     unawaited(_run());
@@ -292,6 +291,8 @@ final class _Turn {
   }
 
   void _teardown() {
+    _detachCancel?.call();
+    _detachCancel = null;
     _silence?.cancel();
     _silence = null;
     _sse?.cancel().ignore();

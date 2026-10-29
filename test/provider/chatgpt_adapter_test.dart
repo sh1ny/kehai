@@ -699,6 +699,32 @@ void main() {
       expect(_failure(events).sent, isTrue);
     });
 
+    test('a token shared by finished turns keeps no turn attached', () async {
+      final cancel = CancelToken();
+      for (var i = 0; i < 3; i++) {
+        fake.responsesScripts.add(
+          ResponsesScript.sse([
+            SseEvent.json('response.output_text.delta', {'delta': 'ok'}),
+            _completed({}),
+          ]),
+        );
+        final events = await run(_request(), cancel: cancel);
+        expect(events.last, isA<Completed>());
+      }
+      final server = await _HoldingServer.start();
+      adapter = makeAdapter(apiBase: server.apiBase);
+      final first = Completer<void>();
+      final subscription = adapter.stream(_request(), cancel: cancel).listen((
+        _,
+      ) {
+        if (!first.isCompleted) first.complete();
+      });
+      await first.future.timeout(const Duration(seconds: 10));
+      await subscription.cancel();
+      expect(cancel.listenerCount, 0);
+      expect(cancel.isCancelled, isFalse);
+    });
+
     test('an already cancelled token sends nothing', () async {
       final cancel = CancelToken()..cancel();
       final events = await run(_request(), cancel: cancel);
