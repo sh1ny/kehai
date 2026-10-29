@@ -73,9 +73,9 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | model-provider → ChatGPT plan backend | Plan usage disabled | test/provider/chatgpt_adapter_test.dart | disabled registration fails not_permitted without a request | green |
 | model-provider → ChatGPT plan backend | Request too large | test/provider/chatgpt_adapter_test.dart | body over 1 MiB fails context_overflow without a request | green |
 | model-provider → Token-sharing request rules | Token-sharing body | test/provider/chatgpt_adapter_test.dart | body follows token-sharing rules with allowlisted keys | green |
-| model-provider → Model listing | Models listed | test/provider/models_test.dart | listed models exclude non-list visibility and unsupported | red |
-| model-provider → Model listing | Models endpoint fails | test/provider/models_test.dart | 503 fails server with no list | red |
-| model-provider → Model listing | Oversized models response | test/provider/models_test.dart | body over 4 MiB fails protocol | red |
+| model-provider → Model listing | Models listed | test/provider/models_test.dart | listed models exclude non-list visibility and unsupported | green |
+| model-provider → Model listing | Models endpoint fails | test/provider/models_test.dart | 503 fails server with no list | green |
+| model-provider → Model listing | Oversized models response | test/provider/models_test.dart | body over 4 MiB fails protocol | green |
 | provider-auth → Sign in with ChatGPT | Successful login | test/auth/browser_login_test.dart | verified callback stores registration and tokens and reports account | red |
 | provider-auth → Sign in with ChatGPT | State mismatch | test/auth/browser_login_test.dart | state mismatch exchanges nothing | red |
 | provider-auth → Sign in with ChatGPT | Authorization denied | test/auth/browser_login_test.dart | error parameter fails naming the code | red |
@@ -241,7 +241,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - the 300 s response-silence deadline (from body flushed; restarted on headers and each event; stopped while paused) and the 30 s connect timeout.
 
   Verify that `chatgpt_adapter_test.dart` passes and flip its rows green.
-- [ ] 6.5 Write the failing `test/provider/models_test.dart`, then implement `listModels` (`/v1/models`, `visibility == "list"`, `supported_in_api`, 4 MiB read bound). Verify it passes and flip its rows green.
+- [x] 6.5 Write the failing `test/provider/models_test.dart`, then implement `listModels` (`/v1/models`, `visibility == "list"`, `supported_in_api`, 4 MiB read bound). Verify it passes and flip its rows green.
 - [ ] 6.6 Export the provider interface and the auth entry points from `lib/kehai.dart`, and add API doc comments per the dart-write-documentation skill. Verify with `mise run analyze`.
 
 ## 7. CLI
