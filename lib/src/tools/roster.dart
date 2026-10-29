@@ -2,6 +2,7 @@
 library;
 
 import '../provider/provider.dart';
+import 'ask.dart';
 
 /// One tool of the roster: what the model is told and what is validated.
 final class ToolDefinition {
@@ -11,6 +12,7 @@ final class ToolDefinition {
     required this.version,
     required this.description,
     required this.schema,
+    this.check,
   });
 
   /// The tool name.
@@ -24,6 +26,12 @@ final class ToolDefinition {
 
   /// The JSON Schema of the arguments.
   final Map<String, Object?> schema;
+
+  /// Rules across fields that the schema cannot say, or null.
+  ///
+  /// It runs on arguments the schema accepted and returns one line per
+  /// violated rule.
+  final List<String> Function(Map<String, Object?> input)? check;
 
   /// The provider-facing form of this tool.
   ToolSpec get spec => ToolSpec(
@@ -157,6 +165,7 @@ final List<ToolDefinition> toolDefinitions = List.unmodifiable([
     description:
         'Ask the user a question, with up to 10 choices or free text. The '
         'answer is returned as JSON.',
+    check: askRules,
     schema: _object(
       {
         'question': _path,

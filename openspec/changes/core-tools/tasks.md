@@ -67,24 +67,24 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | shell-tool → Credential-free child environment | User passthrough exception | test/shell/env_test.dart | configured passthrough variable reaches the child | red |
 | shell-tool → Foreground budget hands off to a job | Long command becomes a job | test/shell/bash_tool_test.dart | budget expiry settles partial with the job id while the job runs | red |
 | shell-tool → Foreground budget hands off to a job | Budget out of range | test/shell/bash_tool_test.dart | timeout_s outside 1–600 fails validation | red |
-| user-ask → Structured question | Choice answered | test/tools/ask_tool_test.dart | chosen answer returns {"choice":...} | red |
-| user-ask → Structured question | Invalid question | test/tools/ask_tool_test.dart | more than 10 choices fails validation | red |
-| user-ask → Answerer channel | Answer outside the choices | test/tools/ask_tool_test.dart | out-of-choice answer is re-asked with the allowed list | red |
-| user-ask → Answerer channel | Headless session | test/tools/ask_tool_test.dart | no answerer settles error no user attached | red |
-| user-ask → Answerer channel | Question cancelled | test/tools/ask_tool_test.dart | cancelled ask withdraws the prompt | red |
-| tool-permissions → Built-in read-only allowlist | Read inside the workspace | test/permissions/gate_test.dart | workspace read is autoapproved | red |
-| tool-permissions → Built-in read-only allowlist | Path escapes the workspace | test/permissions/gate_test.dart | path outside the workspace goes to the prompt | red |
-| tool-permissions → Whole-command read-only proof | Plain read-only command | test/permissions/proof_test.dart | listed program with listed options inside the workspace is proven | red |
-| tool-permissions → Whole-command read-only proof | Mixed or substituted command | test/permissions/proof_test.dart | separators, substitution, redirection, --pre and escapes are not proven | red |
-| tool-permissions → Whole-command read-only proof | Path hidden in an option or the working directory | test/permissions/proof_test.dart | option operands, unlisted options and outside cwd are not proven | red |
+| user-ask → Structured question | Choice answered | test/tools/ask_tool_test.dart | chosen answer returns {"choice":...} | green |
+| user-ask → Structured question | Invalid question | test/tools/ask_tool_test.dart | more than 10 choices fails validation | green |
+| user-ask → Answerer channel | Answer outside the choices | test/tools/ask_tool_test.dart | out-of-choice answer is re-asked with the allowed list | green |
+| user-ask → Answerer channel | Headless session | test/tools/ask_tool_test.dart | no answerer settles error no user attached | green |
+| user-ask → Answerer channel | Question cancelled | test/tools/ask_tool_test.dart | cancelled ask withdraws the prompt | green |
+| tool-permissions → Built-in read-only allowlist | Read inside the workspace | test/permissions/gate_test.dart | workspace read is autoapproved | green |
+| tool-permissions → Built-in read-only allowlist | Path escapes the workspace | test/permissions/gate_test.dart | path outside the workspace goes to the prompt | green |
+| tool-permissions → Whole-command read-only proof | Plain read-only command | test/permissions/proof_test.dart | listed program with listed options inside the workspace is proven | green |
+| tool-permissions → Whole-command read-only proof | Mixed or substituted command | test/permissions/proof_test.dart | separators, substitution, redirection, --pre and escapes are not proven | green |
+| tool-permissions → Whole-command read-only proof | Path hidden in an option or the working directory | test/permissions/proof_test.dart | option operands, unlisted options and outside cwd are not proven | green |
 | tool-permissions → Autoapproved commands run without shell startup | Repository startup script | test/permissions/direct_exec_test.dart | BASH_ENV script does not run for autoapproved pwd | red |
 | tool-permissions → Autoapproved commands run without shell startup | Program shadowed in the workspace | test/permissions/direct_exec_test.dart | workspace cat on PATH is skipped or the call is prompted | red |
-| tool-permissions → User-owned allowlist | Allowlisted jj status | test/permissions/gate_test.dart | user rule autoapproves jj status | red |
-| tool-permissions → User-owned allowlist | Repository tries to allowlist | test/permissions/gate_test.dart | rules in repository files are ignored | red |
-| tool-permissions → User-owned allowlist | Prefix rule with appended command | test/permissions/gate_test.dart | prefix rule does not approve an appended command | red |
-| tool-permissions → Ask otherwise, or explicit yolo | User denies an edit | test/permissions/gate_test.dart | denied prompt settles denied without effect | red |
-| tool-permissions → Ask otherwise, or explicit yolo | Yolo run | test/permissions/gate_test.dart | yolo approves without prompting except credential paths | red |
-| tool-permissions → Ask otherwise, or explicit yolo | No answerer, not yolo | test/permissions/gate_test.dart | headless unapproved call settles denied | red |
+| tool-permissions → User-owned allowlist | Allowlisted jj status | test/permissions/gate_test.dart | user rule autoapproves jj status | green |
+| tool-permissions → User-owned allowlist | Repository tries to allowlist | test/permissions/gate_test.dart | rules in repository files are ignored | green |
+| tool-permissions → User-owned allowlist | Prefix rule with appended command | test/permissions/gate_test.dart | prefix rule does not approve an appended command | green |
+| tool-permissions → Ask otherwise, or explicit yolo | User denies an edit | test/permissions/gate_test.dart | denied prompt settles denied without effect | green |
+| tool-permissions → Ask otherwise, or explicit yolo | Yolo run | test/permissions/gate_test.dart | yolo approves without prompting except credential paths | green |
+| tool-permissions → Ask otherwise, or explicit yolo | No answerer, not yolo | test/permissions/gate_test.dart | headless unapproved call settles denied | green |
 | tool-permissions → Credential files never exposed | Read the credential file | test/permissions/credentials_test.dart | file tools refuse every auth.* in the Kehai home even under yolo | red |
 | tool-permissions → Credential files never exposed | Grep that would cover the home | test/permissions/credentials_test.dart | grep over the home excludes auth.* and says so | red |
 | tool-permissions → Credential files never exposed | Search during a credential write | test/permissions/credentials_test.dart | paused credential temp file is never matched or stored | red |
@@ -178,9 +178,9 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 5. Ask and the permission gate
 
-- [ ] 5.1 Write the failing `test/tools/ask_tool_test.dart` rows and the `test/permissions/gate_test.dart` rows (built-in allowlist, user rules, ask or yolo).
-- [ ] 5.2 Implement `lib/src/tools/ask.dart` with the answerer interface, and `lib/src/permissions/` gate ordering per design D13 (validate → hooks → credential refusal → builtin → user rules → yolo → prompt). Verify that both files pass and flip their rows green.
-- [ ] 5.3 Write the failing `test/permissions/proof_test.dart` rows. Then implement the tokenizer and the per-program option tables from design D13 in `lib/src/shell/proof.dart`, resolving operands from the effective `cwd`. Verify that `proof_test.dart` passes and flip its rows green.
+- [x] 5.1 Write the failing `test/tools/ask_tool_test.dart` rows and the `test/permissions/gate_test.dart` rows (built-in allowlist, user rules, ask or yolo).
+- [x] 5.2 Implement `lib/src/tools/ask.dart` with the answerer interface, and `lib/src/permissions/` gate ordering per design D13 (validate → hooks → credential refusal → builtin → user rules → yolo → prompt). Verify that both files pass and flip their rows green.
+- [x] 5.3 Write the failing `test/permissions/proof_test.dart` rows. Then implement the tokenizer and the per-program option tables from design D13 in `lib/src/shell/proof.dart`, resolving operands from the effective `cwd`. Verify that `proof_test.dart` passes and flip its rows green.
 
 ## 6. File tools
 

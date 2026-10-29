@@ -20,6 +20,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../config/user_config.dart';
+import '../permissions/gate.dart';
 import '../provider/provider.dart';
 import '../results/composer.dart';
 import '../results/descriptor.dart';
@@ -27,6 +28,7 @@ import '../results/result_store.dart';
 import '../session/errors.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
+import 'ask.dart';
 import 'roster.dart';
 import 'schema.dart';
 import 'tool.dart';
@@ -94,6 +96,7 @@ final class ToolRuntime {
     this._tools,
     this._hooks,
     this._gate,
+    this.prompts,
     this._seams,
   );
 
@@ -102,8 +105,14 @@ final class ToolRuntime {
   /// [tools] are the available implementations by tool name; a roster tool
   /// without one fails its calls as unavailable. [hooks] and [gate] are the
   /// stages every call passes before it runs, in that order, after its
-  /// arguments were validated; they default to [AllowAllStage] until the hook
-  /// runner and the permission gate (which reads [yolo]) are plugged in.
+  /// arguments were validated. [hooks] defaults to [AllowAllStage] until the
+  /// hook runner is plugged in. [gate] defaults to the [PermissionGate] built
+  /// from [workspace], [config], [yolo], [answerer] and [kehaiHome], which
+  /// then must be given; [posixShell] says whether `bash` runs under a POSIX
+  /// shell, because a command is proven read-only only under one.
+  ///
+  /// [answerer] receives questions and permission prompts; without one the
+  /// session is headless.
   ///
   /// Resume finalization (design D12) runs here before any call is admitted.
   static Future<ToolRuntime> attach(
@@ -112,11 +121,22 @@ final class ToolRuntime {
     required Directory workspace,
     UserConfig config = const UserConfig(),
     bool yolo = false,
+    Answerer? answerer,
+    Directory? kehaiHome,
+    bool posixShell = false,
     Map<String, Tool> tools = const {},
     CallStage? hooks,
     CallStage? gate,
     ToolRuntimeSeams seams = const ToolRuntimeSeams(),
   }) async {
+    if (gate == null && kehaiHome == null) {
+      throw ArgumentError.value(
+        kehaiHome,
+        'kehaiHome',
+        'required when no gate is given',
+      );
+    }
+    final prompts = PromptChannel(answerer);
     final runtime = ToolRuntime._(
       writer,
       store,
@@ -125,7 +145,16 @@ final class ToolRuntime {
       yolo,
       Map.unmodifiable(tools),
       hooks ?? const AllowAllStage(),
-      gate ?? const AllowAllStage(),
+      gate ??
+          PermissionGate(
+            workspace: workspace,
+            kehaiHome: kehaiHome!,
+            prompts: prompts,
+            config: config,
+            yolo: yolo,
+            posixShell: posixShell,
+          ),
+      prompts,
       seams,
     );
     await runtime._finalizeOnResume();
@@ -146,6 +175,9 @@ final class ToolRuntime {
 
   /// Whether the user asked to skip permission prompts.
   final bool yolo;
+
+  /// The channel the answerer replies through, by call key.
+  final PromptChannel prompts;
 
   final Map<String, Tool> _tools;
   final CallStage _hooks;
@@ -305,6 +337,13 @@ final class ToolRuntime {
         'invalid arguments for $name:\n${violations.join('\n')}',
       );
     }
+    final broken = definition.check?.call(input) ?? const [];
+    if (broken.isNotEmpty) {
+      return (
+        'invalid arguments',
+        'invalid arguments for $name:\n${broken.join('\n')}',
+      );
+    }
     if (!_tools.containsKey(name)) {
       return ('tool unavailable', '$name is not available in this build');
     }
@@ -319,7 +358,7 @@ final class ToolRuntime {
       callId: live.call.callId,
       input: input,
     );
-    // Seam: hooks (group 11) run first, then the permission gate (group 5).
+    // Hooks (group 11) run first, then the permission gate.
     for (final (stage, field) in [(_hooks, 'hooks'), (_gate, 'permission')]) {
       final outcome = await _runStage(stage, stageCall, live);
       if (outcome == null) return _cancelledBeforeRun(live);
@@ -350,6 +389,7 @@ final class ToolRuntime {
       cancel: live.token,
       workspace: workspace,
       config: config,
+      prompts: prompts,
     );
     final tool = _invoke(_tools[live.tool]!, context, input);
     final first = await Future.any<_Step>([

@@ -15,6 +15,7 @@ import 'dart:io';
 import '../config/user_config.dart';
 import '../provider/provider.dart';
 import '../results/composer.dart';
+import 'ask.dart';
 
 /// What a tool reports when it finishes.
 ///
@@ -67,6 +68,7 @@ final class ToolContext {
     required this.cancel,
     required this.workspace,
     required this.config,
+    this.prompts,
   });
 
   /// The call's node key, `c-<12 hex>`.
@@ -87,6 +89,9 @@ final class ToolContext {
 
   /// The user configuration read at attach.
   final UserConfig config;
+
+  /// The answerer channel of the runtime, or null when the context has none.
+  final PromptChannel? prompts;
 }
 
 /// One tool implementation.
@@ -155,7 +160,7 @@ abstract interface class CallStage {
   Future<StageOutcome> check(StageCall call, CancelToken cancel);
 }
 
-/// The default stage until its group lands: every call proceeds.
+/// A stage that lets every call proceed, for runtimes that need no gate.
 final class AllowAllStage implements CallStage {
   /// Creates the stage.
   const AllowAllStage();

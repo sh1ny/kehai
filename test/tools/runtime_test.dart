@@ -119,7 +119,7 @@ Future<_Harness> _attach(
     workspace: root,
     tools: tools,
     hooks: hooks,
-    gate: gate,
+    gate: gate ?? const AllowAllStage(),
     seams: seams,
   );
   addTearDown(runtime.close);
