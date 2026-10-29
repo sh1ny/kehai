@@ -127,14 +127,20 @@ The proposal gives the why and the scope. This section covers what the approach 
 
 ### D6: Search through `rg`, listing in-process
 
-- **Choice:** `grep` runs `rg --line-number --no-heading --color never --with-filename --null` with the arguments mapped from the schema. A streaming transformer rewrites `path\0line:text` into `path:line: text`. `find` runs `rg --files --glob <g>`.
+- **Choice:** `grep` runs `rg --line-number --no-heading --color never --with-filename --null` with the arguments mapped from the schema. A streaming transformer rewrites `path\0line:text` into `path:line: text`. `find` runs `rg --files`.
+  - **The tool's `glob` never reaches `rg`.** A positive `rg --glob` overrides ignore files and hidden-file rules (rg's documented `-g` behavior, reproduced on 15.2.0: a `.ignore`d file and a hidden file are listed once the glob matches them), which breaks the spec's "respecting ignore files". The streaming transformer instead filters each path, relative to the search root, through a small in-repo glob matcher (`*`, `**`, `?`, `[...]`, `{a,b}`, in rg's glob syntax), dropping non-matching paths (`find`) or lines (`grep`). Ignore and hidden rules therefore stay exactly as rg applies them, and `hidden` and `no_ignore` keep their rg meaning. The cost: rg walks, and for `grep` searches, files the glob would have skipped. Negative globs, such as the credential exclusion below, are still passed to rg, because an exclusion cannot widen the set.
+  - **Counts come from accepted output.** The match, file and path counters advance only for paths or lines the filter accepts. On a successful rg exit (0 or 1), zero accepted `grep` lines give an empty body and the summary `no matches`, and zero accepted `find` paths give `0 files`; the credential-exclusion note is kept in either case. rg exit 2 stays `error` with stderr, whatever the filter accepted.
   - **Exit codes:** rg exit 1 means no matches (`ok`); exit 2 means `error` with stderr.
   - **Jobs:** both run as `shell`-less jobs (kind `shell`, `shell: null`, argv direct) under the supervisor, so they share budget, deadline and cancellation.
   - **Credential exclusion:** whenever the search root contains the Kehai home, `--glob '!<home relative to root>/auth.*'` excludes the whole credential name family (`auth.json`, `auth.dpapi`, `auth.lock` and the backends' `auth.<x>.<pid>_<n>.tmp` files, from `posix_file_backend.dart:108` and `dpapi_backend.dart:176`). The glob matches names, not a listing taken earlier, so a temporary file created mid-search is excluded too. The file tools apply the same rule to resolved paths.
   - **No configuration:** `rg` always runs with `--no-config` and without `RIPGREP_CONFIG_PATH`, so a config file cannot inject `--pre`.
   - **`ls`** is in-process (`Directory.list`, not recursive).
   - **`rg` resolution** happens once at attach: `rgPath`, else `PATH`. `rg --version` must succeed.
-- **Rejected:** an in-process Dart search fallback, because it is slow on large trees and duplicates ignore-file semantics. The architecture says bundled or detected `rg`; bundling is a native asset and not needed for M1.
+- **Rejected:**
+  - Passing the tool's `glob` to rg as `--glob`, because it overrides ignore and hidden rules (above).
+  - A temporary ignore file built from the glob, because translating a positive glob into negated ignore patterns is error-prone and leaves a file to clean up per call.
+  - A `package:glob` dependency, because the matcher is small and this change adds no dependencies.
+  - An in-process Dart search fallback, because it is slow on large trees and duplicates ignore-file semantics. The architecture says bundled or detected `rg`; bundling is a native asset and not needed for M1.
 - **Reversal cost:** low.
 
 ### D7: Shell detection and launch
