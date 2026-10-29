@@ -230,7 +230,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 - [x] 6.1 Write `lib/src/provider/provider.dart` per D10: `ModelProvider`, `ModelRequest`, the sealed `ProviderEvent` types, `ProviderFailure` (with `not_permitted` and `param`), `CancelToken`, `ModelInfo` and `TokenEstimate`. Add `estimate.dart`, with `test/provider/estimate_test.dart` written first; make it pass and flip its row green.
 - [x] 6.2 Write the failing `test/provider/sse_test.dart`: the oversized-event row, plus framing cases (multi-line `data:`, comments, CRLF, split chunks). Implement `lib/src/provider/sse.dart` with the 8 MiB event bound. Verify it passes and flip the row green.
-- [ ] 6.3 Write the failing `test/provider/chatgpt_adapter_test.dart` rows against `fake_openai`.
+- [x] 6.3 Write the failing `test/provider/chatgpt_adapter_test.dart` rows against `fake_openai`.
 - [ ] 6.4 Implement `lib/src/provider/chatgpt_adapter.dart` per D7, D10 and D12:
   - request mapping from the body-key allowlist (no top-level `tools`; one leading `additional_tools` item), headers, and the 1 MiB cap;
   - the event mapping, `response.incomplete` → `Failed(incomplete)`, and the code-then-status error mapping;
