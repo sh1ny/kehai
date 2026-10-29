@@ -128,13 +128,13 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | job-supervisor → Crash-safe result handoff | Cancelled or timed-out output stays incomplete after a crash | test/jobs/handoff_test.dart | cancelled and deadline intents recover complete false | green |
 | job-supervisor → Crash-safe result handoff | Fork child inherits a handoff intent | test/jobs/handoff_test.dart | inherited intent settles cancelled interrupted in the child only | green |
 | job-supervisor → Crash-safe result handoff | Consumer during the handoff | test/jobs/handoff_test.dart | subscriber, job tool and fork see no unresolvable handle at each pause | green |
-| hook-deadlines → User-configured pre-tool hooks | Hook sees the call | test/hooks/hooks_test.dart | hook stdin carries the call JSON | red |
-| hook-deadlines → User-configured pre-tool hooks | Hooks in repository files | test/hooks/hooks_test.dart | hooks declared in the repository are never run | red |
-| hook-deadlines → Hook outcome | Deny-class hook refuses | test/hooks/hooks_test.dart | exit 2 denies the call before any effect | red |
-| hook-deadlines → Hook outcome | Optional hook crashes | test/hooks/hooks_test.dart | optional hook crash adds a diag line and the call runs | red |
-| hook-deadlines → Engine-enforced hook deadline | Hung optional hook | test/hooks/hooks_test.dart | hung optional hook with timeout_ms 500 lets the call proceed within 3 s | red |
-| hook-deadlines → Engine-enforced hook deadline | Hung deny-class hook | test/hooks/hooks_test.dart | hung deny-class hook denies within 3 s | red |
-| hook-deadlines → Default hook deadline above shell startup | Startup measured and default checked | test/hooks/hook_default_test.dart | default deadline is at least 3x the recorded p95 and at least 2 s | red |
+| hook-deadlines → User-configured pre-tool hooks | Hook sees the call | test/hooks/hooks_test.dart | hook stdin carries the call JSON | green |
+| hook-deadlines → User-configured pre-tool hooks | Hooks in repository files | test/hooks/hooks_test.dart | hooks declared in the repository are never run | green |
+| hook-deadlines → Hook outcome | Deny-class hook refuses | test/hooks/hooks_test.dart | exit 2 denies the call before any effect | green |
+| hook-deadlines → Hook outcome | Optional hook crashes | test/hooks/hooks_test.dart | optional hook crash adds a diag line and the call runs | green |
+| hook-deadlines → Engine-enforced hook deadline | Hung optional hook | test/hooks/hooks_test.dart | hung optional hook with timeout_ms 500 lets the call proceed within 3 s | green |
+| hook-deadlines → Engine-enforced hook deadline | Hung deny-class hook | test/hooks/hooks_test.dart | hung deny-class hook denies within 3 s | green |
+| hook-deadlines → Default hook deadline above shell startup | Startup measured and default checked | test/hooks/hook_default_test.dart | default deadline is at least 3x the recorded p95 and at least 2 s | green |
 | hook-deadlines → Default hook deadline above shell startup | Invalid timeout configured | test/config/config_test.dart | invalid timeout_ms refuses to start | green |
 
 ## 1. ADR and architecture index
@@ -227,9 +227,9 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 11. Hooks
 
-- [ ] 11.1 Write the failing `test/hooks/hooks_test.dart` rows, using a hung fixture `test/fixtures/hang_forever.dart` and a crashing fixture.
-- [ ] 11.2 Implement `lib/src/hooks/` per design D14: hooks come only from user config, run as supervisor jobs with call JSON on stdin, have optional and deny outcomes, and use the engine-enforced deadline. Verify that `hooks_test.dart` passes and flip its rows green.
-- [ ] 11.3 Measure shell startup: 50 runs each of `bash -c true` (Git Bash on Windows, bash on Linux) and `pwsh -NoProfile -Command exit`. Record the p50/p95 values per platform in `docs/measurements/hook-startup.md`. Set the default hook deadline to the larger of 10 s and 3× the highest p95. Write and pass `test/hooks/hook_default_test.dart`, which parses that file, and flip its row green.
+- [x] 11.1 Write the failing `test/hooks/hooks_test.dart` rows, using a hung fixture `test/fixtures/hang_forever.dart` and a crashing fixture.
+- [x] 11.2 Implement `lib/src/hooks/` per design D14: hooks come only from user config, run as supervisor jobs with call JSON on stdin, have optional and deny outcomes, and use the engine-enforced deadline. Verify that `hooks_test.dart` passes and flip its rows green.
+- [x] 11.3 Measure shell startup: 50 runs each of `bash -c true` (Git Bash on Windows, bash on Linux) and `pwsh -NoProfile -Command exit`. Record the p50/p95 values per platform in `docs/measurements/hook-startup.md`. Set the default hook deadline to the larger of 10 s and 3× the highest p95. Write and pass `test/hooks/hook_default_test.dart`, which parses that file, and flip its row green.
 
 ## 12. Integration and acceptance
 

@@ -82,3 +82,4 @@ export 'src/shell/launch.dart'
     show ShellProcess, shellArguments, startProcess, startShell;
 export 'src/jobs/recovery.dart';
 export 'src/jobs/supervisor.dart';
+export 'src/hooks/hook_stage.dart' show HookStage, maxHookReasonBytes;

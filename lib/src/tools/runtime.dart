@@ -32,7 +32,10 @@ import '../session/path.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
 import '../shell/detect.dart';
+import '../hooks/hook_stage.dart';
+import '../permissions/workspace_paths.dart';
 import 'ask.dart';
+import 'child_env.dart';
 import 'bash.dart';
 import 'edit.dart';
 import 'job_tool.dart';
@@ -132,8 +135,9 @@ final class ToolRuntime {
   /// [tools] are the available implementations by tool name; a roster tool
   /// without one fails its calls as unavailable. [hooks] and [gate] are the
   /// stages every call passes before it runs, in that order, after its
-  /// arguments were validated. [hooks] defaults to [AllowAllStage] until the
-  /// hook runner is plugged in. [gate] defaults to the [PermissionGate] built
+  /// arguments were validated. [hooks] defaults to the [HookStage] built from
+  /// the hooks of [config], or to [AllowAllStage] when it has none. [gate]
+  /// defaults to the [PermissionGate] built
   /// from [workspace], [config], [yolo], [answerer] and [kehaiHome], which
   /// then must be given.
   ///
@@ -181,6 +185,25 @@ final class ToolRuntime {
           ? configFileName
           : p.join(kehaiHome.path, configFileName),
     );
+    final jobs = JobSupervisor(writer, store, hooks: jobHooks);
+    // Hooks come from the user's configuration only (design D14).
+    final hookStage =
+        hooks ??
+        (config.hooks.isEmpty
+            ? const AllowAllStage()
+            : HookStage(
+                hooks: config.hooks,
+                jobs: jobs,
+                store: store,
+                workspace: realPath(workspace.path) ?? workspace.path,
+                environment: shellEnvironment(
+                  Platform.environment,
+                  passthrough: config.envPassthrough,
+                ),
+                session: () =>
+                    writer.tree.get(SessionPath.parse('meta/session')),
+                setsid: detection.shell?.setsid,
+              ));
     final runtime = ToolRuntime._(
       writer,
       store,
@@ -188,7 +211,7 @@ final class ToolRuntime {
       config,
       yolo,
       Map.unmodifiable({..._builtinTools(rg), ...tools}),
-      hooks ?? const AllowAllStage(),
+      hookStage,
       gate ??
           PermissionGate(
             workspace: workspace,
@@ -202,7 +225,7 @@ final class ToolRuntime {
       seams,
       kehaiHome,
       detection,
-      JobSupervisor(writer, store, hooks: jobHooks),
+      jobs,
     );
     runtime.jobs
       ..liveCallKeys = (() => runtime._live.keys.toSet())
