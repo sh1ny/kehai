@@ -144,6 +144,9 @@ final class HookedBackend implements CredentialBackend {
       _inner.resolveHome(home, create: create);
 
   @override
+  void checkHome(String dir) => _inner.checkHome(dir);
+
+  @override
   Uint8List? read(String dir) => _inner.read(dir);
 
   @override

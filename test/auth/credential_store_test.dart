@@ -280,6 +280,18 @@ void main() {
       );
     }, skip: unixOnly);
 
+    test('[unix] a home with group or other bits is refused before auth.lock '
+        'is created', () async {
+      final store = CredentialStore(home: home)..replace(_record());
+      Process.runSync('chmod', ['755', home]);
+      await expectLater(
+        store.acquireLock(),
+        throwsA(_storeError(CredentialStoreError.unsafePath, 'chmod 700')),
+      );
+      expect(File(p.join(home, 'auth.lock')).existsSync(), isFalse);
+      Process.runSync('chmod', ['700', home]);
+    }, skip: unixOnly);
+
     test('failing protect or open call stores nothing and leaves no file', () {
       final failing = CredentialStore(
         home: home,

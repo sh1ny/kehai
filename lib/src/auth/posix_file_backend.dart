@@ -53,6 +53,9 @@ final class PosixFileBackend implements CredentialBackend {
   String? resolveHome(String home, {required bool create}) =>
       _trust.resolve(home, create: create);
 
+  @override
+  void checkHome(String dir) => _validateLayout(dir);
+
   /// Checks the home and the credential file; returns whether the file exists.
   bool _validateLayout(String dir) {
     if (FileSystemEntity.typeSync(dir, followLinks: false) !=

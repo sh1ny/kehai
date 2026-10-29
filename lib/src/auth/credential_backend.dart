@@ -17,6 +17,12 @@ abstract interface class CredentialBackend {
   /// Creating the home happens only after its ancestors have been validated.
   String? resolveHome(String home, {required bool create});
 
+  /// Checks that nothing in the canonical home [dir] is unsafe, before a lock
+  /// file is created there.
+  ///
+  /// Throws a `CredentialStoreError` when it is.
+  void checkHome(String dir);
+
   /// Returns the plaintext bytes of the stored record, or `null` when no
   /// credential file exists in the canonical home [dir].
   Uint8List? read(String dir);

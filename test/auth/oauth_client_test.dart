@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:kehai/src/auth/auth_failure.dart';
 import 'package:kehai/src/auth/failure_text.dart';
 import 'package:kehai/src/auth/oauth_client.dart';
@@ -152,6 +154,64 @@ void main() {
       expect((await revoke()).confirmed, isFalse);
       final dropped = await revoke();
       expect((dropped.confirmed, dropped.status), (false, null));
+    });
+  });
+
+  group('oversized responses stop at the limit', () {
+    late HttpServer server;
+    final held = <HttpResponse>[];
+
+    setUp(() async {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        await request.drain<void>();
+        final response = request.response
+          ..statusCode = 200
+          ..headers.contentType = ContentType.json
+          ..add(List.filled(openAiMaxAuthBodyBytes + 4096, 0x20));
+        await response.flush();
+        // The response stays open: only the client can end the wait.
+        held.add(response);
+      });
+    });
+
+    tearDown(() async {
+      await server.close(force: true);
+      held.clear();
+    });
+
+    OAuthClient slow() => OAuthClient(
+      'http://127.0.0.1:${server.port}',
+      timeout: const Duration(seconds: 20),
+    );
+
+    test('exchangeCode fails as oversized well before the timeout', () async {
+      final watch = Stopwatch()..start();
+      await expectLater(
+        slow().exchangeCode(
+          clientId: 'client-xyz',
+          code: 'the-code',
+          codeVerifier: 'the-verifier',
+          redirectUri: 'http://127.0.0.1:1455/auth/callback',
+        ),
+        throwsA(
+          isA<AuthFailure>()
+              .having((f) => f.kind, 'kind', FailureKind.invalidRequest)
+              .having((f) => f.message, 'message', contains('64 KiB')),
+        ),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+    });
+
+    test('revoke reports the status of an oversized reply at once', () async {
+      final watch = Stopwatch()..start();
+      final result = await slow().revoke(
+        Uri.parse('http://127.0.0.1:${server.port}/revoke'),
+        refreshToken: 'rt',
+        clientId: 'client-xyz',
+      );
+      expect((result.confirmed, result.status), (false, 200));
+      expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
     });
   });
 }

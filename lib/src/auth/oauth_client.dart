@@ -333,16 +333,15 @@ final class OAuthClient {
         request.add(utf8.encode(Uri(queryParameters: form).query));
         final response = await request.close();
         final body = <int>[];
-        var overflow = false;
         await for (final chunk in response) {
-          if (overflow) continue;
           body.addAll(chunk);
           if (body.length > openAiMaxAuthBodyBytes) {
-            overflow = true;
-            body.clear();
+            // Returning cancels the subscription, which drops the
+            // connection instead of draining a body that never ends.
+            return _Response(response.statusCode, const [], overflow: true);
           }
         }
-        return _Response(response.statusCode, body, overflow: overflow);
+        return _Response(response.statusCode, body, overflow: false);
       })().timeout(timeout);
     } on AuthFailure {
       rethrow;

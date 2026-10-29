@@ -16,6 +16,7 @@ import '../auth/credential_error.dart';
 import '../auth/credential_store.dart';
 import '../auth/login_controller.dart';
 import '../auth/logout.dart';
+import '../provider/provider.dart' show CancelToken;
 import 'doctor.dart';
 import 'settings.dart';
 
@@ -33,7 +34,7 @@ final class CliContext {
   /// Creates a context.
   ///
   /// [environment] defaults to the process environment, [out] and [err] to
-  /// standard output and error. [interrupts] is the Ctrl-C stream of a login
+  /// standard output and error. [interrupts] is the Ctrl-C stream of a login or logout
   /// (default: `SIGINT`), and [stdinTerminalOverride] tells whether
   /// standard input is a terminal (default: ask the process).
   CliContext({
@@ -232,16 +233,24 @@ class _LogoutOpenAiCommand extends _KehaiCommand {
   @override
   Future<int> run() async {
     final settings = this.settings;
+    // Ctrl-C ends discovery and revocation early; logoutOpenAi then still
+    // clears the local tokens before this command exits.
+    final cancel = CancelToken();
+    final interrupt = (context.interrupts ?? ProcessSignal.sigint.watch())
+        .listen((_) => cancel.cancel());
     try {
       final line = await logoutOpenAi(
         store: storeFor(settings),
         issuer: settings.issuer,
         forget: argResults!.flag('forget'),
+        cancel: cancel,
       );
       context.out.writeln(line);
       return exitSuccess;
     } on CredentialStoreError catch (e) {
       return fail('logout failed: ${e.message}');
+    } finally {
+      await interrupt.cancel();
     }
   }
 }

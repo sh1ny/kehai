@@ -132,6 +132,9 @@ final class DpapiBackend implements CredentialBackend {
   String get fileName => 'auth.dpapi';
 
   @override
+  void checkHome(String dir) {}
+
+  @override
   String? resolveHome(String home, {required bool create}) {
     final dir = Directory(home);
     if (!dir.existsSync()) {

@@ -403,13 +403,15 @@ final class CredentialStore {
 
   /// Acquires the exclusive `auth.lock` in the canonical home.
   ///
-  /// The home is validated before the lock file is created. Attempts repeat
+  /// The home, including its own permission bits, is validated before the lock
+  /// file is created. Attempts repeat
   /// every [lockPollInterval] until [lockDeadline], then this throws
   /// `credential lock busy`. [isCancelled], checked before each attempt, ends
   /// the wait with `credential lock cancelled`; it is the hook the
   /// cancellation token is wired to later.
   Future<CredentialLock> acquireLock({bool Function()? isCancelled}) async {
     final dir = _backend.resolveHome(home, create: true)!;
+    _backend.checkHome(dir);
     final file = File(p.join(dir, credentialLockFileName))
         .openSync(mode: FileMode.append);
     final watch = Stopwatch()..start();
