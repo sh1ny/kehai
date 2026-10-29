@@ -242,7 +242,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
   Verify that `chatgpt_adapter_test.dart` passes and flip its rows green.
 - [x] 6.5 Write the failing `test/provider/models_test.dart`, then implement `listModels` (`/v1/models`, `visibility == "list"`, `supported_in_api`, 4 MiB read bound). Verify it passes and flip its rows green.
-- [ ] 6.6 Export the provider interface and the auth entry points from `lib/kehai.dart`, and add API doc comments per the dart-write-documentation skill. Verify with `mise run analyze`.
+- [x] 6.6 Export the provider interface and the auth entry points from `lib/kehai.dart`, and add API doc comments per the dart-write-documentation skill. Verify with `mise run analyze`.
 
 ## 7. CLI
 
