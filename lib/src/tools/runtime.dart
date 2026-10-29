@@ -151,6 +151,10 @@ final class ToolRuntime {
   /// command is proven read-only only under one; it defaults to what the
   /// detected shell is (PowerShell is never proven, a missing shell neither).
   ///
+  /// [config] defaults to `config.json` in [kehaiHome] (the defaults when the
+  /// file is missing, or when there is no home); an invalid file throws a
+  /// `ConfigError` before anything starts.
+  ///
   /// [answerer] receives questions and permission prompts; without one the
   /// session is headless.
   ///
@@ -159,7 +163,7 @@ final class ToolRuntime {
     SessionWriter writer,
     ResultStore store, {
     required Directory workspace,
-    UserConfig config = const UserConfig(),
+    UserConfig? config,
     bool yolo = false,
     Answerer? answerer,
     Directory? kehaiHome,
@@ -178,6 +182,11 @@ final class ToolRuntime {
         'required when no gate is given',
       );
     }
+    // Read before anything starts: an invalid file stops attach with a
+    // ConfigError and nothing is left running.
+    config ??= kehaiHome == null
+        ? const UserConfig()
+        : UserConfig.load(kehaiHome.path);
     // Detected once, now. A missing shell never fails attach: it fails the
     // `bash` calls, and the other tools work.
     final detection = shell ?? detectShell();

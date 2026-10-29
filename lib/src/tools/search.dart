@@ -304,6 +304,11 @@ final class _Target {
   String get note => exclusion == null ? '' : '; credential files excluded';
 }
 
+/// [component] with every rg glob metacharacter escaped by a backslash, so
+/// the glob matches that literal path component only.
+String _escapeGlob(String component) =>
+    component.replaceAllMapped(RegExp(r'[\\\[\]{}*?!]'), (m) => '\\${m[0]}');
+
 /// The search target of the call, or the outcome that ends it.
 (_Target?, ToolOutcome?) _resolveTarget(
   ToolContext context,
@@ -339,7 +344,7 @@ final class _Target {
       final inside = p.relative(homeReal, from: root);
       exclusion = inside == '.'
           ? '!auth.*'
-          : '!${p.posix.joinAll(p.split(inside))}/auth.*';
+          : '!${p.split(inside).map(_escapeGlob).join('/')}/auth.*';
     }
   }
   return (

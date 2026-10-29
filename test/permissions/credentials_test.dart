@@ -189,6 +189,42 @@ void main() {
       return (outcome, output);
     }
 
+    test(
+      'glob metacharacters in the home path do not defeat the exclusion',
+      () async {
+        final names = [
+          'home[1]',
+          'home{a,b}',
+          if (!Platform.isWindows) ...['home*x', 'home?y', 'home!z', r'home\w'],
+        ];
+        final grep = GrepTool(Future.value(rg));
+        final find = FindTool(Future.value(rg));
+        for (final name in names) {
+          final odd = Directory(p.join(ws.path, 'outer', name))
+            ..createSync(recursive: true);
+          for (final file in _credentialNames) {
+            File(p.join(odd.path, file)).writeAsStringSync(_secret);
+          }
+          File(p.join(odd.path, 'config.json')).writeAsStringSync(_secret);
+          final want = 'outer/$name/config.json';
+          final (outcome, output) = await run(grep, odd, {
+            'pattern': 'SECRET-TOKEN',
+            'path': 'outer',
+          });
+          expect(outcome.status, ResultStatus.ok, reason: name);
+          expect(outcome.summary, contains('credential files excluded'));
+          expect(output.lines, ['$want:1: $_secret'], reason: name);
+          final (found, foundOut) = await run(find, odd, {
+            'glob': '*',
+            'path': 'outer',
+          });
+          expect(found.summary, contains('credential files excluded'));
+          expect(foundOut.lines, [want], reason: name);
+          odd.deleteSync(recursive: true);
+        }
+      },
+    );
+
     test('grep over the home excludes auth.* and says so', () async {
       final visible = Directory(p.join(ws.path, 'khome'))..createSync();
       for (final name in _credentialNames) {

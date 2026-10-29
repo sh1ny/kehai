@@ -245,6 +245,7 @@ final class JobHooks {
     this.beforeIntent,
     this.afterIntent,
     this.afterStreamPublish,
+    this.afterSpoolWrite,
     this.afterPublish,
     this.afterRegister,
     this.beforeClear,
@@ -269,6 +270,12 @@ final class JobHooks {
 
   /// After the handoff intent committed.
   final Future<void> Function(String id)? afterIntent;
+
+  /// After a chunk was written to a spool (`stdout`, `stderr` or `output`),
+  /// inside that spool's write order; gets the job id, the stream and the
+  /// chunk.
+  final Future<void> Function(String id, String stream, List<int> chunk)?
+  afterSpoolWrite;
 
   /// After one stream's spool was renamed; gets the job id and the stream.
   final Future<void> Function(String id, String stream)? afterStreamPublish;
@@ -850,6 +857,11 @@ final class JobSupervisor {
     return pipe;
   }
 
+  Future<void> _spoolWrite(_Job job, String stream, List<int> chunk) async {
+    await job.live[stream]!.write(chunk);
+    await hooks.afterSpoolWrite?.call(job.id, stream, chunk);
+  }
+
   Future<void> _writeChunk(
     _Job job,
     _Pipe pipe,
@@ -857,8 +869,14 @@ final class JobSupervisor {
     List<int> chunk,
   ) async {
     try {
-      await job.gates[name]!.run(() => job.live[name]!.write(chunk));
-      await job.gates['output']!.run(() => job.live['output']!.write(chunk));
+      // Both writes are queued now, before anything is awaited: the combined
+      // output takes its place in arrival order whatever the per-stream write
+      // costs. The pipe stays paused until both are done.
+      final own = job.gates[name]!.run(() => _spoolWrite(job, name, chunk));
+      final combined = job.gates['output']!.run(
+        () => _spoolWrite(job, 'output', chunk),
+      );
+      await Future.wait([own, combined]);
     } on Object catch (e) {
       // The disk refused the bytes: stop the producer and end the job.
       if (!pipe.done.isCompleted) pipe.done.complete();
