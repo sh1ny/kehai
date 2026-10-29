@@ -27,6 +27,7 @@ import '../provider/provider.dart';
 import '../results/composer.dart';
 import '../results/descriptor.dart';
 import '../results/result_store.dart';
+import '../results/search.dart';
 import '../session/errors.dart';
 import '../session/path.dart';
 import '../session/record.dart';
@@ -39,6 +40,7 @@ import 'child_env.dart';
 import 'bash.dart';
 import 'edit.dart';
 import 'job_tool.dart';
+import 'result_tools.dart';
 import 'read.dart';
 import 'roster.dart';
 import 'schema.dart';
@@ -67,6 +69,9 @@ Map<String, Tool> _builtinTools(Future<RgResolution> rg) => {
   'grep': GrepTool(rg),
   'find': FindTool(rg),
   'ls': const LsTool(),
+  'ask': const AskTool(),
+  'read_more': const ReadMoreTool(),
+  'search_result': SearchResultTool(ResultSearcher()),
   'bash': const BashTool(),
   'job': const JobTool(),
 };
@@ -538,6 +543,7 @@ final class ToolRuntime {
               ? ResultComplete(answer)
               : written,
           complete: outcome.complete,
+          composed: outcome.composed && answer == null,
         );
       case _Cancelled():
         pipe.close();
@@ -666,6 +672,7 @@ final class ToolRuntime {
     required ResultWrite write,
     required bool complete,
     String? reason,
+    bool composed = false,
   }) async {
     final ResultDescriptor descriptor;
     var whole = complete;
@@ -690,13 +697,9 @@ final class ToolRuntime {
     final file = File(
       p.join(store.sessionDir.path, resultsDirName, descriptor.sha256),
     );
-    final text = await composeResult(
-      live.tool,
-      envelope,
-      summary,
-      descriptor,
-      file,
-    );
+    final text = composed && whole
+        ? await file.readAsString()
+        : await composeResult(live.tool, envelope, summary, descriptor, file);
     return text + _diagLines(live);
   }
 

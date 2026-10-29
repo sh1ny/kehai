@@ -52,6 +52,7 @@ export 'src/tools/read.dart'
     show ReadSeams, ReadSource, ReadSourceOpener, ReadTool;
 export 'src/tools/bash.dart' show BashTool, defaultForegroundBudget;
 export 'src/tools/job_tool.dart' show JobTool, defaultJobWait;
+export 'src/tools/result_tools.dart' show ReadMoreTool, SearchResultTool;
 export 'src/tools/write.dart' show WriteTool;
 export 'src/tools/search.dart'
     show

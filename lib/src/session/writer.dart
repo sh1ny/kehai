@@ -864,12 +864,20 @@ Object? _freeze(Object? value) {
 
 final RegExp _resultHandle = RegExp(r'^r/[0-9a-f]{12}$');
 
-/// Adds to [out] the handle of every object in [value] that has one.
+/// Adds to [out] the handle of every result reference in [value].
+///
+/// A reference is an object `{handle, complete}` (ADR 0010). A bare `handle`
+/// field, such as a `read_more` call's input, names a result without
+/// installing a reference to it, so it is not checked.
 void _collectHandles(Object? value, Set<String> out) {
   switch (value) {
     case final Map<Object?, Object?> map:
       final handle = map['handle'];
-      if (handle is String && _resultHandle.hasMatch(handle)) out.add(handle);
+      if (handle is String &&
+          map['complete'] is bool &&
+          _resultHandle.hasMatch(handle)) {
+        out.add(handle);
+      }
       for (final child in map.values) {
         _collectHandles(child, out);
       }

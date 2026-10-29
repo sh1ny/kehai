@@ -194,17 +194,72 @@ void main() {
     );
 
     test(
-      'a roster tool without an implementation fails as unavailable',
+      'read_more and search_result answer with the composer page of a handle',
+      () async {
+        final big = [for (var n = 1; n <= 2310; n++) 'line $n\n'].join();
+        final h = await _attach(
+          root,
+          tools: {'bash': _FakeTool((c, i) => _writes(c, big))},
+        );
+        await h.runtime.run(_call('b1', 'bash', '{"command":"x"}'));
+        final handle =
+            (h.node('b1')['result']! as Map<String, Object?>)['handle']!
+                as String;
+        final stored = resolveHandle(h.writer.tree, h.store.sessionDir, handle);
+
+        final page = await h.runtime.run(
+          _call(
+            'm1',
+            'read_more',
+            jsonEncode({'handle': handle, 'from': 401, 'lines': 100}),
+          ),
+        );
+        final found = await h.runtime.run(
+          _call(
+            's1',
+            'search_result',
+            jsonEncode({'handle': handle, 'pattern': r'^line 7\d\d$'}),
+          ),
+        );
+        final unknown = await h.runtime.run(
+          _call('m2', 'read_more', '{"handle":"r/000000000000"}'),
+        );
+
+        expect(
+          page.output,
+          await readMore(stored.file, stored.descriptor, from: 401, lines: 100),
+        );
+        expect(page.output, contains('read_more($handle, from=501)'));
+        expect(
+          found.output,
+          await ResultSearcher().searchResult(
+            stored.file,
+            stored.descriptor,
+            r'^line 7\d\d$',
+          ),
+        );
+        for (final id in ['m1', 's1']) {
+          expect(h.node(id)['status'], 'settled', reason: id);
+          expect(h.node(id)['envelope'], 'ok', reason: id);
+        }
+        expect(unknown.output, startsWith('[read_more error]'));
+        expect(unknown.output, contains('unknown handle r/000000000000'));
+        expect(h.node('m2')['status'], 'settled');
+      },
+    );
+
+    test(
+      'ask is wired in by default; headless it settles no user attached',
       () async {
         final h = await _attach(root);
 
         final item = await h.runtime.run(
-          _call('n1', 'read_more', '{"handle":"r/abc"}'),
+          _call('a1', 'ask', '{"question":"Which one?","choices":["a","b"]}'),
         );
 
-        expect(item.output, contains('read_more is not available'));
-        expect(h.node('n1')['status'], 'failed');
-        expect(h.statuses('n1'), ['pending', 'failed']);
+        expect(item.output, isNot(contains('not available')));
+        expect(item.output, startsWith('[ask error] no user attached'));
+        expect(h.node('a1')['status'], 'settled');
       },
     );
   });

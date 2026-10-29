@@ -34,6 +34,7 @@ final class ToolOutcome {
     required this.summary,
     this.complete = true,
     this.result,
+    this.composed = false,
   });
 
   /// The envelope status of the call.
@@ -50,6 +51,11 @@ final class ToolOutcome {
 
   /// Whether the stored output holds everything the tool meant to produce.
   final bool complete;
+
+  /// Whether the bytes written are already the composer's text over another
+  /// stored result (`read_more`, `search_result`). The runtime stores them
+  /// and answers with them unchanged instead of composing them again.
+  final bool composed;
 }
 
 /// Where a tool streams its output.

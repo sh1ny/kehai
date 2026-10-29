@@ -19,7 +19,7 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | tool-calls → Call node lifecycle in the tree | Provider call id unsafe as a path segment | test/tools/runtime_test.dart | unsafe call id is keyed c- plus 12 hex of its SHA-256 | green |
 | tool-calls → Call node lifecycle in the tree | Cancelled call still answers the model | test/tools/runtime_test.dart | cancelled call composes an error envelope with a handle | green |
 | tool-calls → Call node lifecycle in the tree | Terminal status is final | test/tools/runtime_test.dart | late update to a settled call returns stale and appends nothing | green |
-| tool-calls → Full output stored, composed only centrally | Large output stored whole, cut once | test/tools/central_truncation_test.dart | every tool's full bytes are stored and only the composer cuts | red |
+| tool-calls → Full output stored, composed only centrally | Large output stored whole, cut once | test/tools/central_truncation_test.dart | every tool's full bytes are stored and only the composer cuts | green |
 | tool-calls → Full output stored, composed only centrally | Rewind between storing a result and settling | test/tools/runtime_test.dart | settle waits for re-registered descriptor after rewind and resolves in a fork | green |
 | tool-calls → Full output stored, composed only centrally | Storage fails while output streams | test/tools/runtime_test.dart | storage failure records failed with accepted bytes and a handle-less envelope | green |
 | tool-calls → Full output stored, composed only centrally | Journal unusable | test/tools/runtime_test.dart | broken writer fails the run and refuses further calls | green |
@@ -233,16 +233,16 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 12. Integration and acceptance
 
-- [ ] 12.1 Write `test/tools/central_truncation_test.dart`. For each of the eleven tools, it asserts that the stored bytes equal the producer's full output and that only `composeResult` shortens it. It also greps `lib/src/tools` and `lib/src/jobs` for tool-local cuts (`substring`, `take(`, `sublist` on output paths), with an explicit allowlist. Verify that it passes and flip its row green. This serves the exit criterion "Every tool result uses central truncation/full-result handles".
-- [ ] 12.2 Agent acceptance run through the runtime on this repository, through a small driver `tool/tools_smoke.dart` with `--yolo` off and the answerer scripted:
+- [x] 12.1 Write `test/tools/central_truncation_test.dart`. For each of the eleven tools, it asserts that the stored bytes equal the producer's full output and that only `composeResult` shortens it. It also greps `lib/src/tools` and `lib/src/jobs` for tool-local cuts (`substring`, `take(`, `sublist` on output paths), with an explicit allowlist. Verify that it passes and flip its row green. This serves the exit criterion "Every tool result uses central truncation/full-result handles".
+- [x] 12.2 Agent acceptance run through the runtime on this repository, through a small driver `tool/tools_smoke.dart` with `--yolo` off and the answerer scripted:
   1. `read` then anchored `edit` of a scratch file;
   2. `bash` running `dart analyze`, `dart test test/smoke_test.dart` and `jj status` (or `git status` where jj is absent);
   3. `grep` and `find` over `lib/`;
   4. `ask` with two choices.
 
   Record the composed outputs in the task notes. Run it on Windows (Git Bash) and Linux (WSL). This serves the exit criterion "Read files, hash-anchor edit, run dart test/dart analyze/jj through bash, grep/find the tree, ask a structured question".
-- [ ] 12.3 Hung-hook acceptance: with a user config whose hook runs `test/fixtures/hang_forever.dart` at `timeout_ms` 500, the 12.2 driver's next call proceeds within 3 s, and the hook job settles within the drain bound. This serves the exit criterion "A hung hook process (test fixture) cannot block turn progress".
-- [ ] 12.4 Run `mise run check` and `mise run openspec:validate` on Windows, and `dart test` through the WSL runner. Verify that every test map row reads `green`.
+- [x] 12.3 Hung-hook acceptance: with a user config whose hook runs `test/fixtures/hang_forever.dart` at `timeout_ms` 500, the 12.2 driver's next call proceeds within 3 s, and the hook job settles within the drain bound. This serves the exit criterion "A hung hook process (test fixture) cannot block turn progress".
+- [x] 12.4 Run `mise run check` and `mise run openspec:validate` on Windows, and `dart test` through the WSL runner. Verify that every test map row reads `green`.
 
 ## Workflow follow-up
 

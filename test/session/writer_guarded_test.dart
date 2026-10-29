@@ -101,8 +101,8 @@ void main() {
           (read) => _owned(read, {
             'result': {'handle': _other, 'complete': true},
             'extra': [
-              {'handle': 'r/222222222222'},
-              {'handle': _handle},
+              {'handle': 'r/222222222222', 'complete': false},
+              {'handle': _handle, 'complete': true},
             ],
           }),
         );
@@ -117,6 +117,21 @@ void main() {
         expect(writer.tree.get(SessionPath.parse('body/calls/c1')), {
           'attempt': 'a1',
         });
+      },
+    );
+
+    test(
+      'a handle named in call input is not a reference and is not checked',
+      () async {
+        await writer.apply(rec(1, 'body/calls/c1', Op.set, {'attempt': 'a1'}));
+
+        final outcome = await writer.applyGuarded(
+          (read) => _owned(read, {
+            'input': {'handle': 'r/333333333333', 'from': 401},
+          }),
+        );
+
+        expect(outcome, isA<Applied>());
       },
     );
 
@@ -143,7 +158,7 @@ void main() {
         final guarded = writer.applyGuarded(
           (_) => GuardedAppend(
             rec(2, 'body/calls/d1', Op.set, {
-              'result': {'handle': _handle},
+              'result': {'handle': _handle, 'complete': true},
             }),
           ),
         );

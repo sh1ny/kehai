@@ -111,7 +111,13 @@ void main() {
     '[windows] tree kill records cleanup uncertain; surviving probe does too',
     () async {
       final h = await JobHarness.create();
-      final handle = h.supervisor.start(h.request('sleep 30'));
+      // `taskkill /T` kills the tree it sees. Cancelling while the shell is
+      // still starting can miss a child that is created just after, which then
+      // holds the pipe. The marker says the shell is past its start, so the
+      // tree is there to be killed.
+      final up = h.marker('up');
+      final handle = h.supervisor.start(h.request('echo 1 > $up; sleep 30'));
+      await readPid(up);
       await waitFor(
         () => h.node(handle.id)?['state'] == 'running',
         what: 'the job to run',
@@ -121,7 +127,16 @@ void main() {
 
       final node = h.node(handle.id)!;
       expect(node['state'], 'cancelled');
-      expect(node['cleanup'], 'uncertain: descendants not verifiable');
+      // A child that still escapes the tree kill and holds the pipe is the
+      // spec's second outcome (D8 forced close, D10): both say the same.
+      expect(
+        node['cleanup'],
+        anyOf(
+          'uncertain: descendants not verifiable',
+          'uncertain: output pipe held by a surviving process; '
+              'descendants not verifiable',
+        ),
+      );
     },
     skip: Platform.isWindows && posixShell() != null
         ? false
