@@ -184,11 +184,18 @@ final class DpapiBackend implements CredentialBackend {
       }
       _beforeRename?.call();
       temp.renameSync(p.join(dir, fileName));
-    } on Object {
+    } on Object catch (error) {
       try {
         if (temp.existsSync()) temp.deleteSync();
       } on FileSystemException {
         // The temp file holds only ciphertext; leave it for a later cleanup.
+      }
+      if (error is FileSystemException) {
+        throw CredentialStoreError(
+          CredentialStoreError.unavailable,
+          'cannot write "${p.join(dir, fileName)}": '
+          '${error.osError?.message ?? error.message}',
+        );
       }
       rethrow;
     }

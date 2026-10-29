@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:kehai/src/auth/credential_store.dart';
+import 'package:kehai/src/auth/dpapi_backend.dart';
 import 'package:kehai/src/auth/failure_text.dart';
 import 'package:kehai/src/auth/openai_constants.dart';
+import 'package:kehai/src/auth/posix_file_backend.dart';
 import 'package:kehai/src/auth/refresher.dart';
 import 'package:kehai/src/provider/chatgpt_adapter.dart';
 import 'package:kehai/src/provider/chatgpt_request.dart';
@@ -881,6 +883,47 @@ void main() {
 
       expect(_shown(tokenless), ['failed:reauth_required']);
       expect(_shown(empty), ['failed:reauth_required']);
+      expect(fake.responsesRequests, isEmpty);
+    });
+
+    test('a store failure after a rotating refresh fails reauth_required '
+        'without a request', () async {
+      void failRename() => throw const FileSystemException(
+        'No space left on device',
+        'auth.tmp',
+        OSError('No space left on device', 28),
+      );
+      var armed = false;
+      final failing = CredentialStore(
+        home: p.join(tmp.path, 'disk'),
+        backend: Platform.isWindows
+            ? DpapiBackend(beforeRename: () => armed ? failRename() : null)
+            : PosixFileBackend(beforeRename: () => armed ? failRename() : null),
+      );
+      final now = DateTime.now().toUtc();
+      failing.replace(
+        CredentialRecord(
+          hostId: _hostId,
+          generation: 7,
+          registration: _registration(),
+          tokens: CredentialTokens(
+            idToken: 'old-id-token',
+            accessToken: 'old-access',
+            refreshToken: 'old-refresh',
+            expiresAt: now.add(const Duration(minutes: 1)),
+            scopes: const ['openid', 'offline_access', openAiPlanUsageScope],
+            savedAt: now,
+            lastRefresh: now,
+          ),
+        ),
+      );
+      armed = true;
+      refresher = Refresher(store: failing, issuer: fake.issuer);
+      adapter = makeAdapter();
+
+      final events = await run(_request());
+
+      expect(_shown(events), ['failed:reauth_required']);
       expect(fake.responsesRequests, isEmpty);
     });
 

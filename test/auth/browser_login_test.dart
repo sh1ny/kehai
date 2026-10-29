@@ -228,6 +228,22 @@ void main() {
       expect(record.tokens, isNull);
     });
 
+    test('error equal to the received code does not print the code', () async {
+      final session = rig.start(openBrowser: false);
+      final callback = Uri.parse(await callbackUrlFor(await session.url()));
+      final query = {...callback.queryParameters, 'code': 'code_abc'};
+      query['error'] = 'code_abc';
+
+      await getPage(callback.replace(queryParameters: query).toString());
+      final failure = await session.failure();
+
+      expect(failure.message, contains('authorization was not granted'));
+      expect(failure.message, isNot(contains('code_abc')));
+      expect(session.out.text, isNot(contains('code_abc')));
+      expect(session.err.text, isNot(contains('code_abc')));
+      expect(fake.tokenRequests, isEmpty);
+    });
+
     test('invalid_grant on exchange stores nothing', () async {
       fake.tokenScripts.add(TokenScript.error(400, 'invalid_grant'));
       final session = rig.start();
@@ -894,6 +910,28 @@ void main() {
       cancel.cancel();
       final failure = await session.failure();
       expect(failure.message, isNot(contains('PASTED')));
+    });
+
+    test('pasted error equal to the received code does not print it', () async {
+      final lines = StreamController<String>();
+      addTearDown(lines.close);
+      final session = rig.start(
+        openBrowser: false,
+        paste: lines.stream,
+        terminal: true,
+      );
+      final callback = Uri.parse(await callbackUrlFor(await session.url()));
+      final query = {...callback.queryParameters, 'code': 'code_abc'};
+      query['error'] = 'code_abc';
+
+      lines.add(callback.replace(queryParameters: query).toString());
+      final failure = await session.failure();
+
+      expect(failure.message, contains('authorization was not granted'));
+      expect(failure.message, isNot(contains('code_abc')));
+      expect(session.out.text, isNot(contains('code_abc')));
+      expect(session.err.text, isNot(contains('code_abc')));
+      expect(fake.tokenRequests, isEmpty);
     });
 
     test('standard input that is not a terminal is not read', () async {

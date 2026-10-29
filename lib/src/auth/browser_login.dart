@@ -395,10 +395,14 @@ final class BrowserLogin {
     ]);
     if (params == null) throw c.cancellation();
 
-    final text = FailureText(secrets: secrets);
     if (params['state'] != state) {
       throw const LoginFailure('login failed: state mismatch');
     }
+    // The received code is a live secret from here on, so it must be known to
+    // FailureText before any received value (such as `error`) is validated.
+    final code = params['code'];
+    if (code != null && code.isNotEmpty) secrets.add(code);
+    final text = FailureText(secrets: secrets);
     if (params['error'] case final error?) {
       throw LoginFailure(
         'login failed: authorization was not granted '
@@ -421,13 +425,11 @@ final class BrowserLogin {
       }
       clientId = registration.clientId;
     }
-    final code = params['code'];
     if (code == null || code.isEmpty) {
       throw const LoginFailure(
         'login failed: no authorization code was returned',
       );
     }
-    secrets.add(code);
 
     final grant = await _stage(
       () => OAuthClient(issuer, cancelled: c.token.whenCancelled).exchangeCode(

@@ -110,11 +110,18 @@ final class PosixFileBackend implements CredentialBackend {
       _createPrivateFile(temp.path, plaintext);
       _beforeRename?.call();
       temp.renameSync(p.join(dir, fileName));
-    } on Object {
+    } on Object catch (error) {
       try {
         if (temp.existsSync()) temp.deleteSync();
       } on FileSystemException {
         // Nothing more can be done; the file was created with mode 0600.
+      }
+      if (error is FileSystemException) {
+        throw CredentialStoreError(
+          CredentialStoreError.unavailable,
+          'cannot write "${p.join(dir, fileName)}": '
+          '${error.osError?.message ?? error.message}',
+        );
       }
       rethrow;
     }

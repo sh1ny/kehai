@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:kehai/src/auth/auth_failure.dart';
 import 'package:kehai/src/auth/credential_error.dart';
 import 'package:kehai/src/auth/credential_store.dart';
+import 'package:kehai/src/auth/dpapi_backend.dart';
 import 'package:kehai/src/auth/failure_text.dart';
 import 'package:kehai/src/auth/openai_constants.dart';
+import 'package:kehai/src/auth/posix_file_backend.dart';
 import 'package:kehai/src/auth/refresher.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -366,6 +368,39 @@ void main() {
       );
       expect(credentials.accessToken, 'newer');
       expect(fake.tokenRequests, isEmpty);
+    });
+  });
+
+  group('store failure after a successful refresh', () {
+    test('a disk failure on the rotated record is reauth required', () async {
+      var failWrites = false;
+      void failRename() {
+        if (failWrites) {
+          throw const FileSystemException(
+            'No space left on device',
+            'auth.tmp',
+            OSError('No space left on device', 28),
+          );
+        }
+      }
+
+      final failing = CredentialStore(
+        home: p.join(tmp.path, 'disk'),
+        backend: Platform.isWindows
+            ? DpapiBackend(beforeRename: failRename)
+            : PosixFileBackend(beforeRename: failRename),
+      );
+      failing.replace(_record());
+      failWrites = true;
+      final refresher = Refresher(store: failing, issuer: fake.issuer);
+
+      await expectLater(
+        refresher.credentials(),
+        throwsA(
+          _failure(FailureKind.reauthRequired, message: 'kehai login openai'),
+        ),
+      );
+      expect(fake.tokenRequests, hasLength(1));
     });
   });
 

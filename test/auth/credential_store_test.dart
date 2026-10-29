@@ -326,11 +326,48 @@ void main() {
       );
       expect(
         () => failing.replace(_record(access: 'access-token-LOST')),
-        throwsA(isA<Object>()),
+        throwsA(_storeError(CredentialStoreError.unavailable, 'injected')),
       );
       expect(CredentialStore(home: home).load(), _record());
       expect(_names(home), [_authName]);
     });
+
+    test('a filesystem failure while writing is a store error, not a raw '
+        'FileSystemException', () {
+      CredentialStore(home: home).replace(_record());
+      final failing = CredentialStore(
+        home: home,
+        backend: _backend(
+          beforeRename: () => throw const FileSystemException(
+            'No space left on device',
+            'auth.tmp',
+            OSError('No space left on device', 28),
+          ),
+        ),
+      );
+      expect(
+        () => failing.replace(_record(access: 'access-token-LOST')),
+        throwsA(
+          _storeError(
+            CredentialStoreError.unavailable,
+            'No space left on device',
+          ),
+        ),
+      );
+      expect(CredentialStore(home: home).load(), _record());
+      expect(_names(home), [_authName]);
+    });
+
+    test('a rename blocked by a directory is a store error and leaves no temp '
+        'file', () {
+      Directory(home).createSync(recursive: true);
+      Directory(p.join(home, _authName)).createSync();
+      expect(
+        () => CredentialStore(home: home).replace(_record()),
+        throwsA(isA<CredentialStoreError>()),
+      );
+      expect(_names(home), [_authName]);
+    }, skip: windowsOnly);
   });
 
   group('credential lock', () {

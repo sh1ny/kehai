@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:kehai/src/auth/credential_store.dart';
+import 'package:kehai/src/auth/dpapi_backend.dart';
 import 'package:kehai/src/auth/failure_text.dart';
 import 'package:kehai/src/auth/openai_constants.dart';
+import 'package:kehai/src/auth/posix_file_backend.dart';
 import 'package:kehai/src/auth/refresher.dart';
 import 'package:kehai/src/provider/chatgpt_adapter.dart';
 import 'package:kehai/src/provider/provider.dart';
@@ -98,6 +100,53 @@ void main() {
     expect(sent.path, '/v1/models');
     expect(sent.headers['authorization'], 'Bearer old-access');
   });
+
+  test(
+    'a store failure after a rotating refresh fails reauth_required',
+    () async {
+      void failRename() => throw const FileSystemException(
+        'No space left on device',
+        'auth.tmp',
+        OSError('No space left on device', 28),
+      );
+      var armed = false;
+      final failing = CredentialStore(
+        home: p.join(tmp.path, 'disk'),
+        backend: Platform.isWindows
+            ? DpapiBackend(beforeRename: () => armed ? failRename() : null)
+            : PosixFileBackend(beforeRename: () => armed ? failRename() : null),
+      );
+      final now = DateTime.now().toUtc();
+      final stored = _record();
+      failing.replace(
+        CredentialRecord(
+          hostId: stored.hostId,
+          generation: stored.generation,
+          registration: stored.registration,
+          tokens: CredentialTokens(
+            idToken: 'old-id-token',
+            accessToken: 'old-access',
+            refreshToken: 'old-refresh',
+            expiresAt: now.add(const Duration(minutes: 1)),
+            scopes: const ['openid', 'offline_access', openAiPlanUsageScope],
+            savedAt: now,
+            lastRefresh: now,
+          ),
+        ),
+      );
+      armed = true;
+      final disk = ChatGptAdapter(
+        refresher: Refresher(store: failing, issuer: fake.issuer),
+        apiBase: fake.apiBase,
+      );
+
+      await expectLater(
+        disk.listModels(),
+        throwsA(_providerFailure(FailureKind.reauthRequired)),
+      );
+      expect(fake.modelsRequests, isEmpty);
+    },
+  );
 
   test('503 fails server with no list', () async {
     fake.modelsScripts.add(const ModelsScript.raw('<html>SECRET</html>', 503));
