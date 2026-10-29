@@ -48,6 +48,14 @@ ToolOutcome? credentialDenial(ToolContext context, String absolute) {
 ToolOutcome failure(String summary) =>
     ToolOutcome(status: ResultStatus.error, summary: summary);
 
+/// The outcome of a mutation whose call was cancelled before it changed
+/// anything.
+const ToolOutcome cancelledMutation = ToolOutcome(
+  status: ResultStatus.error,
+  summary: 'cancelled',
+  complete: false,
+);
+
 /// [bytes] as `<n.n> MiB`.
 String mebibytes(int bytes) =>
     '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB';

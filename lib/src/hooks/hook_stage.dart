@@ -114,19 +114,6 @@ final class HookStage implements CallStage {
           call: call.callKey,
           deadline: hook.timeout,
           launch: () async {
-            // Under `setsid` a missing program is an exit 127, not a launch
-            // failure; say it as one, as it is on Windows.
-            final program = hook.argv.first;
-            if (setsid != null &&
-                program.contains(p.separator) &&
-                !File(program).existsSync()) {
-              throw ProcessException(
-                program,
-                hook.argv.skip(1).toList(),
-                'No such file or directory',
-                2,
-              );
-            }
             final process = await startProcess(
               hook.argv.first,
               hook.argv.skip(1).toList(),

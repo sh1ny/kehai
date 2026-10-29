@@ -54,6 +54,7 @@ final class EditTool implements Tool {
     String target,
     Map<String, Object?> input,
   ) async {
+    if (context.cancel.isCancelled) return cancelledMutation;
     final file = File(target);
     switch (FileSystemEntity.typeSync(target)) {
       case FileSystemEntityType.notFound:
@@ -84,7 +85,13 @@ final class EditTool implements Tool {
     if (_sameBytes(output, bytes)) return failure('edit made no change');
 
     try {
-      await writeAtomically(target, output, unchangedSince: stat, seams: seams);
+      await writeAtomically(
+        target,
+        output,
+        unchangedSince: stat,
+        seams: seams,
+        isCancelled: () => context.cancel.isCancelled,
+      );
     } on WriteFailure catch (e) {
       return failure(e.message);
     }

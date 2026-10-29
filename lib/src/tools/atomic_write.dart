@@ -42,6 +42,10 @@ final class WriteFailure implements Exception {
   String toString() => message;
 }
 
+/// The message of the failure when the call was cancelled before the write
+/// became visible.
+const String writeCancelled = 'cancelled';
+
 /// The message of the failure when the target changed under an edit.
 const String changedDuringEdit =
     'file changed during edit; read the file again';
@@ -56,13 +60,19 @@ String temporaryPrefix(String target) => '.${p.basename(target)}.kehai-';
 /// before the rename, and a difference fails with [changedDuringEdit]. That
 /// narrows, but does not close, the window against other writers.
 ///
+/// [isCancelled] is asked before anything is written and again as the last
+/// step before the rename: a cancelled call fails with [writeCancelled], the
+/// target stays as it was and the temporary file is removed.
+///
 /// Throws [WriteFailure].
 Future<void> writeAtomically(
   String target,
   List<int> bytes, {
   FileStat? unchangedSince,
   FileWriteSeams seams = const FileWriteSeams(),
+  bool Function()? isCancelled,
 }) async {
+  if (isCancelled?.call() ?? false) throw const WriteFailure(writeCancelled);
   final random = Random.secure();
   final suffix = List.generate(
     8,
@@ -103,6 +113,10 @@ Future<void> writeAtomically(
         throw const WriteFailure(changedDuringEdit);
       }
     }
+    // The last point before the visible effect: nothing is awaited between
+    // this check and the rename. A cancel that lands during the rename
+    // itself cannot be stopped.
+    if (isCancelled?.call() ?? false) throw const WriteFailure(writeCancelled);
     try {
       await (seams.rename ?? _rename)(temporary.path, target);
     } on Object catch (e) {

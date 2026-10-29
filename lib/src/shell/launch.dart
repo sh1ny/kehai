@@ -45,6 +45,9 @@ Future<Process> startProcess(
   String? setsid,
   List<int>? input,
 }) async {
+  if (setsid != null) {
+    _requireRunnable(executable, arguments, workingDirectory, environment);
+  }
   final process = await Process.start(
     setsid ?? executable,
     setsid == null ? arguments : [executable, ...arguments],
@@ -54,6 +57,52 @@ Future<Process> startProcess(
   );
   unawaited(_feed(process, input));
   return process;
+}
+
+/// Under `setsid` a program that cannot run is an exit 127 of `setsid`, not a
+/// launch failure. This looks for [executable] the way `exec` would, in the
+/// child's own `PATH`, and throws the [ProcessException] a direct launch would
+/// have thrown: errno 2 when it is missing, 13 when it is not executable.
+///
+/// The program can still vanish between this check and the `exec`; that race
+/// is accepted, and then it shows as exit 127.
+void _requireRunnable(
+  String executable,
+  List<String> arguments,
+  String workingDirectory,
+  Map<String, String> environment,
+) {
+  var denied = false;
+  bool runnable(String candidate) {
+    final stat = FileStat.statSync(candidate);
+    if (stat.type == FileSystemEntityType.directory) {
+      denied = true;
+      return false;
+    }
+    if (stat.type != FileSystemEntityType.file) return false;
+    if (stat.mode & 0x49 == 0) {
+      denied = true;
+      return false;
+    }
+    return true;
+  }
+
+  // `exec` runs after the working directory changed, so a relative path and
+  // an empty or relative `PATH` entry are relative to it.
+  String inCwd(String path) =>
+      path.startsWith('/') ? path : '$workingDirectory/$path';
+  final candidates = executable.contains('/')
+      ? [inCwd(executable)]
+      : [
+          for (final dir
+              in (environmentValue(environment, 'PATH') ?? '/usr/bin:/bin')
+                  .split(':'))
+            '${inCwd(dir.isEmpty ? '.' : dir)}/$executable',
+        ];
+  if (candidates.any(runnable)) return;
+  throw denied
+      ? ProcessException(executable, arguments, 'Permission denied', 13)
+      : ProcessException(executable, arguments, 'No such file or directory', 2);
 }
 
 Future<void> _feed(Process process, List<int>? input) async {

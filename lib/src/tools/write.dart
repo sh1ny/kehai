@@ -29,11 +29,17 @@ final class WriteTool implements Tool {
     final target = realPath(absolute) ?? absolute;
     return PathLocks.run(
       target,
-      () => _write(path, target, input['content']! as String),
+      () => _write(context, path, target, input['content']! as String),
     );
   }
 
-  Future<ToolOutcome> _write(String path, String target, String content) async {
+  Future<ToolOutcome> _write(
+    ToolContext context,
+    String path,
+    String target,
+    String content,
+  ) async {
+    if (context.cancel.isCancelled) return cancelledMutation;
     final existed = FileSystemEntity.typeSync(target);
     if (existed == FileSystemEntityType.directory) {
       return failure('$path is a directory');
@@ -45,7 +51,12 @@ final class WriteTool implements Tool {
       return failure('cannot create the directory of $path: ${e.message}');
     }
     try {
-      await writeAtomically(target, bytes, seams: seams);
+      await writeAtomically(
+        target,
+        bytes,
+        seams: seams,
+        isCancelled: () => context.cancel.isCancelled,
+      );
     } on WriteFailure catch (e) {
       return failure('could not write $path: ${e.message}');
     }
