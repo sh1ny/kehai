@@ -66,7 +66,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | model-provider → Cancellation and idle deadline | Headers withheld | test/provider/chatgpt_adapter_test.dart | body read but no headers ends idle_timeout sent with one request | red |
 | model-provider → Cancellation and idle deadline | Headers without events | test/provider/chatgpt_adapter_test.dart | sse headers without events ends idle_timeout with one request | red |
 | model-provider → Cancellation and idle deadline | Paused subscriber is not a stall | test/provider/chatgpt_adapter_test.dart | subscriber paused beyond the deadline resumes and completes | red |
-| model-provider → Bounded stream input | Oversized event | test/provider/sse_test.dart | event over 8 MiB fails protocol | red |
+| model-provider → Bounded stream input | Oversized event | test/provider/sse_test.dart | event over 8 MiB fails protocol | green |
 | model-provider → Bounded stream input | Normal large output | test/provider/chatgpt_adapter_test.dart | 2 MiB of deltas completes normally | red |
 | model-provider → ChatGPT plan backend | Request shape | test/provider/chatgpt_adapter_test.dart | request targets v1 responses with bearer and sse accept | red |
 | model-provider → ChatGPT plan backend | No subscription credentials | test/provider/chatgpt_adapter_test.dart | no token set without a disabled registration fails reauth_required without a request | red |
@@ -229,7 +229,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 ## 6. Provider interface and ChatGPT plan adapter
 
 - [x] 6.1 Write `lib/src/provider/provider.dart` per D10: `ModelProvider`, `ModelRequest`, the sealed `ProviderEvent` types, `ProviderFailure` (with `not_permitted` and `param`), `CancelToken`, `ModelInfo` and `TokenEstimate`. Add `estimate.dart`, with `test/provider/estimate_test.dart` written first; make it pass and flip its row green.
-- [ ] 6.2 Write the failing `test/provider/sse_test.dart`: the oversized-event row, plus framing cases (multi-line `data:`, comments, CRLF, split chunks). Implement `lib/src/provider/sse.dart` with the 8 MiB event bound. Verify it passes and flip the row green.
+- [x] 6.2 Write the failing `test/provider/sse_test.dart`: the oversized-event row, plus framing cases (multi-line `data:`, comments, CRLF, split chunks). Implement `lib/src/provider/sse.dart` with the 8 MiB event bound. Verify it passes and flip the row green.
 - [ ] 6.3 Write the failing `test/provider/chatgpt_adapter_test.dart` rows against `fake_openai`.
 - [ ] 6.4 Implement `lib/src/provider/chatgpt_adapter.dart` per D7, D10 and D12:
   - request mapping from the body-key allowlist (no top-level `tools`; one leading `additional_tools` item), headers, and the 1 MiB cap;
