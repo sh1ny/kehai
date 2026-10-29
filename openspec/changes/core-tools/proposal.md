@@ -30,7 +30,7 @@ This is change 3 of 6 in milestone **M1 — self-hosting skeleton** ([roadmap](.
 - **Permissions.**
   - **Allowlist:** a short built-in read-only autoapprove allowlist, extended only by a user-owned allowlist in the user's Kehai configuration, never by repository content. It covers:
     - `read`, `grep`, `find` and `ls` inside the workspace;
-    - `read_more`, `search_result` and `job` status;
+    - `read_more`, `search_result`, `job` status and `ask` (the question is itself the prompt);
     - a few `bash` forms proven read-only (`pwd`, `ls`, `cat`, `head`, `tail`, `wc`, `rg` on workspace paths).
   - **Not built in:** `git` and `jj`. Repository configuration (fsmonitor, external diff, textconv) can make them run programs, so the user lists the forms they trust, such as `jj status`, `dart analyze` and `dart test`.
   - **Credential files:** Kehai's own credential files are never readable through the file tools, not even under `--yolo`.

@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 11 (re-check)
-- **Prior rounds:** rounds 1-9 REVISE (C1, C2, M1-M18, S1, all resolved per round 10); round 10 REVISE: M19 unbounded pipe wait; round 11 APPROVE_WITH_CHANGES: M20 timing and handoff conditions (all codex)
+- **Round:** 12
+- **Prior round:** round 11 APPROVE_WITH_CHANGES (M20 resolved, CHANGES_APPLIED: yes); round 12 re-reviews the drift amendment adding `ask` to the built-in allowlist
 - **Reviewer:** cross-model CLI (codex)
-- **Reviewed:** Only the two round-11 Required Changes against D8’s “Exit” bullets “Bounded drain,” “Forced close,” “Bound” and “Natural exit with a forced close” in `openspec/changes/core-tools/design.md`.
+- **Reviewed:** Amendment diff from `git diff -- openspec/changes/core-tools/`; prior `review.md`; `proposal.md`; `design.md`, including D13, D14 and Flow & State Gaps; specs `tool-permissions`, `user-ask` and `hook-deadlines`; ADR 0006; `lib/src/permissions/gate.dart`; `lib/src/tools/ask.dart`.
 
 ## Findings
 
@@ -15,11 +15,7 @@ None.
 
 ### Moderate
 
-**M20. Resolved.**
-
-[“Bounded drain”](F:/Dev/Orca/Workspace/kehai/openspec/changes/core-tools/design.md:198) explicitly starts D10 termination after the initial 2-second drain, overlaps the second 2-second drain with termination’s grace, force-closes remaining readers at that interval’s end, and permits only the documented probe afterward. Cancellation and deadline reuse their running termination sequence without another grace period.
-
-[“Natural exit with a forced close”](F:/Dev/Orca/Workspace/kehai/openspec/changes/core-tools/design.md:201) permits handoff once process exit is observed and each pipe has either reached EOF or completed forced reader closure. It explicitly preserves incomplete flags and cleanup uncertainty through handoff. Both Required Changes are applied.
+None.
 
 ### Suggestions
 
@@ -27,15 +23,18 @@ None.
 
 ## Verdict
 
-VERDICT: APPROVE_WITH_CHANGES
+VERDICT: APPROVE
 
 ## Required Changes
 
-None remaining.
+None.
 
-CHANGES_APPLIED: yes
+CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-- **M20’s timing concern is addressed:** the second drain overlaps D10’s grace, making the stated bound achievable.
-- **M20’s handoff concern is addressed:** completed forced reader closure satisfies the pipe condition, with incomplete flags and cleanup uncertainty preserved.
+- **Approval authority remains intact.** Autoapproving `ask` permits delivery of a structured question. Its answer is a tool result, not a permission grant for another call or a configuration change. Repository content and model text gain no authority to widen approval policy.
+- **Hooks retain precedence.** D13 and the hook spec still require validation and hooks before builtin approval. A refusing hook prevents the question from opening; hook success only continues to the permission decision.
+- **Yolo remains consistent.** Builtin approval precedes yolo, so `ask` records builtin approval and still requires an answerer to obtain an answer. Yolo does not manufacture one.
+- **Tree recording remains required.** D13 records the builtin permission decision before execution; the question and typed answer follow the existing call-input and stored-result contracts.
+- **The drift is resolved.** An otherwise admitted headless `ask` now reaches the tool and returns `error` with `no user attached`. Validation failures and hook denials retain their earlier precedence. No further inconsistency requiring an amendment was found in the reviewed material.

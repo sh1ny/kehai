@@ -11,6 +11,7 @@ A call SHALL run without a prompt when it is one of:
 - `read`, `grep`, `find` or `ls` whose resolved paths are inside the workspace root;
 - `read_more` or `search_result`;
 - `job` with action `status` or `output`;
+- `ask`, whose question is itself the prompt to the user, so a headless `ask` settles `error` with `no user attached` (user-ask) rather than `denied`;
 - a `bash` command proven read-only.
 
 Symbolic links are resolved before the workspace check.
