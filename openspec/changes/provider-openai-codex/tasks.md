@@ -28,9 +28,9 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | credential-store → Cross-process credential lock | Two processes refresh at once | test/auth/refresher_process_test.dart | two processes refreshing send exactly one refresh | green |
 | credential-store → Cross-process credential lock | Holder dies | test/auth/refresher_process_test.dart | killed lock holder does not block the next process | green |
 | credential-store → Credentials never leave the boundary | Doctor output is token-free | test/cli/cli_test.dart | doctor output contains no stored token | red |
-| credential-store → Credentials never leave the boundary | Authorize URL handoff | test/auth/browser_login_test.dart | authorize url with state and nonce appears once on stdout and as launcher argument, nowhere else | red |
-| credential-store → Credentials never leave the boundary | Rejected pasted URL is not echoed | test/auth/browser_login_test.dart | rejected pasted url is not echoed | red |
-| credential-store → Credentials never leave the boundary | Subprocess environment is token-free | test/auth/browser_login_test.dart | browser launcher environment contains no token | red |
+| credential-store → Credentials never leave the boundary | Authorize URL handoff | test/auth/browser_login_test.dart | authorize url with state and nonce appears once on stdout and as launcher argument, nowhere else | green |
+| credential-store → Credentials never leave the boundary | Rejected pasted URL is not echoed | test/auth/browser_login_test.dart | rejected pasted url is not echoed | green |
+| credential-store → Credentials never leave the boundary | Subprocess environment is token-free | test/auth/browser_login_test.dart | browser launcher environment contains no token | green |
 | credential-store → Locally composed failure text | Failure messages are token-free | test/auth/failure_text_test.dart | echoed secrets in message, code or param never surface | green |
 | credential-store → Locally composed failure text | Server message is not relayed | test/auth/failure_text_test.dart | server message and detail fields are dropped | green |
 | credential-store → Locally composed failure text | Suspicious error code | test/auth/failure_text_test.dart | uppercase, long or secret-bearing codes become unrecognized | green |
@@ -76,43 +76,43 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | model-provider → Model listing | Models listed | test/provider/models_test.dart | listed models exclude non-list visibility and unsupported | green |
 | model-provider → Model listing | Models endpoint fails | test/provider/models_test.dart | 503 fails server with no list | green |
 | model-provider → Model listing | Oversized models response | test/provider/models_test.dart | body over 4 MiB fails protocol | green |
-| provider-auth → Sign in with ChatGPT | Successful login | test/auth/browser_login_test.dart | verified callback stores registration and tokens and reports account | red |
-| provider-auth → Sign in with ChatGPT | State mismatch | test/auth/browser_login_test.dart | state mismatch exchanges nothing | red |
-| provider-auth → Sign in with ChatGPT | Authorization denied | test/auth/browser_login_test.dart | error parameter fails naming the code | red |
-| provider-auth → Sign in with ChatGPT | Code rejected | test/auth/browser_login_test.dart | invalid_grant on exchange stores nothing | red |
-| provider-auth → Sign in with ChatGPT | No API key requested | test/auth/browser_login_test.dart | no api key grant and no api key field | red |
-| provider-auth → Dynamic client registration | First sign-in registers a client | test/auth/browser_login_test.dart | first login uses dynamic_agent_client and saves the issued id | red |
-| provider-auth → Dynamic client registration | Registration incomplete | test/auth/browser_login_test.dart | first login without issued id stores nothing | red |
-| provider-auth → Dynamic client registration | Later sign-in reuses the client | test/auth/browser_login_test.dart | later login reuses saved client without name hint | red |
-| provider-auth → Dynamic client registration | Different client returned | test/auth/browser_login_test.dart | different issued id is rejected | red |
-| provider-auth → Dynamic client registration | Host id is stable | test/auth/browser_login_test.dart | host id survives logout --forget | red |
+| provider-auth → Sign in with ChatGPT | Successful login | test/auth/browser_login_test.dart | verified callback stores registration and tokens and reports account | green |
+| provider-auth → Sign in with ChatGPT | State mismatch | test/auth/browser_login_test.dart | state mismatch exchanges nothing | green |
+| provider-auth → Sign in with ChatGPT | Authorization denied | test/auth/browser_login_test.dart | error parameter fails naming the code | green |
+| provider-auth → Sign in with ChatGPT | Code rejected | test/auth/browser_login_test.dart | invalid_grant on exchange stores nothing | green |
+| provider-auth → Sign in with ChatGPT | No API key requested | test/auth/browser_login_test.dart | no api key grant and no api key field | green |
+| provider-auth → Dynamic client registration | First sign-in registers a client | test/auth/browser_login_test.dart | first login uses dynamic_agent_client and saves the issued id | green |
+| provider-auth → Dynamic client registration | Registration incomplete | test/auth/browser_login_test.dart | first login without issued id stores nothing | green |
+| provider-auth → Dynamic client registration | Later sign-in reuses the client | test/auth/browser_login_test.dart | later login reuses saved client without name hint | green |
+| provider-auth → Dynamic client registration | Different client returned | test/auth/browser_login_test.dart | different issued id is rejected | green |
+| provider-auth → Dynamic client registration | Host id is stable | test/auth/browser_login_test.dart | host id survives logout --forget | green |
 | provider-auth → Token verification and plan-usage grant | Verified login | test/auth/jwt_test.dart | rs256 token with expected claims verifies and yields subject and email | green |
 | provider-auth → Token verification and plan-usage grant | Invalid ID token | test/auth/jwt_test.dart | bad signature, alg, iss, aud, exp or nonce each fail naming the check | green |
-| provider-auth → Token verification and plan-usage grant | Different account | test/auth/browser_login_test.dart | different subject fails naming logout --forget | red |
-| provider-auth → Plan usage consent | Plan usage not granted | test/auth/browser_login_test.dart | grant without direct scope stores registration as plan usage disabled and no tokens | red |
-| provider-auth → Plan usage consent | Enable plan usage | test/auth/browser_login_test.dart | enable-plan-usage sends saved client, full scopes and prompt=consent, then stores tokens | red |
-| provider-auth → Plan usage consent | Consent declined again | test/auth/browser_login_test.dart | enable-plan-usage still without scope keeps plan usage disabled | red |
-| provider-auth → Plan usage consent | Enable without a registration | test/auth/browser_login_test.dart | enable-plan-usage without registration binds nothing and fails | red |
-| provider-auth → Plan usage consent | Ordinary sign-in does not force consent | test/auth/browser_login_test.dart | ordinary login url has no prompt or force_reconsent | red |
+| provider-auth → Token verification and plan-usage grant | Different account | test/auth/browser_login_test.dart | different subject fails naming logout --forget | green |
+| provider-auth → Plan usage consent | Plan usage not granted | test/auth/browser_login_test.dart | grant without direct scope stores registration as plan usage disabled and no tokens | green |
+| provider-auth → Plan usage consent | Enable plan usage | test/auth/browser_login_test.dart | enable-plan-usage sends saved client, full scopes and prompt=consent, then stores tokens | green |
+| provider-auth → Plan usage consent | Consent declined again | test/auth/browser_login_test.dart | enable-plan-usage still without scope keeps plan usage disabled | green |
+| provider-auth → Plan usage consent | Enable without a registration | test/auth/browser_login_test.dart | enable-plan-usage without registration binds nothing and fails | green |
+| provider-auth → Plan usage consent | Ordinary sign-in does not force consent | test/auth/browser_login_test.dart | ordinary login url has no prompt or force_reconsent | green |
 | provider-auth → Plan usage consent | Inference without plan usage | test/provider/chatgpt_adapter_test.dart | plan usage disabled fails not_permitted without a request | green |
 | provider-auth → Plan usage consent | Plan usage dropped on refresh | test/auth/refresher_test.dart | refresh without direct scope is not_permitted, clears tokens, disables plan usage | green |
-| provider-auth → Stale login rejected | Logout during a pending login | test/auth/browser_login_test.dart | logout committed during a pending login rejects the login | red |
-| provider-auth → Stale login rejected | Account replaced during a pending login | test/auth/browser_login_test.dart | account replaced during a pending login keeps account b | red |
-| provider-auth → Stale login rejected | Concurrent first sign-ins | test/auth/browser_login_test.dart | second of two first sign-ins stores nothing and revokes its token | red |
-| provider-auth → Stale login rejected | Tokenless logout during a pending login | test/auth/browser_login_test.dart | host-only logout, host-only forget and disabled-registration logout each reject the pending login | red |
-| provider-auth → Stale login rejected | Refresh during a pending login | test/auth/browser_login_test.dart | refresh during a pending login does not reject it | red |
-| provider-auth → Loopback callback port | Primary port free | test/auth/browser_login_test.dart | free 1455 yields 127.0.0.1:1455 redirect | red |
-| provider-auth → Loopback callback port | Port busy on a later sign-in | test/auth/browser_login_test.dart | busy 1455 with registration falls back to 1457 without contacting holder | red |
-| provider-auth → Loopback callback port | Port busy on first sign-in | test/auth/browser_login_test.dart | busy 1455 without registration fails naming the port | red |
-| provider-auth → Loopback callback port | Both ports busy | test/auth/browser_login_test.dart | both ports busy fails naming both | red |
-| provider-auth → Authorize URL is always shown | Browser cannot open | test/auth/browser_login_test.dart | failing launcher still prints url and completes | red |
-| provider-auth → Authorize URL is always shown | No-browser flag | test/auth/browser_login_test.dart | no-browser starts no launcher | red |
-| provider-auth → Pasted redirect URL | Pasted redirect completes login | test/auth/browser_login_test.dart | pasted redirect url completes the login | red |
-| provider-auth → Pasted redirect URL | Pasted URL for another address | test/auth/browser_login_test.dart | pasted url with another prefix is rejected and waiting continues | red |
-| provider-auth → Login deadline and cancellation | Callback never arrives | test/auth/browser_login_test.dart | deadline expiry releases port and stores nothing | red |
-| provider-auth → Login deadline and cancellation | User interrupts | test/auth/browser_login_test.dart | cancel while waiting stores nothing | red |
-| provider-auth → Login deadline and cancellation | Interrupt during exchange or lock wait | test/auth/browser_login_test.dart | cancel during exchange, key fetch or lock wait never writes | red |
-| provider-auth → Login deadline and cancellation | Interrupt during commit | test/auth/browser_login_test.dart | cancel during commit completes and reports success | red |
+| provider-auth → Stale login rejected | Logout during a pending login | test/auth/browser_login_test.dart | logout committed during a pending login rejects the login | green |
+| provider-auth → Stale login rejected | Account replaced during a pending login | test/auth/browser_login_test.dart | account replaced during a pending login keeps account b | green |
+| provider-auth → Stale login rejected | Concurrent first sign-ins | test/auth/browser_login_test.dart | second of two first sign-ins stores nothing and revokes its token | green |
+| provider-auth → Stale login rejected | Tokenless logout during a pending login | test/auth/browser_login_test.dart | host-only logout, host-only forget and disabled-registration logout each reject the pending login | green |
+| provider-auth → Stale login rejected | Refresh during a pending login | test/auth/browser_login_test.dart | refresh during a pending login does not reject it | green |
+| provider-auth → Loopback callback port | Primary port free | test/auth/browser_login_test.dart | free 1455 yields 127.0.0.1:1455 redirect | green |
+| provider-auth → Loopback callback port | Port busy on a later sign-in | test/auth/browser_login_test.dart | busy 1455 with registration falls back to 1457 without contacting holder | green |
+| provider-auth → Loopback callback port | Port busy on first sign-in | test/auth/browser_login_test.dart | busy 1455 without registration fails naming the port | green |
+| provider-auth → Loopback callback port | Both ports busy | test/auth/browser_login_test.dart | both ports busy fails naming both | green |
+| provider-auth → Authorize URL is always shown | Browser cannot open | test/auth/browser_login_test.dart | failing launcher still prints url and completes | green |
+| provider-auth → Authorize URL is always shown | No-browser flag | test/auth/browser_login_test.dart | no-browser starts no launcher | green |
+| provider-auth → Pasted redirect URL | Pasted redirect completes login | test/auth/browser_login_test.dart | pasted redirect url completes the login | green |
+| provider-auth → Pasted redirect URL | Pasted URL for another address | test/auth/browser_login_test.dart | pasted url with another prefix is rejected and waiting continues | green |
+| provider-auth → Login deadline and cancellation | Callback never arrives | test/auth/browser_login_test.dart | deadline expiry releases port and stores nothing | green |
+| provider-auth → Login deadline and cancellation | User interrupts | test/auth/browser_login_test.dart | cancel while waiting stores nothing | green |
+| provider-auth → Login deadline and cancellation | Interrupt during exchange or lock wait | test/auth/browser_login_test.dart | cancel during exchange, key fetch or lock wait never writes | green |
+| provider-auth → Login deadline and cancellation | Interrupt during commit | test/auth/browser_login_test.dart | cancel during commit completes and reports success | green |
 | provider-auth → Silent proactive refresh | Near-expiry refresh | test/auth/refresher_test.dart | token expiring within 5 minutes is refreshed first with form and resource | green |
 | provider-auth → Silent proactive refresh | Refresh omits a token | test/auth/refresher_test.dart | omitted refresh token keeps the previous one | green |
 | provider-auth → Silent proactive refresh | Transient refresh failure | test/auth/refresher_test.dart | unsent or 5xx refresh leaves credentials and is not reauth | green |
@@ -212,7 +212,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - Deadlines and the cancel token are injected, with short durations.
   - Busy ports are held by test sockets.
   - Stale-login cases commit a logout, `--forget` or second login into the same home while the first login waits, then release its callback.
-- [ ] 5.2 Implement `lib/src/auth/login_controller.dart` (cancel token, commit point per D3) and `lib/src/auth/browser_login.dart` per D3:
+- [x] 5.2 Implement `lib/src/auth/login_controller.dart` (cancel token, commit point per D3) and `lib/src/auth/browser_login.dart` per D3:
   - host id creation, and the start snapshot of `generation` and registration;
   - registration-aware authorize parameters, and `--enable-plan-usage` (`prompt=consent`, saved client required);
   - binding 1455, then 1457 only with a registration;
