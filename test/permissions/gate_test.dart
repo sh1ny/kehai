@@ -6,13 +6,17 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/answerer_support.dart';
+import '../support/fake_bin.dart';
 import '../support/session_support.dart';
 
 final class _Env {
-  _Env(this.workspace, this.home);
+  _Env(this.workspace, this.home, this.bin);
 
   final Directory workspace;
   final Directory home;
+
+  /// Outside the workspace; holds the programs the proven commands name.
+  final Directory bin;
   final RecordingAnswerer answerer = RecordingAnswerer();
   late final PromptChannel channel = PromptChannel(answerer);
 
@@ -27,6 +31,7 @@ final class _Env {
     config: config,
     yolo: yolo,
     posixShell: posixShell,
+    environment: {'PATH': bin.path},
   );
 }
 
@@ -43,7 +48,8 @@ Future<_Env> _env() async {
   Directory(p.join(workspace.path, 'lib')).createSync();
   File(p.join(workspace.path, 'lib', 'kehai.dart')).writeAsStringSync('x\n');
   final home = Directory(p.join(root.path, 'home'))..createSync();
-  return _Env(workspace, home);
+  final bin = fakeBin(Directory(p.join(root.path, 'bin')), ['rg', 'pwd', 'jj']);
+  return _Env(workspace, home, bin);
 }
 
 void main() {

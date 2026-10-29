@@ -67,3 +67,14 @@ export 'src/permissions/credentials.dart'
 export 'src/permissions/gate.dart' show PermissionGate;
 export 'src/permissions/workspace_paths.dart' show isInside, realPath;
 export 'src/shell/proof.dart' show ProvenCommand, proveReadOnly, tokenizeSimple;
+export 'src/shell/detect.dart'
+    show ShellDetection, ShellInfo, ShellKind, detectShell;
+export 'src/shell/direct_exec.dart'
+    show
+        DirectExecRefused,
+        DirectResult,
+        resolveProgram,
+        runDirect,
+        startDirect;
+export 'src/shell/launch.dart'
+    show ShellProcess, shellArguments, startProcess, startShell;

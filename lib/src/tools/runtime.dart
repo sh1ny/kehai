@@ -28,6 +28,7 @@ import '../results/result_store.dart';
 import '../session/errors.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
+import '../shell/detect.dart';
 import 'ask.dart';
 import 'edit.dart';
 import 'read.dart';
@@ -115,6 +116,7 @@ final class ToolRuntime {
     this.prompts,
     this._seams,
     this.kehaiHome,
+    this.shell,
   );
 
   /// Attaches a runtime to [writer] and [store].
@@ -125,8 +127,12 @@ final class ToolRuntime {
   /// arguments were validated. [hooks] defaults to [AllowAllStage] until the
   /// hook runner is plugged in. [gate] defaults to the [PermissionGate] built
   /// from [workspace], [config], [yolo], [answerer] and [kehaiHome], which
-  /// then must be given; [posixShell] says whether `bash` runs under a POSIX
-  /// shell, because a command is proven read-only only under one.
+  /// then must be given.
+  ///
+  /// The shell is detected here, once, unless [shell] gives the detection to
+  /// use. [posixShell] says whether `bash` runs under a POSIX shell, because a
+  /// command is proven read-only only under one; it defaults to what the
+  /// detected shell is (PowerShell is never proven, a missing shell neither).
   ///
   /// [answerer] receives questions and permission prompts; without one the
   /// session is headless.
@@ -140,7 +146,8 @@ final class ToolRuntime {
     bool yolo = false,
     Answerer? answerer,
     Directory? kehaiHome,
-    bool posixShell = false,
+    bool? posixShell,
+    ShellDetection? shell,
     Map<String, Tool> tools = const {},
     CallStage? hooks,
     CallStage? gate,
@@ -153,6 +160,9 @@ final class ToolRuntime {
         'required when no gate is given',
       );
     }
+    // Detected once, now. A missing shell never fails attach: it fails the
+    // `bash` calls, and the other tools work.
+    final detection = shell ?? detectShell();
     final prompts = PromptChannel(answerer);
     // Resolved once, now. It runs on while attach finishes; a missing `rg`
     // never fails attach, it fails the calls that need it.
@@ -177,11 +187,12 @@ final class ToolRuntime {
             prompts: prompts,
             config: config,
             yolo: yolo,
-            posixShell: posixShell,
+            posixShell: posixShell ?? detection.shell?.isPosix ?? false,
           ),
       prompts,
       seams,
       kehaiHome,
+      detection,
     );
     await runtime._finalizeOnResume();
     return runtime;
@@ -207,6 +218,9 @@ final class ToolRuntime {
 
   /// The Kehai home, or null when the runtime was given a gate instead.
   final Directory? kehaiHome;
+
+  /// The shell detected at attach, or what was tried when none was found.
+  final ShellDetection shell;
 
   final Map<String, Tool> _tools;
   final CallStage _hooks;

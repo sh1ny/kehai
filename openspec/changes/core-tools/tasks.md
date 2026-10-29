@@ -57,14 +57,14 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | workspace-search → File finding | Missing search path | test/tools/search_tools_test.dart | missing search path is an error | green |
 | workspace-search → Directory listing | List a directory | test/tools/search_tools_test.dart | ls sorts entries with / and @ suffixes | green |
 | workspace-search → Directory listing | Not a directory | test/tools/search_tools_test.dart | ls on a file is an error | green |
-| shell-tool → Real shell detection | Windows with Git Bash installed | test/shell/detect_test.dart | Git Bash beside git.exe wins and System32 bash is never chosen | red |
-| shell-tool → Real shell detection | No usable shell | test/shell/detect_test.dart | no shell found fails attach-time detection with a hint | red |
+| shell-tool → Real shell detection | Windows with Git Bash installed | test/shell/detect_test.dart | Git Bash beside git.exe wins and System32 bash is never chosen | green |
+| shell-tool → Real shell detection | No usable shell | test/shell/detect_test.dart | no shell found fails attach-time detection with a hint | green |
 | shell-tool → Command execution and status | Failing command | test/shell/bash_tool_test.dart | non-zero exit settles ok with exit status in the summary | red |
 | shell-tool → Command execution and status | Command reads stdin | test/shell/bash_tool_test.dart | stdin is closed at once so a reader sees EOF | red |
 | shell-tool → Streamed output persistence | Interleaved streams kept in order | test/shell/bash_tool_test.dart | stdout, stderr and combined output keep arrival order | red |
 | shell-tool → Streamed output persistence | Output larger than memory budgets | test/shell/bash_tool_test.dart | [slow] 1 GiB of output streams to disk with bounded memory | red |
-| shell-tool → Credential-free child environment | API key not inherited | test/shell/env_test.dart | provider and KEHAI_ secret variables are absent in the child | red |
-| shell-tool → Credential-free child environment | User passthrough exception | test/shell/env_test.dart | configured passthrough variable reaches the child | red |
+| shell-tool → Credential-free child environment | API key not inherited | test/shell/env_test.dart | provider and KEHAI_ secret variables are absent in the child | green |
+| shell-tool → Credential-free child environment | User passthrough exception | test/shell/env_test.dart | configured passthrough variable reaches the child | green |
 | shell-tool → Foreground budget hands off to a job | Long command becomes a job | test/shell/bash_tool_test.dart | budget expiry settles partial with the job id while the job runs | red |
 | shell-tool → Foreground budget hands off to a job | Budget out of range | test/shell/bash_tool_test.dart | timeout_s outside 1–600 fails validation | red |
 | user-ask → Structured question | Choice answered | test/tools/ask_tool_test.dart | chosen answer returns {"choice":...} | green |
@@ -77,8 +77,8 @@ Race and crash scenarios are made deterministic through the pause seams design D
 | tool-permissions → Whole-command read-only proof | Plain read-only command | test/permissions/proof_test.dart | listed program with listed options inside the workspace is proven | green |
 | tool-permissions → Whole-command read-only proof | Mixed or substituted command | test/permissions/proof_test.dart | separators, substitution, redirection, --pre and escapes are not proven | green |
 | tool-permissions → Whole-command read-only proof | Path hidden in an option or the working directory | test/permissions/proof_test.dart | option operands, unlisted options and outside cwd are not proven | green |
-| tool-permissions → Autoapproved commands run without shell startup | Repository startup script | test/permissions/direct_exec_test.dart | BASH_ENV script does not run for autoapproved pwd | red |
-| tool-permissions → Autoapproved commands run without shell startup | Program shadowed in the workspace | test/permissions/direct_exec_test.dart | workspace cat on PATH is skipped or the call is prompted | red |
+| tool-permissions → Autoapproved commands run without shell startup | Repository startup script | test/permissions/direct_exec_test.dart | BASH_ENV script does not run for autoapproved pwd | green |
+| tool-permissions → Autoapproved commands run without shell startup | Program shadowed in the workspace | test/permissions/direct_exec_test.dart | workspace cat on PATH is skipped or the call is prompted | green |
 | tool-permissions → User-owned allowlist | Allowlisted jj status | test/permissions/gate_test.dart | user rule autoapproves jj status | green |
 | tool-permissions → User-owned allowlist | Repository tries to allowlist | test/permissions/gate_test.dart | rules in repository files are ignored | green |
 | tool-permissions → User-owned allowlist | Prefix rule with appended command | test/permissions/gate_test.dart | prefix rule does not approve an appended command | green |
@@ -197,8 +197,8 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 8. Shell detection, environment and direct execution
 
-- [ ] 8.1 Write the failing `test/shell/detect_test.dart` rows against an injected filesystem and `PATH` seam, plus one real detection test per platform. Then write the `test/shell/env_test.dart` rows and the `test/permissions/direct_exec_test.dart` rows.
-- [ ] 8.2 Implement `lib/src/shell/`:
+- [x] 8.1 Write the failing `test/shell/detect_test.dart` rows against an injected filesystem and `PATH` seam, plus one real detection test per platform. Then write the `test/shell/env_test.dart` rows and the `test/permissions/direct_exec_test.dart` rows.
+- [x] 8.2 Implement `lib/src/shell/`:
   - detection per design D7: Git Bash beside `git.exe`, then `%ProgramFiles%`, never System32 `bash.exe`, then `pwsh`, then `powershell`; `bash` on POSIX;
   - the launcher: `setsid` on POSIX, stdin closed;
   - the credential-free environment filter with passthrough;

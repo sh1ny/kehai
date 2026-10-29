@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 
 import '../config/user_config.dart';
 import '../provider/provider.dart';
+import '../shell/direct_exec.dart';
 import '../shell/proof.dart';
 import '../tools/ask.dart';
 import '../tools/tool.dart';
@@ -41,6 +42,7 @@ final class PermissionGate implements CallStage {
     this.config = const UserConfig(),
     this.yolo = false,
     this.posixShell = false,
+    this.environment,
   });
 
   /// The workspace root.
@@ -61,6 +63,10 @@ final class PermissionGate implements CallStage {
   /// Whether `bash` runs under a POSIX shell. A command is proven read-only,
   /// and an argv rule matches, only then; PowerShell is never proven.
   final bool posixShell;
+
+  /// The environment whose `PATH` resolves the program of an autoapproved
+  /// command; defaults to the process environment.
+  final Map<String, String>? environment;
 
   @override
   Future<StageOutcome> check(StageCall call, CancelToken cancel) async {
@@ -132,12 +138,24 @@ final class PermissionGate implements CallStage {
     final command = call.input['command'];
     if (!posixShell || command is! String) return null;
     final cwd = call.input['cwd'];
-    return proveReadOnly(
+    final proven = proveReadOnly(
       command,
       workspaceRoot: root,
       cwd: cwd is String ? cwd : null,
     );
+    // An autoapproved command runs directly; one whose program does not
+    // resolve outside the workspace goes to the prompt instead.
+    return proven != null && _resolves(proven.program, root) ? proven : null;
   }
+
+  bool _resolves(String program, String? root) =>
+      root != null &&
+      resolveProgram(
+            program,
+            workspaceRoot: root,
+            environment: environment ?? Platform.environment,
+          ) !=
+          null;
 
   /// The label of the first user rule that allows [call], or null.
   String? _userRule(StageCall call) {
@@ -153,7 +171,9 @@ final class PermissionGate implements CallStage {
       for (var i = 0; i < prefix.length; i++) {
         matches &= argv[i] == prefix[i];
       }
-      if (matches) return rule.label;
+      if (matches && _resolves(argv.first, realPath(workspace.path))) {
+        return rule.label;
+      }
     }
     return null;
   }
