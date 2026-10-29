@@ -50,7 +50,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | model-provider → Opaque reasoning continuity | No reasoning returned | test/provider/chatgpt_adapter_test.dart | no reasoning item emits no opaque event | red |
 | model-provider → Usage and token estimate | Usage reported | test/provider/chatgpt_adapter_test.dart | usage maps input cached output and reasoning | red |
 | model-provider → Usage and token estimate | Usage absent | test/provider/chatgpt_adapter_test.dart | missing usage yields unknown counts | red |
-| model-provider → Usage and token estimate | Estimate before sending | test/provider/estimate_test.dart | estimate is at least utf8 bytes over three | red |
+| model-provider → Usage and token estimate | Estimate before sending | test/provider/estimate_test.dart | estimate is at least utf8 bytes over three | green |
 | model-provider → Typed sanitized failures | Context too long | test/provider/chatgpt_adapter_test.dart | context_length_exceeded maps to context_overflow | red |
 | model-provider → Typed sanitized failures | Usage limit reached | test/provider/chatgpt_adapter_test.dart | sharing usage limit codes map to usage_limit in http and event form without retry-after | red |
 | model-provider → Typed sanitized failures | Plan usage not permitted | test/provider/chatgpt_adapter_test.dart | 403 and eligibility codes map to not_permitted | red |
@@ -228,7 +228,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 ## 6. Provider interface and ChatGPT plan adapter
 
-- [ ] 6.1 Write `lib/src/provider/provider.dart` per D10: `ModelProvider`, `ModelRequest`, the sealed `ProviderEvent` types, `ProviderFailure` (with `not_permitted` and `param`), `CancelToken`, `ModelInfo` and `TokenEstimate`. Add `estimate.dart`, with `test/provider/estimate_test.dart` written first; make it pass and flip its row green.
+- [x] 6.1 Write `lib/src/provider/provider.dart` per D10: `ModelProvider`, `ModelRequest`, the sealed `ProviderEvent` types, `ProviderFailure` (with `not_permitted` and `param`), `CancelToken`, `ModelInfo` and `TokenEstimate`. Add `estimate.dart`, with `test/provider/estimate_test.dart` written first; make it pass and flip its row green.
 - [ ] 6.2 Write the failing `test/provider/sse_test.dart`: the oversized-event row, plus framing cases (multi-line `data:`, comments, CRLF, split chunks). Implement `lib/src/provider/sse.dart` with the 8 MiB event bound. Verify it passes and flip the row green.
 - [ ] 6.3 Write the failing `test/provider/chatgpt_adapter_test.dart` rows against `fake_openai`.
 - [ ] 6.4 Implement `lib/src/provider/chatgpt_adapter.dart` per D7, D10 and D12:
