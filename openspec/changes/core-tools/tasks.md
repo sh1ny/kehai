@@ -139,7 +139,7 @@ Race and crash scenarios are made deterministic through the pause seams design D
 
 ## 1. ADR and architecture index
 
-- [ ] 1.1 Write `docs/adr/0010-tool-call-and-job-tree-layout.md` (`Status: accepted`, today's date, `Supersedes: none`). It records, per design D2, D4, D8, D9 and D11:
+- [x] 1.1 Write `docs/adr/0010-tool-call-and-job-tree-layout.md` (`Status: accepted`, today's date, `Supersedes: none`). It records, per design D2, D4, D8, D9 and D11:
   - `body/calls/<key>` with the `c-` + 12-hex SHA-256 key derivation and the node fields;
   - the `jobs/<id>` shape, with no PIDs;
   - `meta/handoffs/<launch>` (launch record and intent) and `meta/orphans/<id>`, including `outputs/<launch>`, as rewind-exempt session records;
