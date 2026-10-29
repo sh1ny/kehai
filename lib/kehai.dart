@@ -1,4 +1,5 @@
-/// Kehai engine library: session tree, journal and result store.
+/// Kehai engine library: session tree, journal, result store, the model
+/// provider interface and the OpenAI sign-in.
 library;
 
 export 'src/session/errors.dart';
@@ -21,3 +22,21 @@ export 'src/results/reader.dart';
 export 'src/results/search.dart';
 export 'src/results/handles.dart';
 export 'src/results/result_store.dart';
+export 'src/provider/provider.dart';
+export 'src/provider/chatgpt_adapter.dart' show ChatGptAdapter;
+export 'src/auth/failure_text.dart' show FailureKind;
+export 'src/auth/auth_failure.dart' show AuthFailure;
+export 'src/auth/credential_backend.dart' show CredentialBackend;
+export 'src/auth/credential_error.dart' show CredentialStoreError;
+export 'src/auth/credential_store.dart'
+    show
+        CredentialLock,
+        CredentialRecord,
+        CredentialRegistration,
+        CredentialStore,
+        CredentialTokens;
+export 'src/auth/refresher.dart' show Credentials, Refresher;
+export 'src/auth/login_controller.dart' show LoginFailure;
+export 'src/auth/browser_login.dart'
+    show BrowserLauncher, BrowserLogin, LoginResult;
+export 'src/auth/logout.dart' show logoutOpenAi;
