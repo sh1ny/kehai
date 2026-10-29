@@ -38,41 +38,41 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | credential-store → Logout clears stored tokens | Logout without credentials | test/cli/cli_test.dart | logout without tokens prints not logged in, exits zero, sends no revocation, advances generation | red |
 | credential-store → Logout clears stored tokens | Forget the registration | test/cli/cli_test.dart | logout --forget while logged in revokes and keeps only host id and generation | red |
 | credential-store → Logout clears stored tokens | Forget after logout | test/cli/cli_test.dart | logout then logout --forget sends no revocation and keeps only host id and generation | red |
-| model-provider → Normalized turn stream | Text answer | test/provider/chatgpt_adapter_test.dart | text deltas then usage then completed end_turn | red |
-| model-provider → Normalized turn stream | Stream ends early | test/provider/chatgpt_adapter_test.dart | early close ends with protocol failure | red |
-| model-provider → Complete tool calls | Two parallel tool calls | test/provider/chatgpt_adapter_test.dart | two function calls emit two complete tool calls and tool_use | red |
-| model-provider → Complete tool calls | Tool result round trip | test/provider/chatgpt_adapter_test.dart | tool call and output are sent paired by call id | red |
-| model-provider → Complete tool calls | Tool call then connection drop | test/provider/chatgpt_adapter_test.dart | finished function call then drop emits no tool call and fails network | red |
-| model-provider → Complete tool calls | Malformed arguments | test/provider/chatgpt_adapter_test.dart | malformed arguments pass through unchanged | red |
-| model-provider → Incomplete response | Incomplete after text | test/provider/chatgpt_adapter_test.dart | incomplete after text yields usage then failed incomplete with reason | red |
-| model-provider → Incomplete response | Incomplete after a tool call | test/provider/chatgpt_adapter_test.dart | incomplete after function call emits no tool call | red |
-| model-provider → Opaque reasoning continuity | Reasoning passed back | test/provider/chatgpt_adapter_test.dart | reasoning item is forwarded byte-identical | red |
-| model-provider → Opaque reasoning continuity | No reasoning returned | test/provider/chatgpt_adapter_test.dart | no reasoning item emits no opaque event | red |
-| model-provider → Usage and token estimate | Usage reported | test/provider/chatgpt_adapter_test.dart | usage maps input cached output and reasoning | red |
-| model-provider → Usage and token estimate | Usage absent | test/provider/chatgpt_adapter_test.dart | missing usage yields unknown counts | red |
+| model-provider → Normalized turn stream | Text answer | test/provider/chatgpt_adapter_test.dart | text deltas then usage then completed end_turn | green |
+| model-provider → Normalized turn stream | Stream ends early | test/provider/chatgpt_adapter_test.dart | early close ends with protocol failure | green |
+| model-provider → Complete tool calls | Two parallel tool calls | test/provider/chatgpt_adapter_test.dart | two function calls emit two complete tool calls and tool_use | green |
+| model-provider → Complete tool calls | Tool result round trip | test/provider/chatgpt_adapter_test.dart | tool call and output are sent paired by call id | green |
+| model-provider → Complete tool calls | Tool call then connection drop | test/provider/chatgpt_adapter_test.dart | finished function call then drop emits no tool call and fails network | green |
+| model-provider → Complete tool calls | Malformed arguments | test/provider/chatgpt_adapter_test.dart | malformed arguments pass through unchanged | green |
+| model-provider → Incomplete response | Incomplete after text | test/provider/chatgpt_adapter_test.dart | incomplete after text yields usage then failed incomplete with reason | green |
+| model-provider → Incomplete response | Incomplete after a tool call | test/provider/chatgpt_adapter_test.dart | incomplete after function call emits no tool call | green |
+| model-provider → Opaque reasoning continuity | Reasoning passed back | test/provider/chatgpt_adapter_test.dart | reasoning item is forwarded byte-identical | green |
+| model-provider → Opaque reasoning continuity | No reasoning returned | test/provider/chatgpt_adapter_test.dart | no reasoning item emits no opaque event | green |
+| model-provider → Usage and token estimate | Usage reported | test/provider/chatgpt_adapter_test.dart | usage maps input cached output and reasoning | green |
+| model-provider → Usage and token estimate | Usage absent | test/provider/chatgpt_adapter_test.dart | missing usage yields unknown counts | green |
 | model-provider → Usage and token estimate | Estimate before sending | test/provider/estimate_test.dart | estimate is at least utf8 bytes over three | green |
-| model-provider → Typed sanitized failures | Context too long | test/provider/chatgpt_adapter_test.dart | context_length_exceeded maps to context_overflow | red |
-| model-provider → Typed sanitized failures | Usage limit reached | test/provider/chatgpt_adapter_test.dart | sharing usage limit codes map to usage_limit in http and event form without retry-after | red |
-| model-provider → Typed sanitized failures | Plan usage not permitted | test/provider/chatgpt_adapter_test.dart | 403 and eligibility codes map to not_permitted | red |
-| model-provider → Typed sanitized failures | Plan usage temporarily unavailable | test/provider/chatgpt_adapter_test.dart | 503 and unavailable codes map to server and keep credentials | red |
-| model-provider → Typed sanitized failures | Unsupported capability | test/provider/chatgpt_adapter_test.dart | unsupported_capability maps to invalid_request with param | red |
-| model-provider → Typed sanitized failures | Rate limited | test/provider/chatgpt_adapter_test.dart | plain 429 maps to rate_limited with retry-after | red |
-| model-provider → Typed sanitized failures | Unknown server error body | test/provider/chatgpt_adapter_test.dart | html and detail bodies are excluded from the failure | red |
-| model-provider → No automatic resend | Connection drops mid-stream | test/provider/chatgpt_adapter_test.dart | mid-stream drop fails network sent and sends nothing more | red |
-| model-provider → No automatic resend | Connection refused | test/provider/chatgpt_adapter_test.dart | refused connection fails network not sent and does not retry | red |
-| model-provider → Cancellation and idle deadline | Caller cancels | test/provider/chatgpt_adapter_test.dart | cancel token aborts and ends with cancelled | red |
-| model-provider → Cancellation and idle deadline | Subscriber stops listening | test/provider/chatgpt_adapter_test.dart | subscription cancel closes the connection | red |
-| model-provider → Cancellation and idle deadline | Backend stalls | test/provider/chatgpt_adapter_test.dart | stalled backend ends with idle_timeout | red |
-| model-provider → Cancellation and idle deadline | Headers withheld | test/provider/chatgpt_adapter_test.dart | body read but no headers ends idle_timeout sent with one request | red |
-| model-provider → Cancellation and idle deadline | Headers without events | test/provider/chatgpt_adapter_test.dart | sse headers without events ends idle_timeout with one request | red |
-| model-provider → Cancellation and idle deadline | Paused subscriber is not a stall | test/provider/chatgpt_adapter_test.dart | subscriber paused beyond the deadline resumes and completes | red |
+| model-provider → Typed sanitized failures | Context too long | test/provider/chatgpt_adapter_test.dart | context_length_exceeded maps to context_overflow | green |
+| model-provider → Typed sanitized failures | Usage limit reached | test/provider/chatgpt_adapter_test.dart | sharing usage limit codes map to usage_limit in http and event form without retry-after | green |
+| model-provider → Typed sanitized failures | Plan usage not permitted | test/provider/chatgpt_adapter_test.dart | 403 and eligibility codes map to not_permitted | green |
+| model-provider → Typed sanitized failures | Plan usage temporarily unavailable | test/provider/chatgpt_adapter_test.dart | 503 and unavailable codes map to server and keep credentials | green |
+| model-provider → Typed sanitized failures | Unsupported capability | test/provider/chatgpt_adapter_test.dart | unsupported_capability maps to invalid_request with param | green |
+| model-provider → Typed sanitized failures | Rate limited | test/provider/chatgpt_adapter_test.dart | plain 429 maps to rate_limited with retry-after | green |
+| model-provider → Typed sanitized failures | Unknown server error body | test/provider/chatgpt_adapter_test.dart | html and detail bodies are excluded from the failure | green |
+| model-provider → No automatic resend | Connection drops mid-stream | test/provider/chatgpt_adapter_test.dart | mid-stream drop fails network sent and sends nothing more | green |
+| model-provider → No automatic resend | Connection refused | test/provider/chatgpt_adapter_test.dart | refused connection fails network not sent and does not retry | green |
+| model-provider → Cancellation and idle deadline | Caller cancels | test/provider/chatgpt_adapter_test.dart | cancel token aborts and ends with cancelled | green |
+| model-provider → Cancellation and idle deadline | Subscriber stops listening | test/provider/chatgpt_adapter_test.dart | subscription cancel closes the connection | green |
+| model-provider → Cancellation and idle deadline | Backend stalls | test/provider/chatgpt_adapter_test.dart | stalled backend ends with idle_timeout | green |
+| model-provider → Cancellation and idle deadline | Headers withheld | test/provider/chatgpt_adapter_test.dart | body read but no headers ends idle_timeout sent with one request | green |
+| model-provider → Cancellation and idle deadline | Headers without events | test/provider/chatgpt_adapter_test.dart | sse headers without events ends idle_timeout with one request | green |
+| model-provider → Cancellation and idle deadline | Paused subscriber is not a stall | test/provider/chatgpt_adapter_test.dart | subscriber paused beyond the deadline resumes and completes | green |
 | model-provider → Bounded stream input | Oversized event | test/provider/sse_test.dart | event over 8 MiB fails protocol | green |
-| model-provider → Bounded stream input | Normal large output | test/provider/chatgpt_adapter_test.dart | 2 MiB of deltas completes normally | red |
-| model-provider → ChatGPT plan backend | Request shape | test/provider/chatgpt_adapter_test.dart | request targets v1 responses with bearer and sse accept | red |
-| model-provider → ChatGPT plan backend | No subscription credentials | test/provider/chatgpt_adapter_test.dart | no token set without a disabled registration fails reauth_required without a request | red |
-| model-provider → ChatGPT plan backend | Plan usage disabled | test/provider/chatgpt_adapter_test.dart | disabled registration fails not_permitted without a request | red |
-| model-provider → ChatGPT plan backend | Request too large | test/provider/chatgpt_adapter_test.dart | body over 1 MiB fails context_overflow without a request | red |
-| model-provider → Token-sharing request rules | Token-sharing body | test/provider/chatgpt_adapter_test.dart | body follows token-sharing rules with allowlisted keys | red |
+| model-provider → Bounded stream input | Normal large output | test/provider/chatgpt_adapter_test.dart | 2 MiB of deltas completes normally | green |
+| model-provider → ChatGPT plan backend | Request shape | test/provider/chatgpt_adapter_test.dart | request targets v1 responses with bearer and sse accept | green |
+| model-provider → ChatGPT plan backend | No subscription credentials | test/provider/chatgpt_adapter_test.dart | no token set without a disabled registration fails reauth_required without a request | green |
+| model-provider → ChatGPT plan backend | Plan usage disabled | test/provider/chatgpt_adapter_test.dart | disabled registration fails not_permitted without a request | green |
+| model-provider → ChatGPT plan backend | Request too large | test/provider/chatgpt_adapter_test.dart | body over 1 MiB fails context_overflow without a request | green |
+| model-provider → Token-sharing request rules | Token-sharing body | test/provider/chatgpt_adapter_test.dart | body follows token-sharing rules with allowlisted keys | green |
 | model-provider → Model listing | Models listed | test/provider/models_test.dart | listed models exclude non-list visibility and unsupported | red |
 | model-provider → Model listing | Models endpoint fails | test/provider/models_test.dart | 503 fails server with no list | red |
 | model-provider → Model listing | Oversized models response | test/provider/models_test.dart | body over 4 MiB fails protocol | red |
@@ -94,7 +94,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | provider-auth → Plan usage consent | Consent declined again | test/auth/browser_login_test.dart | enable-plan-usage still without scope keeps plan usage disabled | red |
 | provider-auth → Plan usage consent | Enable without a registration | test/auth/browser_login_test.dart | enable-plan-usage without registration binds nothing and fails | red |
 | provider-auth → Plan usage consent | Ordinary sign-in does not force consent | test/auth/browser_login_test.dart | ordinary login url has no prompt or force_reconsent | red |
-| provider-auth → Plan usage consent | Inference without plan usage | test/provider/chatgpt_adapter_test.dart | plan usage disabled fails not_permitted without a request | red |
+| provider-auth → Plan usage consent | Inference without plan usage | test/provider/chatgpt_adapter_test.dart | plan usage disabled fails not_permitted without a request | green |
 | provider-auth → Plan usage consent | Plan usage dropped on refresh | test/auth/refresher_test.dart | refresh without direct scope is not_permitted, clears tokens, disables plan usage | green |
 | provider-auth → Stale login rejected | Logout during a pending login | test/auth/browser_login_test.dart | logout committed during a pending login rejects the login | red |
 | provider-auth → Stale login rejected | Account replaced during a pending login | test/auth/browser_login_test.dart | account replaced during a pending login keeps account b | red |
@@ -120,11 +120,11 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | provider-auth → Silent proactive refresh | Refresh after a lost response | test/auth/refresher_test.dart | reused after uncertain rotation is reauth with lost-rotation message | green |
 | provider-auth → Credentials observed per request | Request after external logout | test/auth/refresher_test.dart | request after external logout fails reauth without backend call | green |
 | provider-auth → Credentials observed per request | Request after account replacement | test/auth/refresher_test.dart | request after account replacement uses the new account | green |
-| provider-auth → Credentials observed per request | Stream in progress during logout | test/provider/chatgpt_adapter_test.dart | logout during a stream lets it finish | red |
+| provider-auth → Credentials observed per request | Stream in progress during logout | test/provider/chatgpt_adapter_test.dart | logout during a stream lets it finish | green |
 | provider-auth → Single-flight refresh | Parallel requests | test/auth/refresher_test.dart | five parallel callers share one refresh | green |
 | provider-auth → Single-flight refresh | Shared refresh fails | test/auth/refresher_test.dart | shared failure reaches all waiters and is not cached | green |
-| provider-auth → Refresh after unauthorized | Recovered 401 | test/provider/chatgpt_adapter_test.dart | 401 refreshes and repeats once | red |
-| provider-auth → Refresh after unauthorized | Persistent 401 | test/provider/chatgpt_adapter_test.dart | second 401 is reauth_required and keeps tokens | red |
+| provider-auth → Refresh after unauthorized | Recovered 401 | test/provider/chatgpt_adapter_test.dart | 401 refreshes and repeats once | green |
+| provider-auth → Refresh after unauthorized | Persistent 401 | test/provider/chatgpt_adapter_test.dart | second 401 is reauth_required and keeps tokens | green |
 | provider-auth → Terminal refresh failure | Reused refresh token | test/auth/refresher_test.dart | refresh_token_reused is reauth, clears tokens and does not retry | green |
 | provider-auth → Terminal refresh failure | Token replaced meanwhile | test/auth/refresher_test.dart | terminal failure keeps a token set stored meanwhile | green |
 | provider-auth → Rejected client and other refresh errors | Client rejected | test/auth/refresher_test.dart | invalid_client is invalid_request naming logout --forget | green |
@@ -231,7 +231,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 - [x] 6.1 Write `lib/src/provider/provider.dart` per D10: `ModelProvider`, `ModelRequest`, the sealed `ProviderEvent` types, `ProviderFailure` (with `not_permitted` and `param`), `CancelToken`, `ModelInfo` and `TokenEstimate`. Add `estimate.dart`, with `test/provider/estimate_test.dart` written first; make it pass and flip its row green.
 - [x] 6.2 Write the failing `test/provider/sse_test.dart`: the oversized-event row, plus framing cases (multi-line `data:`, comments, CRLF, split chunks). Implement `lib/src/provider/sse.dart` with the 8 MiB event bound. Verify it passes and flip the row green.
 - [x] 6.3 Write the failing `test/provider/chatgpt_adapter_test.dart` rows against `fake_openai`.
-- [ ] 6.4 Implement `lib/src/provider/chatgpt_adapter.dart` per D7, D10 and D12:
+- [x] 6.4 Implement `lib/src/provider/chatgpt_adapter.dart` per D7, D10 and D12:
   - request mapping from the body-key allowlist (no top-level `tools`; one leading `additional_tools` item), headers, and the 1 MiB cap;
   - the event mapping, `response.incomplete` → `Failed(incomplete)`, and the code-then-status error mapping;
   - held tool calls (8 MiB, 128 calls) emitted only on `response.completed`, opaque reasoning passthrough, usage mapping;
