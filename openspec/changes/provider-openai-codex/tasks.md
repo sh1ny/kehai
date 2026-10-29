@@ -10,21 +10,21 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| credential-store → Platform credential backend | Unix file is private | test/auth/credential_store_test.dart | [unix] stored auth.json is 0600 in a 0700 home with version 1 and all three parts | red |
-| credential-store → Platform credential backend | Windows file is encrypted | test/auth/credential_store_test.dart | [windows] auth.dpapi holds no token text and round-trips | red |
-| credential-store → Platform credential backend | Wrong DPAPI entropy cannot decrypt | test/auth/credential_store_test.dart | [windows] blob fails to decrypt under another entropy | red |
+| credential-store → Platform credential backend | Unix file is private | test/auth/credential_store_test.dart | [unix] stored auth.json is 0600 in a 0700 home with version 1 and all three parts | green |
+| credential-store → Platform credential backend | Windows file is encrypted | test/auth/credential_store_test.dart | [windows] auth.dpapi holds no token text and round-trips | green |
+| credential-store → Platform credential backend | Wrong DPAPI entropy cannot decrypt | test/auth/credential_store_test.dart | [windows] blob fails to decrypt under another entropy | green |
 | credential-store → Credential record parts | Logged in only with a token set | test/cli/cli_test.dart | tokenless enabled registration reports not logged in and fails reauth; disabled one fails not_permitted | red |
-| credential-store → Fail closed without a secure backend | Unix permissions too open | test/auth/credential_store_test.dart | [unix] group or other bits on auth.json refuse the load | red |
-| credential-store → Fail closed without a secure backend | Unsafe Unix home or link | test/auth/credential_store_test.dart | [unix] symlinked home, symlinked or non-regular auth.json are refused | red |
-| credential-store → Fail closed without a secure backend | Secure write unavailable | test/auth/credential_store_test.dart | failing protect or open call stores nothing and leaves no file | red |
+| credential-store → Fail closed without a secure backend | Unix permissions too open | test/auth/credential_store_test.dart | [unix] group or other bits on auth.json refuse the load | green |
+| credential-store → Fail closed without a secure backend | Unsafe Unix home or link | test/auth/credential_store_test.dart | [unix] symlinked home, symlinked or non-regular auth.json are refused | green |
+| credential-store → Fail closed without a secure backend | Secure write unavailable | test/auth/credential_store_test.dart | failing protect or open call stores nothing and leaves no file | green |
 | credential-store → Trusted credential home path | Home beneath a shared writable parent | test/auth/home_trust_test.dart | writable non-sticky parent is rejected before any access or lock | green |
 | credential-store → Trusted credential home path | Home reached through a symlinked ancestor | test/auth/home_trust_test.dart | [unix] symlinked ancestor resolves to canonical path used for file and lock | green |
 | credential-store → Trusted credential home path | Sticky shared parent | test/auth/home_trust_test.dart | root-owned sticky world-writable ancestor is accepted | green |
 | credential-store → Trusted credential home path | Ancestor owned by another user | test/auth/home_trust_test.dart | ancestor owned by another user is rejected even at 0755 | green |
 | credential-store → Trusted credential home path | Sticky parent owned by another user | test/auth/home_trust_test.dart | sticky ancestor owned by another user is rejected | green |
 | credential-store → Trusted credential home path | Home owned by another user | test/auth/home_trust_test.dart | home owned by another user is rejected | green |
-| credential-store → Atomic credential replacement | Successful replacement | test/auth/credential_store_test.dart | replacement returns new record and leaves no temp file | red |
-| credential-store → Atomic credential replacement | Interrupted write | test/auth/credential_store_test.dart | failure before rename keeps the previous record | red |
+| credential-store → Atomic credential replacement | Successful replacement | test/auth/credential_store_test.dart | replacement returns new record and leaves no temp file | green |
+| credential-store → Atomic credential replacement | Interrupted write | test/auth/credential_store_test.dart | failure before rename keeps the previous record | green |
 | credential-store → Cross-process credential lock | Two processes refresh at once | test/auth/refresher_process_test.dart | two processes refreshing send exactly one refresh | red |
 | credential-store → Cross-process credential lock | Holder dies | test/auth/refresher_process_test.dart | killed lock holder does not block the next process | red |
 | credential-store → Credentials never leave the boundary | Doctor output is token-free | test/cli/cli_test.dart | doctor output contains no stored token | red |
@@ -173,7 +173,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 
   Verify on Linux via the WSL runner (`dart test test/auth/home_trust_test.dart`), and on Windows that the `[unix]` tests skip. Flip the rows green.
 - [x] 3.3 Write the failing `test/auth/credential_store_test.dart` rows: Unix file, permissions, unsafe links, secure write unavailable, atomic replacement, interrupted write, and the two `[windows]` DPAPI rows.
-- [ ] 3.4 Implement `lib/src/auth/credential_store.dart` (record v1 with `host_id`, `registration`, `tokens`) and its two backends:
+- [x] 3.4 Implement `lib/src/auth/credential_store.dart` (record v1 with `host_id`, `registration`, `tokens`) and its two backends:
   - `posix_file_backend.dart`: FFI `open` with `O_CREAT|O_EXCL` and mode 0600, `chmod` 0700, temp, fsync, rename;
   - `dpapi_backend.dart`: `CryptProtectData`/`CryptUnprotectData`, `CRYPTPROTECT_UI_FORBIDDEN`, entropy `kehai-openai-v1`, `LocalFree`.
 
