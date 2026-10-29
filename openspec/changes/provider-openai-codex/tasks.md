@@ -172,7 +172,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - FFI `stat`/`__xstat` and `geteuid` at per-ABI offsets, self-validated, failing closed on an unknown ABI.
 
   Verify on Linux via the WSL runner (`dart test test/auth/home_trust_test.dart`), and on Windows that the `[unix]` tests skip. Flip the rows green.
-- [ ] 3.3 Write the failing `test/auth/credential_store_test.dart` rows: Unix file, permissions, unsafe links, secure write unavailable, atomic replacement, interrupted write, and the two `[windows]` DPAPI rows.
+- [x] 3.3 Write the failing `test/auth/credential_store_test.dart` rows: Unix file, permissions, unsafe links, secure write unavailable, atomic replacement, interrupted write, and the two `[windows]` DPAPI rows.
 - [ ] 3.4 Implement `lib/src/auth/credential_store.dart` (record v1 with `host_id`, `registration`, `tokens`) and its two backends:
   - `posix_file_backend.dart`: FFI `open` with `O_CREAT|O_EXCL` and mode 0600, `chmod` 0700, temp, fsync, rename;
   - `dpapi_backend.dart`: `CryptProtectData`/`CryptUnprotectData`, `CRYPTPROTECT_UI_FORBIDDEN`, entropy `kehai-openai-v1`, `LocalFree`.
