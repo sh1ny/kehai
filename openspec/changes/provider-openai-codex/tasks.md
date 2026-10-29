@@ -95,7 +95,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | provider-auth → Plan usage consent | Enable without a registration | test/auth/browser_login_test.dart | enable-plan-usage without registration binds nothing and fails | red |
 | provider-auth → Plan usage consent | Ordinary sign-in does not force consent | test/auth/browser_login_test.dart | ordinary login url has no prompt or force_reconsent | red |
 | provider-auth → Plan usage consent | Inference without plan usage | test/provider/chatgpt_adapter_test.dart | plan usage disabled fails not_permitted without a request | red |
-| provider-auth → Plan usage consent | Plan usage dropped on refresh | test/auth/refresher_test.dart | refresh without direct scope is not_permitted, clears tokens, disables plan usage | red |
+| provider-auth → Plan usage consent | Plan usage dropped on refresh | test/auth/refresher_test.dart | refresh without direct scope is not_permitted, clears tokens, disables plan usage | green |
 | provider-auth → Stale login rejected | Logout during a pending login | test/auth/browser_login_test.dart | logout committed during a pending login rejects the login | red |
 | provider-auth → Stale login rejected | Account replaced during a pending login | test/auth/browser_login_test.dart | account replaced during a pending login keeps account b | red |
 | provider-auth → Stale login rejected | Concurrent first sign-ins | test/auth/browser_login_test.dart | second of two first sign-ins stores nothing and revokes its token | red |
@@ -113,22 +113,22 @@ Ownership scenarios that need a second Unix user are driven through the injected
 | provider-auth → Login deadline and cancellation | User interrupts | test/auth/browser_login_test.dart | cancel while waiting stores nothing | red |
 | provider-auth → Login deadline and cancellation | Interrupt during exchange or lock wait | test/auth/browser_login_test.dart | cancel during exchange, key fetch or lock wait never writes | red |
 | provider-auth → Login deadline and cancellation | Interrupt during commit | test/auth/browser_login_test.dart | cancel during commit completes and reports success | red |
-| provider-auth → Silent proactive refresh | Near-expiry refresh | test/auth/refresher_test.dart | token expiring within 5 minutes is refreshed first with form and resource | red |
-| provider-auth → Silent proactive refresh | Refresh omits a token | test/auth/refresher_test.dart | omitted refresh token keeps the previous one | red |
-| provider-auth → Silent proactive refresh | Transient refresh failure | test/auth/refresher_test.dart | unsent or 5xx refresh leaves credentials and is not reauth | red |
-| provider-auth → Silent proactive refresh | Refresh response lost | test/auth/refresher_test.dart | sent refresh without response is rotation uncertain | red |
-| provider-auth → Silent proactive refresh | Refresh after a lost response | test/auth/refresher_test.dart | reused after uncertain rotation is reauth with lost-rotation message | red |
-| provider-auth → Credentials observed per request | Request after external logout | test/auth/refresher_test.dart | request after external logout fails reauth without backend call | red |
-| provider-auth → Credentials observed per request | Request after account replacement | test/auth/refresher_test.dart | request after account replacement uses the new account | red |
+| provider-auth → Silent proactive refresh | Near-expiry refresh | test/auth/refresher_test.dart | token expiring within 5 minutes is refreshed first with form and resource | green |
+| provider-auth → Silent proactive refresh | Refresh omits a token | test/auth/refresher_test.dart | omitted refresh token keeps the previous one | green |
+| provider-auth → Silent proactive refresh | Transient refresh failure | test/auth/refresher_test.dart | unsent or 5xx refresh leaves credentials and is not reauth | green |
+| provider-auth → Silent proactive refresh | Refresh response lost | test/auth/refresher_test.dart | sent refresh without response is rotation uncertain | green |
+| provider-auth → Silent proactive refresh | Refresh after a lost response | test/auth/refresher_test.dart | reused after uncertain rotation is reauth with lost-rotation message | green |
+| provider-auth → Credentials observed per request | Request after external logout | test/auth/refresher_test.dart | request after external logout fails reauth without backend call | green |
+| provider-auth → Credentials observed per request | Request after account replacement | test/auth/refresher_test.dart | request after account replacement uses the new account | green |
 | provider-auth → Credentials observed per request | Stream in progress during logout | test/provider/chatgpt_adapter_test.dart | logout during a stream lets it finish | red |
-| provider-auth → Single-flight refresh | Parallel requests | test/auth/refresher_test.dart | five parallel callers share one refresh | red |
-| provider-auth → Single-flight refresh | Shared refresh fails | test/auth/refresher_test.dart | shared failure reaches all waiters and is not cached | red |
+| provider-auth → Single-flight refresh | Parallel requests | test/auth/refresher_test.dart | five parallel callers share one refresh | green |
+| provider-auth → Single-flight refresh | Shared refresh fails | test/auth/refresher_test.dart | shared failure reaches all waiters and is not cached | green |
 | provider-auth → Refresh after unauthorized | Recovered 401 | test/provider/chatgpt_adapter_test.dart | 401 refreshes and repeats once | red |
 | provider-auth → Refresh after unauthorized | Persistent 401 | test/provider/chatgpt_adapter_test.dart | second 401 is reauth_required and keeps tokens | red |
-| provider-auth → Terminal refresh failure | Reused refresh token | test/auth/refresher_test.dart | refresh_token_reused is reauth, clears tokens and does not retry | red |
-| provider-auth → Terminal refresh failure | Token replaced meanwhile | test/auth/refresher_test.dart | terminal failure keeps a token set stored meanwhile | red |
-| provider-auth → Rejected client and other refresh errors | Client rejected | test/auth/refresher_test.dart | invalid_client is invalid_request naming logout --forget | red |
-| provider-auth → Rejected client and other refresh errors | Unknown 400 | test/auth/refresher_test.dart | unknown 400 code is invalid_request | red |
+| provider-auth → Terminal refresh failure | Reused refresh token | test/auth/refresher_test.dart | refresh_token_reused is reauth, clears tokens and does not retry | green |
+| provider-auth → Terminal refresh failure | Token replaced meanwhile | test/auth/refresher_test.dart | terminal failure keeps a token set stored meanwhile | green |
+| provider-auth → Rejected client and other refresh errors | Client rejected | test/auth/refresher_test.dart | invalid_client is invalid_request naming logout --forget | green |
+| provider-auth → Rejected client and other refresh errors | Unknown 400 | test/auth/refresher_test.dart | unknown 400 code is invalid_request | green |
 | provider-auth → Logout revokes the session | Revocation confirmed | test/auth/logout_test.dart | logout posts revocation form and reports logged out | red |
 | provider-auth → Logout revokes the session | Revocation not confirmed | test/auth/logout_test.dart | failed revocation still clears tokens and says not confirmed | red |
 | provider-auth → Doctor report | Healthy subscription | test/cli/cli_test.dart | doctor prints account backend expiry models and exits zero | red |
@@ -193,7 +193,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - 64 KiB body bounds and 30 s timeouts;
   - `sent`/`rotationUncertain` classification;
   - the terminal codes and `invalid_client`.
-- [ ] 4.3 Implement `lib/src/auth/refresher.dart` per D4 and D5:
+- [x] 4.3 Implement `lib/src/auth/refresher.dart` per D4 and D5:
   - the per-request load;
   - the 5-minute due rule;
   - single-flight with `whenComplete` clearing;
