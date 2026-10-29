@@ -178,7 +178,7 @@ Ownership scenarios that need a second Unix user are driven through the injected
   - `dpapi_backend.dart`: `CryptProtectData`/`CryptUnprotectData`, `CRYPTPROTECT_UI_FORBIDDEN`, entropy `kehai-openai-v1`, `LocalFree`.
 
   Run `credential_store_test.dart` on native Windows and on the WSL runner. Prove that `File.rename` replaces an existing file on Windows; if it does not, switch to `MoveFileExW` per D6. Flip the rows green.
-- [ ] 3.5 Implement the `auth.lock` acquisition (100 ms polls, 30 s deadline, cancellation check) in `credential_store.dart`, with a unit test for the lock-busy failure. Verify that test passes.
+- [x] 3.5 Implement the `auth.lock` acquisition (100 ms polls, 30 s deadline, cancellation check) in `credential_store.dart`, with a unit test for the lock-busy failure. Verify that test passes.
 
 ## 4. OAuth client and refresher
 
