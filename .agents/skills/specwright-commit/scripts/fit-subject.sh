@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Fit a task commit subject to 72 characters, in the message file itself.
+# Fit a task or group commit subject to 72 characters, in the message file itself.
 #
 # Usage: bash fit-subject.sh <msgfile>
-# Line 1 must be `<type>(<scope>): task X.Y <task text>`. When it is longer
-# than 72 characters, it keeps that prefix plus the longest run of whole words
-# of the task text that fits, and rewrites line 1 in place; every other line
+# Line 1 must be `<type>(<scope>): task X.Y <task text>` or
+# `<type>(<scope>): group N <group heading>`. When it is longer than 72
+# characters, it keeps that prefix plus the longest run of whole words of the
+# text that fits, and rewrites line 1 in place; every other line
 # is kept byte for byte. Prints the final subject.
-# The task text is only ever read from the file: it never reaches a command
+# The text is only ever read from the file: it never reaches a command
 # line, so backticks, `$` and quotes in it stay literal.
 # Exit 0: fitted, or already fits (file untouched).
 # Exit 1: not even the first word fits after the prefix (file untouched).
-# Exit 2: missing file, or line 1 has no `<type>(<scope>): task X.Y ` prefix.
+# Exit 2: missing file, or line 1 has no `<type>(<scope>): task X.Y ` or
+# `<type>(<scope>): group N ` prefix.
 set -u
 
 limit=72
@@ -30,7 +32,7 @@ fitted=$(SUBJECT=$line LC_ALL=C awk -v lim="$limit" '
 function chars(t) { return length(t) - gsub(/[\200-\277]/, "", t) }
 BEGIN {
   s = ENVIRON["SUBJECT"]
-  if (!match(s, /^[^ ]+: task [0-9]+\.[0-9]+ /)) exit 2
+  if (!match(s, /^[^ ]+: task [0-9]+\.[0-9]+ /) && !match(s, /^[^ ]+: group [0-9]+ /)) exit 2
   if (chars(s) <= lim) { print s; exit 0 }
   p = RLENGTH
   for (i = length(s); i > p; i--) {
@@ -45,8 +47,8 @@ BEGIN {
 rc=$?
 case $rc in
   0) ;;
-  1) echo "fit-subject.sh: no word of the task text fits in $limit characters: $line" >&2; exit 1 ;;
-  *) echo "fit-subject.sh: line 1 is not '<type>(<scope>): task X.Y <task text>': $line" >&2; exit 2 ;;
+  1) echo "fit-subject.sh: no word of the task or group text fits in $limit characters: $line" >&2; exit 1 ;;
+  *) echo "fit-subject.sh: line 1 is not '<type>(<scope>): task X.Y <task text>' or '<type>(<scope>): group N <group heading>': $line" >&2; exit 2 ;;
 esac
 
 if [ "$fitted" != "$line" ]; then

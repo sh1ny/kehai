@@ -508,7 +508,8 @@ apply:
     change: the packet is what keeps the cheap model cheap. Run groups in
     parallel only when they touch disjoint files. You own verification:
     re-run the group's tests yourself, then tick tasks, flip test map rows
-    and commit task by task (the commit rules say how to split a group). A
+    and commit per the configured granularity (`commit_granularity`: one
+    commit per task, or per task group; the commit rules say how). A
     DRIFT or BLOCKED report stops the group (see drift rule).
     Once per apply run, read the cheap tier: `bash <specwright-pr>/scripts/pr-pair.sh
     tier --code <code toplevel>` (`<specwright-pr>` is the specwright-pr
