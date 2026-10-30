@@ -18,10 +18,12 @@ export 'src/session/writer.dart';
 export 'src/results/composer.dart';
 export 'src/results/descriptor.dart';
 export 'src/results/line_scanner.dart';
+export 'src/results/live_result.dart' show LiveResult;
 export 'src/results/reader.dart';
 export 'src/results/search.dart';
 export 'src/results/handles.dart';
 export 'src/results/result_store.dart';
+export 'src/config/user_config.dart';
 export 'src/provider/provider.dart';
 export 'src/provider/chatgpt_adapter.dart' show ChatGptAdapter;
 export 'src/auth/failure_text.dart' show FailureKind;
@@ -40,3 +42,46 @@ export 'src/auth/login_controller.dart' show LoginFailure;
 export 'src/auth/browser_login.dart'
     show BrowserLauncher, BrowserLogin, LoginResult;
 export 'src/auth/logout.dart' show logoutOpenAi;
+export 'src/tools/roster.dart' show ToolDefinition, toolDefinitions;
+export 'src/tools/runtime.dart';
+export 'src/tools/schema.dart' show parseArguments, validateArguments;
+export 'src/tools/tool.dart';
+export 'src/tools/atomic_write.dart' show FileWriteSeams, RenameFile;
+export 'src/tools/edit.dart' show EditTool;
+export 'src/tools/read.dart'
+    show ReadSeams, ReadSource, ReadSourceOpener, ReadTool;
+export 'src/tools/bash.dart' show BashTool, defaultForegroundBudget;
+export 'src/tools/job_tool.dart' show JobTool, defaultJobWait;
+export 'src/tools/result_tools.dart' show ReadMoreTool, SearchResultTool;
+export 'src/tools/write.dart' show WriteTool;
+export 'src/tools/search.dart'
+    show
+        FindTool,
+        GrepTool,
+        LsTool,
+        RgFound,
+        RgMissing,
+        RgResolution,
+        RgUnavailable,
+        resolveRg;
+export 'src/tools/ask.dart'
+    show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
+export 'src/permissions/credentials.dart'
+    show isCredentialPath, isCredentialTarget;
+export 'src/permissions/gate.dart' show PermissionGate;
+export 'src/permissions/workspace_paths.dart' show isInside, realPath;
+export 'src/shell/proof.dart' show ProvenCommand, proveReadOnly, tokenizeSimple;
+export 'src/shell/detect.dart'
+    show ShellDetection, ShellInfo, ShellKind, detectShell;
+export 'src/shell/direct_exec.dart'
+    show
+        DirectExecRefused,
+        DirectResult,
+        resolveProgram,
+        runDirect,
+        startDirect;
+export 'src/shell/launch.dart'
+    show ShellProcess, shellArguments, startProcess, startShell;
+export 'src/jobs/recovery.dart';
+export 'src/jobs/supervisor.dart';
+export 'src/hooks/hook_stage.dart' show HookStage, maxHookReasonBytes;

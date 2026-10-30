@@ -107,6 +107,8 @@ typedef _WriteC = IntPtr Function(Int32, Pointer<Uint8>, IntPtr);
 typedef _WriteD = int Function(int, Pointer<Uint8>, int);
 typedef _IntOfIntC = Int32 Function(Int32);
 typedef _IntOfIntD = int Function(int);
+typedef _KillC = Int32 Function(Int32, Int32);
+typedef _KillD = int Function(int, int);
 typedef _ChmodC = Int32 Function(Pointer<Utf8>, Uint32);
 typedef _ChmodD = int Function(Pointer<Utf8>, int);
 typedef _GetEuidC = Uint32 Function();
@@ -223,6 +225,18 @@ final class PosixLibc {
     } on Object {
       return -1;
     }
+  }
+
+  /// Sends [signal] to process [pid] through libc `kill` and returns 0, or the
+  /// `errno` of the failure (`3` is `ESRCH`, no such process).
+  ///
+  /// A negative [pid] addresses the process group `-pid`, and signal 0 only
+  /// probes whether any member exists.
+  int kill(int pid, int signal) {
+    final fn = _library.lookupFunction<_KillC, _KillD>('kill');
+    if (fn(pid, signal) == 0) return 0;
+    final errno = _errno();
+    return errno > 0 ? errno : -1;
   }
 
   /// Sets the permission bits of [path] to [mode] through libc `chmod`.

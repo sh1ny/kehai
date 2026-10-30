@@ -1,0 +1,35 @@
+{
+  "note": "Reference values for the anchor hash (design D4). xxHash32 seed 0 vectors are the published xxHash test inputs; every value was also computed with the python xxhash 4.0.2 binding (libxxhash) on 2026-10-29. The block vectors apply the spec definition (rstrip spaces/tabs/CRs per line, join with LF, low 16 bits as 4 uppercase hex) to vector40.txt and vector40.changed.txt with python xxhash.",
+  "xxhash32": [
+    {
+      "input": "",
+      "hex": "02CC5D05"
+    },
+    {
+      "input": "a",
+      "hex": "550D7456"
+    },
+    {
+      "input": "abc",
+      "hex": "32D153FF"
+    },
+    {
+      "input": "Nobody inspects the spammish repetition",
+      "hex": "E2293B2F"
+    }
+  ],
+  "block40": {
+    "original": [
+      "95A8",
+      "FE99",
+      "6E1B"
+    ],
+    "changed": [
+      "95A8",
+      "F620",
+      "6E1B"
+    ],
+    "changedLine": 20,
+    "change": "lazy -> lazu"
+  }
+}

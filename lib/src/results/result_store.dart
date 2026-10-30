@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'descriptor.dart';
+import 'live_result.dart';
 
 /// The session subdirectory that holds result bytes files.
 const String resultsDirName = 'results';
@@ -97,6 +98,52 @@ final class ResultStore {
   /// The injected test seams.
   final ResultStoreHooks hooks;
 
+  /// Opens the spool `results/<spoolName>` for a result still being produced.
+  ///
+  /// [spoolName] is `.spool-<launch>-<stream>`; an existing file of that name
+  /// is overwritten. Use [adopt] to take one over instead.
+  Future<LiveResult> begin(String spoolName) async {
+    checkSpoolName(spoolName);
+    final dir = Directory(p.join(sessionDir.path, resultsDirName))
+      ..createSync(recursive: true);
+    final file = await File(p.join(dir.path, spoolName))
+        .open(mode: FileMode.writeOnly);
+    return LiveResult(this, spoolName, file);
+  }
+
+  /// Hashes the existing spool [spoolName] and returns its descriptor.
+  ///
+  /// Throws a [ResultError] when the spool does not exist.
+  Future<ResultDescriptor> adopt(String spoolName) async {
+    checkSpoolName(spoolName);
+    return await describeSpool(
+      File(p.join(sessionDir.path, resultsDirName, spoolName)),
+    );
+  }
+
+  /// Renames the sealed spool [spoolName] to `results/<sha256>` of [descriptor].
+  ///
+  /// When the final name already exists with the same size the spool is
+  /// deleted; an existing file of another size is replaced. When the spool is
+  /// gone but the final name holds the bytes, a repeated publish does
+  /// nothing. Writes no journal record. Throws a [ResultError] when neither
+  /// exists, or when the spool's size is not the descriptor's.
+  Future<void> publish(String spoolName, ResultDescriptor descriptor) async {
+    checkSpoolName(spoolName);
+    descriptor.validate();
+    final dir = p.join(sessionDir.path, resultsDirName);
+    final spool = File(p.join(dir, spoolName));
+    final target = File(p.join(dir, descriptor.sha256));
+    if (!spool.existsSync()) {
+      if (_holds(target, descriptor.bytes)) return;
+      throw ResultError('spool missing: $spoolName');
+    }
+    if (spool.lengthSync() != descriptor.bytes) {
+      throw ResultError('spool $spoolName does not match ${descriptor.handle}');
+    }
+    await _moveToFinal(spool, target, descriptor.bytes);
+  }
+
   /// Stores [source] whole and returns the outcome.
   ///
   /// When the stream errors, every chunk received so far is already on disk,
@@ -174,19 +221,46 @@ final class ResultStore {
     );
     try {
       await hooks.beforeRename?.call();
-      final target = File(p.join(dir.path, digest));
-      if (target.existsSync() && target.lengthSync() == accepted) {
-        await File(tempPath).delete();
-      } else {
-        if (target.existsSync()) await target.delete();
-        await File(tempPath).rename(target.path);
-      }
+      await _moveToFinal(
+        File(tempPath),
+        File(p.join(dir.path, digest)),
+        accepted,
+      );
     } on Object catch (e) {
       return ResultStorageFailed(accepted, tempPath, e);
     }
     return producerError == null
         ? ResultComplete(descriptor)
         : ResultProducerFailed(descriptor, producerError);
+  }
+}
+
+/// Moves [temporary] to its content-addressed [target] of [bytes] bytes.
+///
+/// The name is the hash of the content, so a target of the right size
+/// already holds these bytes and [temporary] is deleted; a target of another
+/// size is a torn file and is replaced. A rename that fails because a
+/// concurrent store of the same bytes got there first (Windows refuses to
+/// rename onto a file being renamed) counts as stored.
+Future<void> _moveToFinal(File temporary, File target, int bytes) async {
+  if (_holds(target, bytes)) {
+    await temporary.delete();
+    return;
+  }
+  try {
+    if (target.existsSync()) await target.delete();
+    await temporary.rename(target.path);
+  } on FileSystemException {
+    if (!_holds(target, bytes)) rethrow;
+    await temporary.delete();
+  }
+}
+
+bool _holds(File target, int bytes) {
+  try {
+    return target.existsSync() && target.lengthSync() == bytes;
+  } on FileSystemException {
+    return false;
   }
 }
 

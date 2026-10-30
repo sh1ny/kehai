@@ -389,3 +389,13 @@ String _n(int n) {
   }
   return out.toString();
 }
+
+/// Renders the model text of a call whose result could not be stored.
+///
+/// This is the only envelope without a handle: the bytes never reached the
+/// store, so there is nothing to page. [bytesAccepted] counts what the store
+/// took before [error] stopped it.
+String composeStorageFailure(String tool, Object error, int bytesAccepted) {
+  return '[$tool error] storage failure: $error; '
+      '$bytesAccepted bytes accepted, not stored';
+}

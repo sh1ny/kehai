@@ -57,6 +57,65 @@ final class CommittedUpdate {
   final int line;
 }
 
+/// What a [SessionWriter.applyGuarded] build step decides.
+sealed class GuardedDecision {
+  const GuardedDecision();
+}
+
+/// The build step wants [record] appended.
+final class GuardedAppend extends GuardedDecision {
+  /// Creates the decision to append [record].
+  const GuardedAppend(this.record);
+
+  /// The record to validate and append.
+  final JournalRecord record;
+}
+
+/// The build step refuses; nothing is appended.
+final class GuardedRefusal extends GuardedDecision {
+  /// Creates a refusal with a stable [reason], such as `stale`.
+  const GuardedRefusal(this.reason);
+
+  /// The stable text naming why the guard failed.
+  final String reason;
+}
+
+/// How a [SessionWriter.applyGuarded] call ended.
+sealed class GuardedOutcome {
+  const GuardedOutcome();
+}
+
+/// The built record was appended.
+final class Applied extends GuardedOutcome {
+  /// Creates the outcome for the committed [update].
+  const Applied(this.update);
+
+  /// The committed record.
+  final CommittedUpdate update;
+}
+
+/// A guard refused and nothing was appended.
+final class Refused extends GuardedOutcome {
+  /// Creates a refusal with [reason] and, for `descriptors missing`, the
+  /// [handles] that have no descriptor.
+  const Refused(this.reason, [this.handles = const []]);
+
+  /// The reason the build step gave, or `descriptors missing`.
+  final String reason;
+
+  /// The result handles lacking a descriptor, sorted; empty otherwise.
+  final List<String> handles;
+
+  @override
+  String toString() =>
+      handles.isEmpty ? reason : '$reason: ${handles.join(', ')}';
+}
+
+/// Reads the node at a path of the queue-head tree, or `null` when absent.
+///
+/// The returned node is a copy, so the caller may keep it.
+typedef GuardedRead = Object? Function(String path);
+
 /// A failed write or flush of the journal.
 final class StorageError implements Exception {
   /// Creates an error described by [message] with an optional [cause].
@@ -281,6 +340,48 @@ final class SessionWriter {
       path: snapshot.path,
       decide: () => snapshot,
       finish: (update) => update!,
+    );
+  }
+
+  /// Appends the record that [build] decides on, or refuses.
+  ///
+  /// [build] runs inside the serialized decision, against the queue head: it
+  /// sees every operation queued before this one, including a rewind. It
+  /// returns a [GuardedAppend] or a [GuardedRefusal], which completes the
+  /// call as a [Refused] and appends nothing; the ownership, launch, intent
+  /// and cleanup guards of the callers live in [build]. Whatever [build]
+  /// appends, every result handle its value references (an object with a
+  /// `handle` of the form `r/<12 hex>`) must have its descriptor under
+  /// `results/` at the queue head, else the call is refused with
+  /// `descriptors missing` and the sorted handles. Errors thrown by [build]
+  /// or by validation fail the call like [apply].
+  Future<GuardedOutcome> applyGuarded(
+    GuardedDecision Function(GuardedRead read) build,
+  ) {
+    Refused? refusal;
+    return _enqueue<GuardedOutcome>(
+      op: Op.set,
+      path: '',
+      decide: () {
+        final decision = build(_state.get);
+        switch (decision) {
+          case GuardedRefusal(:final reason):
+            refusal = Refused(reason);
+            return null;
+          case GuardedAppend(:final record):
+            final frozen = _snapshot(record);
+            final missing = <String>{};
+            _collectHandles(frozen.value, missing);
+            missing.removeWhere((handle) {
+              final node = _state.get('results/${handle.substring(2)}');
+              return node is Map<String, Object?> && node['handle'] == handle;
+            });
+            if (missing.isEmpty) return frozen;
+            refusal = Refused('descriptors missing', missing.toList()..sort());
+            return null;
+        }
+      },
+      finish: (update) => refusal ?? Applied(update!),
     );
   }
 
@@ -758,6 +859,34 @@ Object? _freeze(Object? value) {
       return frozen;
     default:
       return value;
+  }
+}
+
+final RegExp _resultHandle = RegExp(r'^r/[0-9a-f]{12}$');
+
+/// Adds to [out] the handle of every result reference in [value].
+///
+/// A reference is an object `{handle, complete}` (ADR 0010). A bare `handle`
+/// field, such as a `read_more` call's input, names a result without
+/// installing a reference to it, so it is not checked. Nor is a call's
+/// `input`: it is the model's data, recorded as given, and installs nothing.
+void _collectHandles(Object? value, Set<String> out) {
+  switch (value) {
+    case final Map<Object?, Object?> map:
+      final handle = map['handle'];
+      if (handle is String &&
+          map['complete'] is bool &&
+          _resultHandle.hasMatch(handle)) {
+        out.add(handle);
+      }
+      for (final MapEntry(:key, value: child) in map.entries) {
+        if (key == 'input') continue;
+        _collectHandles(child, out);
+      }
+    case final List<Object?> list:
+      for (final child in list) {
+        _collectHandles(child, out);
+      }
   }
 }
 

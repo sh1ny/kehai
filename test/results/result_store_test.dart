@@ -169,6 +169,28 @@ void main() {
     },
   );
 
+  test('concurrent stores of the same bytes all complete', () async {
+    // Content-addressed: every store targets the same final name. On Windows
+    // a rename onto a name another store is renaming fails; the bytes are
+    // there, so the store must still complete.
+    final dir = _sessionDir(root);
+    final store = ResultStore(dir);
+    for (var round = 0; round < 5; round++) {
+      final writes = await Future.wait([
+        for (var i = 0; i < 64; i++)
+          store.storeResult(
+            i.isEven
+                ? const Stream<List<int>>.empty()
+                : Stream.value(utf8.encode('same\n')),
+          ),
+      ]);
+      for (final write in writes) {
+        expect(write, isA<ResultComplete>(), reason: '$write');
+      }
+    }
+    expect(_resultFiles(dir), hasLength(2));
+  });
+
   test('flush and rename failures leave no final-name file', () async {
     var n = 0;
     for (final hooks in [
