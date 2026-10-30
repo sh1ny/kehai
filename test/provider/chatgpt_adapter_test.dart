@@ -882,6 +882,126 @@ void main() {
     });
   });
 
+  group('output positions', () {
+    test(
+      'call at index 0 and text at index 1 carry their output indexes',
+      () async {
+        fake.responsesScripts.add(
+          ResponsesScript.sse([
+            SseEvent.json('response.output_text.delta', {
+              'delta': 'hi',
+              'output_index': 1,
+            }),
+            SseEvent.json('response.reasoning_summary_text.delta', {
+              'delta': 'why',
+              'output_index': 2,
+            }),
+            SseEvent.json('response.output_item.done', {
+              'output_index': 3,
+              'item': {'type': 'reasoning', 'id': 'rs_1'},
+            }),
+            SseEvent.json('response.output_item.done', {
+              'output_index': 0,
+              'item': {
+                'type': 'function_call',
+                'call_id': 'c1',
+                'name': 'read',
+                'arguments': '{}',
+              },
+            }),
+            _completed(),
+          ]),
+        );
+
+        final events = await run(_request());
+
+        expect(events.whereType<TextDelta>().single.outputIndex, 1);
+        expect(events.whereType<ReasoningSummaryDelta>().single.outputIndex, 2);
+        expect(events.whereType<OpaqueItem>().single.outputIndex, 3);
+        expect(events.whereType<ToolCall>().single.outputIndex, 0);
+        final byIndex =
+            events.where((e) => e is ToolCall || e is TextDelta).toList()
+              ..sort((a, b) {
+                int at(ProviderEvent e) => switch (e) {
+                  ToolCall(:final outputIndex) => outputIndex ?? 1 << 30,
+                  TextDelta(:final outputIndex) => outputIndex ?? 1 << 30,
+                  _ => 1 << 30,
+                };
+                return at(a).compareTo(at(b));
+              });
+        expect(byIndex.first, isA<ToolCall>());
+      },
+    );
+
+    test('delta without output_index carries no index', () async {
+      fake.responsesScripts.add(
+        ResponsesScript.sse([
+          SseEvent.json('response.output_text.delta', {'delta': 'hi'}),
+          SseEvent.json('response.output_text.delta', {
+            'delta': 'bad',
+            'output_index': 'one',
+          }),
+          SseEvent.json('response.output_item.done', {
+            'item': {
+              'type': 'function_call',
+              'call_id': 'c1',
+              'name': 'read',
+              'arguments': '{}',
+            },
+          }),
+          _completed(),
+        ]),
+      );
+
+      final events = await run(_request());
+
+      expect(events.whereType<TextDelta>().map((e) => e.outputIndex), [
+        null,
+        null,
+      ]);
+      expect(events.whereType<ToolCall>().single.outputIndex, isNull);
+    });
+  });
+
+  group('response output limit', () {
+    const mib = 1024 * 1024;
+
+    test('fifth 1 MiB held call fails response_output_limit and emits no '
+        'call', () async {
+      final args = 'x' * mib;
+      fake.responsesScripts.add(
+        ResponsesScript.sse([
+          for (var i = 0; i < 5; i++) _fn('call_$i', 'read', args),
+          _completed({'input_tokens': 1, 'output_tokens': 1}),
+        ]),
+      );
+
+      final events = await run(_request());
+
+      expect(events.map((e) => e.runtimeType), [Failed]);
+      expect(_failure(events).code, 'response_output_limit');
+      expect(_failure(events).kind, FailureKind.protocol);
+    });
+
+    test('3 MiB text and a 512 KiB call complete normally', () async {
+      final chunk = 'x' * (64 * 1024);
+      fake.responsesScripts.add(
+        ResponsesScript.sse([
+          for (var i = 0; i < 48; i++)
+            SseEvent.json('response.output_text.delta', {'delta': chunk}),
+          _fn('call_a', 'read', 'y' * (512 * 1024)),
+          _completed(),
+        ]),
+      );
+
+      final events = await run(_request());
+
+      expect(events.whereType<TextDelta>(), hasLength(48));
+      expect(events.whereType<ToolCall>(), hasLength(1));
+      expect(events.last, isA<Completed>());
+    });
+  });
+
   group('plan backend', () {
     test('request targets v1 responses with bearer and sse accept', () async {
       fake.responsesScripts.add(ResponsesScript.sse(sseTextTurn('ok')));

@@ -88,18 +88,18 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | line-client → Ctrl-C | Engine stuck on exit | test/client/client_test.dart | engine still alive 5 s after stdin closes is killed | red |
 | line-client → Native Windows and Linux | Windows console | test/client/process_test.dart | [windows] naïve reaches the backend through client and engine and Ctrl-C interrupts | red |
 | line-client → Native Windows and Linux | Non-terminal input | test/client/process_test.dart | piped two lines run in order and exit at end of input | red |
-| model-provider → Output positions | Call before text | test/provider/chatgpt_adapter_test.dart | call at index 0 and text at index 1 carry their output indexes | red |
-| model-provider → Output positions | Missing index | test/provider/chatgpt_adapter_test.dart | delta without output_index carries no index | red |
-| model-provider → Response output limit | Held arguments exceed the limit | test/provider/chatgpt_adapter_test.dart | fifth 1 MiB held call fails response_output_limit and emits no call | red |
-| model-provider → Response output limit | Output within the limit | test/provider/chatgpt_adapter_test.dart | 3 MiB text and a 512 KiB call complete normally | red |
+| model-provider → Output positions | Call before text | test/provider/chatgpt_adapter_test.dart | call at index 0 and text at index 1 carry their output indexes | green |
+| model-provider → Output positions | Missing index | test/provider/chatgpt_adapter_test.dart | delta without output_index carries no index | green |
+| model-provider → Response output limit | Held arguments exceed the limit | test/provider/chatgpt_adapter_test.dart | fifth 1 MiB held call fails response_output_limit and emits no call | green |
+| model-provider → Response output limit | Output within the limit | test/provider/chatgpt_adapter_test.dart | 3 MiB text and a 512 KiB call complete normally | green |
 | model-provider → Model listing | Models listed | test/provider/models_test.dart | listed models exclude non-list visibility and unsupported | green |
-| model-provider → Model listing | Context window reported | test/provider/models_test.dart | context_window is read only when an integer above 1 | red |
+| model-provider → Model listing | Context window reported | test/provider/models_test.dart | context_window is read only when an integer above 1 | green |
 | model-provider → Model listing | Models endpoint fails | test/provider/models_test.dart | 503 fails server with no list | green |
 | model-provider → Model listing | Oversized models response | test/provider/models_test.dart | body over 4 MiB fails protocol | green |
-| tool-permissions → User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | red |
+| tool-permissions → User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
 | tool-permissions → User configuration file | Invalid configuration | test/config/config_test.dart | unknown key or bad type refuses to start naming the path | green |
-| tool-permissions → User configuration file | Model settings | test/config/config_test.dart | model and models contextWindow parse | red |
-| tool-permissions → User configuration file | Invalid model settings | test/config/config_test.dart | bad contextWindow or unknown model key refuses naming the path | red |
+| tool-permissions → User configuration file | Model settings | test/config/config_test.dart | model and models contextWindow parse | green |
+| tool-permissions → User configuration file | Invalid model settings | test/config/config_test.dart | bad contextWindow or unknown model key refuses naming the path | green |
 
 The *Missing configuration* row is red because its expectation grows (no default model, no window overrides); the existing test is extended.
 
@@ -114,9 +114,9 @@ The *Missing configuration* row is red because its expectation grows (no default
 
 ## 2. Configuration and provider
 
-- [ ] 2.1 Extend `test/config/config_test.dart` with the red rows (missing configuration, model settings, invalid model settings). Implement `model` and `models.<id>.contextWindow` in `lib/src/config/user_config.dart`, strict like the other keys. Verify that `config_test.dart` passes and flip the rows green; re-run *Invalid configuration* and confirm it stays green.
-- [ ] 2.2 Write the failing *Context window reported* row in `test/provider/models_test.dart`. Add the optional `contextWindow` to `ModelInfo` and read `context_window` in the adapter's listing. Verify that `models_test.dart` passes, flip the row green, and confirm the three green listing rows still pass.
-- [ ] 2.3 Write the failing output-position and response-limit rows in `test/provider/chatgpt_adapter_test.dart`, served through `test/support/fake_openai.dart`. Implement `outputIndex` on `TextDelta`, `ReasoningSummaryDelta`, `OpaqueItem` and `ToolCall` (D15), and the per-response 4 MiB counter with `response_output_limit` (D16). Verify that the adapter tests pass and flip the four rows green.
+- [x] 2.1 Extend `test/config/config_test.dart` with the red rows (missing configuration, model settings, invalid model settings). Implement `model` and `models.<id>.contextWindow` in `lib/src/config/user_config.dart`, strict like the other keys. Verify that `config_test.dart` passes and flip the rows green; re-run *Invalid configuration* and confirm it stays green.
+- [x] 2.2 Write the failing *Context window reported* row in `test/provider/models_test.dart`. Add the optional `contextWindow` to `ModelInfo` and read `context_window` in the adapter's listing. Verify that `models_test.dart` passes, flip the row green, and confirm the three green listing rows still pass.
+- [x] 2.3 Write the failing output-position and response-limit rows in `test/provider/chatgpt_adapter_test.dart`, served through `test/support/fake_openai.dart`. Implement `outputIndex` on `TextDelta`, `ReasoningSummaryDelta`, `OpaqueItem` and `ToolCall` (D15), and the per-response 4 MiB counter with `response_output_limit` (D16). Verify that the adapter tests pass and flip the four rows green.
 
 ## 3. Runtime and writer seams
 

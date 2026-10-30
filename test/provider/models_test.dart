@@ -101,6 +101,40 @@ void main() {
     expect(sent.headers['authorization'], 'Bearer old-access');
   });
 
+  test('context_window is read only when an integer above 1', () async {
+    Map<String, Object?> model(String slug, [Object? window = #none]) => {
+      'slug': slug,
+      'display_name': slug,
+      'visibility': 'list',
+      if (window != #none) 'context_window': window,
+    };
+    fake.modelsScripts.add(
+      ModelsScript.json({
+        'models': [
+          model('a', 272000),
+          model('none'),
+          model('zero', 0),
+          model('one', 1),
+          model('string', '272000'),
+          model('float', 1.5),
+          model('negative', -4),
+        ],
+      }),
+    );
+
+    final models = await adapter.listModels();
+
+    expect(models.map((m) => (m.id, m.contextWindow)), [
+      ('a', 272000),
+      ('none', null),
+      ('zero', null),
+      ('one', null),
+      ('string', null),
+      ('float', null),
+      ('negative', null),
+    ]);
+  });
+
   test(
     'a store failure after a rotating refresh fails reauth_required',
     () async {

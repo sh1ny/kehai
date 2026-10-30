@@ -38,13 +38,16 @@ abstract interface class ModelProvider {
 /// A model offered by a provider.
 final class ModelInfo {
   /// Creates a model with its [id] slug and display [name].
-  const ModelInfo({required this.id, required this.name});
+  const ModelInfo({required this.id, required this.name, this.contextWindow});
 
   /// The model slug sent in requests.
   final String id;
 
   /// The display name.
   final String name;
+
+  /// The context window in tokens the backend reports, or null when unknown.
+  final int? contextWindow;
 }
 
 /// An approximate input size in tokens.
@@ -183,19 +186,25 @@ sealed class ProviderEvent {
 /// A fragment of assistant text.
 final class TextDelta extends ProviderEvent {
   /// Creates a delta carrying [text].
-  const TextDelta(this.text);
+  const TextDelta(this.text, {this.outputIndex});
 
   /// The text fragment.
   final String text;
+
+  /// The backend's output index of the item this belongs to, if it sent one.
+  final int? outputIndex;
 }
 
 /// A fragment of a reasoning summary.
 final class ReasoningSummaryDelta extends ProviderEvent {
   /// Creates a delta carrying [text].
-  const ReasoningSummaryDelta(this.text);
+  const ReasoningSummaryDelta(this.text, {this.outputIndex});
 
   /// The summary fragment.
   final String text;
+
+  /// The backend's output index of the item this belongs to, if it sent one.
+  final int? outputIndex;
 }
 
 /// A complete tool call.
@@ -205,6 +214,7 @@ final class ToolCall extends ProviderEvent {
     required this.callId,
     required this.name,
     required this.argumentsJson,
+    this.outputIndex,
   });
 
   /// The call identifier.
@@ -215,15 +225,21 @@ final class ToolCall extends ProviderEvent {
 
   /// The complete arguments as a JSON string.
   final String argumentsJson;
+
+  /// The backend's output index of the item this belongs to, if it sent one.
+  final int? outputIndex;
 }
 
 /// An opaque output item to store and send back verbatim.
 final class OpaqueItem extends ProviderEvent {
   /// Creates an event holding the raw [json].
-  const OpaqueItem(this.json);
+  const OpaqueItem(this.json, {this.outputIndex});
 
   /// The raw item.
   final Map<String, Object?> json;
+
+  /// The backend's output index of the item this belongs to, if it sent one.
+  final int? outputIndex;
 }
 
 /// Token usage for the turn; `null` means unknown.
