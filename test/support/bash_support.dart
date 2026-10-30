@@ -30,11 +30,12 @@ final class BashHarness {
     UserConfig config = const UserConfig(),
     ShellDetection? shell,
     JobHooks jobHooks = const JobHooks(),
+    ResultStoreHooks storeHooks = const ResultStoreHooks(),
   }) async {
     final root = await tempDir();
     final workspace = await tempDir();
     final writer = await createWriter(root);
-    final store = ResultStore(writer.sessionDir);
+    final store = ResultStore(writer.sessionDir, hooks: storeHooks);
     final runtime = await ToolRuntime.attach(
       writer,
       store,

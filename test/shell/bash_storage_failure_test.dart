@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/bash_support.dart';
+import '../support/job_support.dart' show waitFor;
 
 void main() {
   final skip = skipBash();
@@ -90,4 +91,75 @@ void main() {
     expectFailedCall(h, text, 3);
     expectFailedJob(h);
   }, skip: skip);
+
+  // A directory where a spool file belongs makes opening that spool fail.
+  for (final (index, stream) in [(1, 'stdout'), (2, 'stderr'), (3, 'output')]) {
+    test('creating spool $index ($stream) fails the call cleanly', () async {
+      late BashHarness h;
+      h = await BashHarness.create(
+        jobHooks: JobHooks(
+          afterPending: (id) async {
+            final spool = (h.job(id)['spool']! as Map)[stream]! as String;
+            Directory(p.join(h.writer.sessionDir.path, resultsDirName, spool))
+                .createSync(recursive: true);
+          },
+        ),
+      );
+
+      final text = await h.call('bash', {'command': 'echo hi'});
+
+      expectFailedCall(h, text, 0);
+      expectFailedJob(h);
+      final left = Directory(p.join(h.writer.sessionDir.path, resultsDirName))
+          .listSync()
+          .whereType<File>()
+          .map((f) => p.basename(f.path));
+      expect(
+        left.where((n) => n.startsWith('.spool-') || n.startsWith('.tmp-')),
+        isEmpty,
+        reason: 'no spool or temp file leaks, so no handle stayed open',
+      );
+    }, skip: skip);
+  }
+
+  for (final fault in ['write', 'publish']) {
+    test('a snapshot $fault failure at budget expiry fails the call and '
+        'stops the job', () async {
+      var armed = true;
+      final h = await BashHarness.create(
+        storeHooks: ResultStoreHooks(
+          beforeWrite: (index, chunk) async {
+            if (fault == 'write' && armed) {
+              armed = false;
+              throw const FileSystemException('disk full');
+            }
+          },
+          beforeRename: () async {
+            if (fault == 'publish' && armed) {
+              armed = false;
+              throw const FileSystemException('disk full');
+            }
+          },
+        ),
+      );
+
+      final text = await h.call('bash', {
+        'command': 'echo start; sleep 30',
+        'timeout_s': 1,
+      });
+
+      expectFailedCall(h, text, fault == 'write' ? 0 : 6);
+      final id = h.jobNodes.keys.single;
+      await waitFor(
+        () => const {
+          'cancelled',
+          'failed',
+          'settled',
+        }.contains(h.job(id)['state']),
+        what: 'the job to be stopped',
+      );
+      expect(h.job(id)['state'], 'cancelled');
+      expect(h.job(id)['reason'], startsWith('storage: '));
+    }, skip: skip);
+  }
 }

@@ -730,8 +730,14 @@ final class JobSupervisor {
     // Owned from here on: a node that is gone after this is a rewind's doing.
     job.nodeCommitted = true;
     await _hook(hooks.afterPending, job);
-    for (final stream in jobStreams) {
-      job.live[stream] = await store.begin(job.spools[stream]!);
+    try {
+      for (final stream in jobStreams) {
+        job.live[stream] = await store.begin(job.spools[stream]!);
+      }
+    } on Object catch (e) {
+      // The disk refused a spool: close the ones opened and end the job
+      // `failed`; no process was started.
+      return _failStorage(job, e, null, null);
     }
 
     // Launch: a cancellation so far means no process is started at all.

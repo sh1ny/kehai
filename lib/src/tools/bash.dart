@@ -228,13 +228,34 @@ final class BashTool implements Tool {
           summary: summary,
           complete: false,
         );
-      default:
-        return ToolOutcome(
-          status: ResultStatus.partial,
-          summary: summary,
-          complete: false,
-        );
+      case ResultStorageFailed(:final bytesAccepted, :final error):
+        return _snapshotLost(jobs, handle, error, bytesAccepted);
+      case ResultProducerFailed(:final descriptor, :final error):
+        return _snapshotLost(jobs, handle, error, descriptor.bytes);
     }
+  }
+
+  /// The snapshot of a running job could not be stored: stop its producer and
+  /// fail the call as a storage failure, with no result.
+  Future<ToolOutcome> _snapshotLost(
+    JobSupervisor jobs,
+    JobHandle handle,
+    Object error,
+    int accepted,
+  ) async {
+    try {
+      await jobs.cancelJob(handle.id, reason: 'storage: $error');
+    } on Object {
+      // The job is stopped as far as it can be; the call fails all the same.
+    }
+    return ToolOutcome(
+      status: ResultStatus.error,
+      summary: 'storage failure',
+      complete: false,
+      failed: true,
+      reason: 'storage: $error',
+      storage: JobStorageFailure(error, accepted),
+    );
   }
 
   Future<JobResult?> _endedOrEmpty(JobSupervisor jobs, JobHandle handle) async {
