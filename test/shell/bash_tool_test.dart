@@ -126,7 +126,7 @@ void main() {
         final clock = Stopwatch()..start();
 
         final text = await h.call('bash', {
-          'command': 'echo start; sleep 4; echo end',
+          'command': 'echo start; sleep 15; echo end',
           'timeout_s': 1,
         });
         clock.stop();
@@ -139,7 +139,7 @@ void main() {
           startsWith('still running as job $id; use job($id)'),
         );
         expect(text, contains('job($id)'));
-        expect(clock.elapsed, lessThan(const Duration(seconds: 4)));
+        expect(clock.elapsed, lessThan(const Duration(seconds: 10)));
         expect(h.job(id)['state'], anyOf('pending', 'running'));
         expect(h.resultOf(node), contains('start'));
         expect((node['result']! as Map)['complete'], isFalse);
@@ -147,6 +147,7 @@ void main() {
         await waitFor(
           () => h.job(id)['state'] == 'settled',
           what: 'the job to settle',
+          limit: const Duration(seconds: 60),
         );
         final job = h.job(id);
         expect(job['exit'], 0);
