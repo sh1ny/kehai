@@ -31,6 +31,7 @@ final class BashHarness {
     ShellDetection? shell,
     JobHooks jobHooks = const JobHooks(),
     ResultStoreHooks storeHooks = const ResultStoreHooks(),
+    ToolRuntimeSeams seams = const ToolRuntimeSeams(),
   }) async {
     final root = await tempDir();
     final workspace = await tempDir();
@@ -44,6 +45,7 @@ final class BashHarness {
       shell: shell,
       gate: RecordingStage(permission),
       jobHooks: jobHooks,
+      seams: seams,
     );
     addTearDown(runtime.close);
     return BashHarness._(writer, store, runtime, workspace);

@@ -62,12 +62,12 @@ const Set<String> _terminalStatuses = {'settled', 'failed', 'cancelled'};
 /// The tools every runtime has unless [ToolRuntime.attach] is given its own.
 ///
 /// [rg] is the one resolution of `rg` made at attach.
-Map<String, Tool> _builtinTools(Future<RgResolution> rg) => {
+Map<String, Tool> _builtinTools(LazyRg rg) => {
   'read': const ReadTool(),
   'edit': const EditTool(),
   'write': const WriteTool(),
-  'grep': GrepTool(rg),
-  'find': FindTool(rg),
+  'grep': GrepTool.lazy(rg.call),
+  'find': FindTool.lazy(rg.call),
   'ls': const LsTool(),
   'ask': const AskTool(),
   'read_more': const ReadMoreTool(),
@@ -101,7 +101,14 @@ final class StaleCallError implements Exception {
 /// Test seams of the runtime.
 final class ToolRuntimeSeams {
   /// Creates seams; every callback is optional.
-  const ToolRuntimeSeams({this.beforeSettle, this.onStale});
+  const ToolRuntimeSeams({
+    this.beforeSettle,
+    this.onStale,
+    this.rgProbeTimeout = defaultRgProbeTimeout,
+  });
+
+  /// How long the `rg --version` probe may take.
+  final Duration rgProbeTimeout;
 
   /// Runs after a call's result descriptor is registered and before the
   /// record that references it is appended; a rewind may land here.
@@ -193,16 +200,22 @@ final class ToolRuntime {
         shell ??
         detectShell(workspaceRoot: realPath(workspace.path) ?? workspace.path);
     final prompts = PromptChannel(answerer);
-    // Resolved once, now. It runs on while attach finishes; a missing `rg`
-    // never fails attach, it fails the calls that need it.
-    final rg = resolveRg(
-      rgPath: config.rgPath,
-      workspaceRoot: realPath(workspace.path) ?? workspace.path,
-      configPath: kehaiHome == null
-          ? configFileName
-          : p.join(kehaiHome.path, configFileName),
-    );
     final jobs = JobSupervisor(writer, store, hooks: jobHooks);
+    // Resolved once, when the first grep or find needs it, as a job of the
+    // supervisor; a missing `rg` never fails attach, it fails those calls.
+    final rgPath = config.rgPath;
+    final rg = LazyRg(
+      () => resolveRg(
+        rgPath: rgPath,
+        workspaceRoot: realPath(workspace.path) ?? workspace.path,
+        configPath: kehaiHome == null
+            ? configFileName
+            : p.join(kehaiHome.path, configFileName),
+        jobs: jobs,
+        setsid: detection.shell?.setsid,
+        probeTimeout: seams.rgProbeTimeout,
+      ),
+    );
     // Hooks come from the user's configuration only (design D14).
     final hookStage =
         hooks ??

@@ -41,6 +41,43 @@ final class RgFound extends RgResolution {
   final String version;
 }
 
+/// `rg` could not be probed: the probe timed out, was cancelled or was
+/// refused admission. The calls that need `rg` fail with [message].
+final class RgUnavailable extends RgResolution {
+  /// Creates the resolution; [retry] says whether a later call may probe
+  /// again (the cause was transient).
+  const RgUnavailable(this.message, {this.retry = false});
+
+  /// The error text of a call that needs `rg`.
+  final String message;
+
+  /// Whether the outcome is not cached.
+  final bool retry;
+}
+
+/// How long `rg --version` may take.
+const Duration defaultRgProbeTimeout = Duration(seconds: 10);
+
+/// The `rg` resolution, made when the first call needs it.
+///
+/// A timed-out probe is cached as unavailable and not retried: the binary
+/// would hang again, and `rg` is resolved once per session by design. A probe
+/// refused for the live-job bound or ended by shutdown is transient and is
+/// tried again by the next call.
+final class LazyRg {
+  /// Creates the resolution that [start] makes on first use.
+  LazyRg(this._start);
+
+  final Future<RgResolution> Function() _start;
+  Future<RgResolution>? _resolution;
+
+  /// The resolution, starting the probe on the first call.
+  Future<RgResolution> call() => _resolution ??= _start().then((r) {
+    if (r is RgUnavailable && r.retry) _resolution = null;
+    return r;
+  });
+}
+
 /// No working `rg`.
 final class RgMissing extends RgResolution {
   /// Creates the resolution.
@@ -63,11 +100,20 @@ final class RgMissing extends RgResolution {
 /// runs here. An [rgPath] is the user's own choice and is used as given. A
 /// missing or unrunnable `rg` gives [RgMissing] naming
 /// [configPath].
+///
+/// With [jobs] the `--version` probe is a shell-less job of the supervisor
+/// (deadline [probeTimeout]), so a hung executable is terminated at its
+/// deadline or when the supervisor closes; one that does not finish gives
+/// [RgUnavailable]. Without [jobs] (standalone use, no session) the probe is
+/// a plain child process.
 Future<RgResolution> resolveRg({
   String? rgPath,
   required String configPath,
   required String workspaceRoot,
   Map<String, String>? environment,
+  JobSupervisor? jobs,
+  String? setsid,
+  Duration probeTimeout = defaultRgProbeTimeout,
 }) async {
   final exe =
       rgPath ??
@@ -77,6 +123,16 @@ Future<RgResolution> resolveRg({
         environment: environment ?? Platform.environment,
       );
   if (exe == null) return RgMissing(configPath);
+  if (jobs != null) {
+    return _probeAsJob(
+      jobs,
+      exe,
+      configPath: configPath,
+      workspaceRoot: workspaceRoot,
+      setsid: setsid,
+      timeout: probeTimeout,
+    );
+  }
   try {
     final result = await Process.run(
       exe,
@@ -93,6 +149,76 @@ Future<RgResolution> resolveRg({
   } on ProcessException {
     return RgMissing(configPath);
   }
+}
+
+Future<RgResolution> _probeAsJob(
+  JobSupervisor jobs,
+  String exe, {
+  required String configPath,
+  required String workspaceRoot,
+  required String? setsid,
+  required Duration timeout,
+}) async {
+  final JobHandle handle;
+  try {
+    handle = jobs.start(
+      JobRequest(
+        kind: JobKind.shell,
+        cmd: 'rg --version',
+        cwd: workspaceRoot,
+        deadline: timeout,
+        launch: () async => ShellProcess(
+          await startProcess(
+            exe,
+            const ['--version'],
+            workingDirectory: workspaceRoot,
+            environment: childEnvironment(Platform.environment),
+            setsid: Platform.isWindows ? null : setsid,
+          ),
+          groupKnown: !Platform.isWindows && setsid != null,
+        ),
+      ),
+    );
+  } on TooManyLiveJobs catch (e) {
+    return RgUnavailable(e.message, retry: true);
+  }
+  final JobResult result;
+  try {
+    result = await handle.result;
+  } on Object catch (e) {
+    return RgUnavailable('cannot probe rg: $e', retry: true);
+  }
+  switch (result.state) {
+    case 'cancelled':
+      return result.reason == 'deadline'
+          ? RgUnavailable(
+              'rg --version timed out after ${timeout.inSeconds} s; '
+              'rg is unavailable in this session',
+            )
+          : RgUnavailable('rg probe cancelled (${result.reason})', retry: true);
+    case 'failed':
+      return RgMissing(configPath);
+  }
+  final stdout = result.streams['stdout'];
+  if (stdout == null || result.exit != 0) return RgMissing(configPath);
+  final file = File(
+    p.join(
+      jobs.store.sessionDir.path,
+      resultsDirName,
+      stdout.descriptor.sha256,
+    ),
+  );
+  final head = BytesBuilder(copy: false);
+  await for (final chunk in file.openRead(0, 512)) {
+    head.add(chunk);
+  }
+  final first = utf8
+      .decode(head.takeBytes(), allowMalformed: true)
+      .split('\n')
+      .first
+      .trim();
+  final match = RegExp(r'^ripgrep (\S+)').firstMatch(first);
+  return match == null ? RgMissing(configPath) : RgFound(exe, match.group(1)!);
 }
 
 /// A started child, without a shell.
@@ -671,26 +797,49 @@ Future<ToolOutcome> _runRgDirect(
   }
 }
 
-Future<(RgFound?, ToolOutcome?)> _rgOf(Future<RgResolution> rg) async =>
-    switch (await rg) {
-      final RgFound found => (found, null),
-      final RgMissing missing => (null, failure(missing.message)),
-    };
+Future<(RgFound?, ToolOutcome?)> _rgOf(
+  ToolContext context,
+  Future<RgResolution> Function() rg,
+) async {
+  // The probe is shared and keeps its own deadline; a cancelled call stops
+  // waiting for it.
+  final resolution = await Future.any<RgResolution?>([
+    rg(),
+    context.cancel.whenCancelled.then((_) => null),
+  ]);
+  return switch (resolution) {
+    null => (null, _cancelled),
+    final RgFound found => (found, null),
+    final RgMissing missing => (null, failure(missing.message)),
+    final RgUnavailable gone => (
+      null,
+      ToolOutcome(
+        status: ResultStatus.error,
+        summary: gone.message,
+        complete: false,
+        failed: true,
+        reason: gone.message,
+      ),
+    ),
+  };
+}
 
 /// `grep`: a regular expression over file contents, through `rg`.
 final class GrepTool implements Tool {
-  /// Creates the tool over the [rg] resolution made at attach.
-  const GrepTool(this.rg);
+  /// Creates the tool over a made [rg] resolution.
+  GrepTool(Future<RgResolution> rg) : _rg = (() => rg);
 
-  /// The `rg` resolution.
-  final Future<RgResolution> rg;
+  /// Creates the tool over a resolution made when a call first needs it.
+  const GrepTool.lazy(this._rg);
+
+  final Future<RgResolution> Function() _rg;
 
   @override
   Future<ToolOutcome> run(
     ToolContext context,
     Map<String, Object?> input,
   ) async {
-    final (found, missing) = await _rgOf(rg);
+    final (found, missing) = await _rgOf(context, _rg);
     if (missing != null) return missing;
     final (target, failed) = _resolveTarget(
       context,
@@ -740,18 +889,20 @@ final class GrepTool implements Tool {
 
 /// `find`: file paths matching a glob, through `rg --files`.
 final class FindTool implements Tool {
-  /// Creates the tool over the [rg] resolution made at attach.
-  const FindTool(this.rg);
+  /// Creates the tool over a made [rg] resolution.
+  FindTool(Future<RgResolution> rg) : _rg = (() => rg);
 
-  /// The `rg` resolution.
-  final Future<RgResolution> rg;
+  /// Creates the tool over a resolution made when a call first needs it.
+  const FindTool.lazy(this._rg);
+
+  final Future<RgResolution> Function() _rg;
 
   @override
   Future<ToolOutcome> run(
     ToolContext context,
     Map<String, Object?> input,
   ) async {
-    final (found, missing) = await _rgOf(rg);
+    final (found, missing) = await _rgOf(context, _rg);
     if (missing != null) return missing;
     final (target, failed) = _resolveTarget(
       context,

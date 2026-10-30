@@ -14,8 +14,13 @@ void main() {
       final grep = await h.call('grep', {'pattern': 'needle'});
 
       expect(grep, contains('a.txt:1: needle'));
-      expect(h.jobNodes, hasLength(1));
-      var job = h.jobNodes.values.single;
+      // The first call also probed `rg --version`, as a job of its own.
+      expect(h.jobNodes, hasLength(2));
+      final probe = h.jobNodes.values.first;
+      expect(probe['cmd'], 'rg --version');
+      expect(probe['shell'], isNull);
+      expect(probe['state'], 'settled');
+      var job = h.jobNodes.values.last;
       expect(job['kind'], 'shell');
       expect(job['shell'], isNull);
       expect(job['state'], 'settled');
@@ -25,7 +30,7 @@ void main() {
       final find = await h.call('find', {'glob': '*.txt'});
 
       expect(find, contains('a.txt'));
-      expect(h.jobNodes, hasLength(2));
+      expect(h.jobNodes, hasLength(3));
       job = h.jobNodes.values.last;
       expect(job['shell'], isNull);
       expect(job['cmd'], contains('--files'));

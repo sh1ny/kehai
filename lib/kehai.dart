@@ -62,6 +62,7 @@ export 'src/tools/search.dart'
         RgFound,
         RgMissing,
         RgResolution,
+        RgUnavailable,
         resolveRg;
 export 'src/tools/ask.dart'
     show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
