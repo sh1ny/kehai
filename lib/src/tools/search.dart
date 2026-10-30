@@ -480,7 +480,14 @@ Future<ToolOutcome> _runRg(
       ),
     );
   } on TooManyLiveJobs catch (e) {
-    return failure(e.message);
+    // The call settles `failed` with the bound message; nothing started.
+    return ToolOutcome(
+      status: ResultStatus.error,
+      summary: e.message,
+      complete: false,
+      failed: true,
+      reason: e.message,
+    );
   }
   final detach = context.cancel.listen(
     () => unawaited(jobs.cancelJob(handle.id)),
@@ -505,7 +512,14 @@ Future<ToolOutcome> _runRg(
       );
     }
     if (result.state == 'failed') {
-      return failure('cannot run rg: ${result.reason ?? 'launch failed'}');
+      final why = result.reason ?? 'launch failed';
+      return ToolOutcome(
+        status: ResultStatus.error,
+        summary: 'cannot run rg: $why',
+        complete: false,
+        failed: true,
+        reason: why,
+      );
     }
     if (result.state != 'settled') {
       return ToolOutcome(

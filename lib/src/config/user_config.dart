@@ -166,13 +166,23 @@ UserConfig _parse(String path, Object? json) {
       'rgPath: must ${rgPath is String ? 'not be empty' : 'be a string'}',
     );
   }
-  final rules = _list(path, 'allow', json['allow']);
+  final rules = _list(
+    path,
+    'allow',
+    json['allow'],
+    absent: !json.containsKey('allow'),
+  );
   final allow = [
     for (var i = 0; i < rules.length; i++) _rule(path, 'allow[$i]', rules[i]),
   ];
   final hooks = <HookConfig>[];
   final seen = <String>{};
-  final raw = _list(path, 'hooks', json['hooks']);
+  final raw = _list(
+    path,
+    'hooks',
+    json['hooks'],
+    absent: !json.containsKey('hooks'),
+  );
   for (var i = 0; i < raw.length; i++) {
     final hook = _hook(path, 'hooks[$i]', raw[i]);
     if (!seen.add(hook.name)) {
@@ -184,7 +194,7 @@ UserConfig _parse(String path, Object? json) {
     allow: allow,
     hooks: hooks,
     rgPath: rgPath as String?,
-    envPassthrough: _env(path, json['env']),
+    envPassthrough: _env(path, json),
   );
 }
 
@@ -210,7 +220,7 @@ HookConfig _hook(String path, String at, Object? json) {
     throw ConfigError(path, '$at.name: must be a non-empty string');
   }
   final argv = _strings(path, '$at.argv', map['argv']);
-  final toolList = _list(path, '$at.tools', map['tools'], required: true);
+  final toolList = _list(path, '$at.tools', map['tools']);
   if (toolList.isEmpty) {
     throw ConfigError(path, '$at.tools: must be a non-empty list');
   }
@@ -243,11 +253,16 @@ HookConfig _hook(String path, String at, Object? json) {
   );
 }
 
-List<String> _env(String path, Object? json) {
-  if (json == null) return const [];
-  final map = _object(path, 'env', json);
+List<String> _env(String path, Map<String, Object?> root) {
+  if (!root.containsKey('env')) return const [];
+  final map = _object(path, 'env', root['env']);
   _noUnknown(path, 'env', map, const {'passthrough'});
-  final names = _list(path, 'env.passthrough', map['passthrough']);
+  final names = _list(
+    path,
+    'env.passthrough',
+    map['passthrough'],
+    absent: !map.containsKey('passthrough'),
+  );
   final valid = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
   return [
     for (var i = 0; i < names.length; i++)
@@ -270,7 +285,7 @@ String _tool(String path, String at, Object? json) {
 }
 
 List<String> _strings(String path, String at, Object? json) {
-  final list = _list(path, at, json, required: true);
+  final list = _list(path, at, json);
   if (list.isEmpty) throw ConfigError(path, '$at: must be a non-empty list');
   return [
     for (var i = 0; i < list.length; i++)
@@ -285,9 +300,11 @@ List<Object?> _list(
   String path,
   String at,
   Object? json, {
-  bool required = false,
+  bool absent = false,
 }) {
-  if (json == null && !required) return const [];
+  // Only a key that is not in the file is optional; an explicit null is a
+  // wrong type.
+  if (absent) return const [];
   if (json is List<Object?>) return json;
   throw ConfigError(path, '$at: must be a list');
 }

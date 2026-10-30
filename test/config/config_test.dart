@@ -40,6 +40,111 @@ void main() {
       expect(config.envPassthrough, isEmpty);
     });
 
+    test('an explicit null is a wrong type, not an omitted field', () {
+      const hook = {
+        'name': 'h',
+        'argv': ['x'],
+        'tools': ['bash'],
+        'policy': 'optional',
+      };
+      Map<String, Object?> withNull(String key) => {...hook, key: null};
+
+      final cases = <(Object, String)>[
+        ({'hooks': null}, 'hooks: must be a list'),
+        ({'allow': null}, 'allow: must be a list'),
+        ({'rgPath': null}, 'rgPath: must be a string'),
+        ({'env': null}, 'env: must be an object'),
+        (
+          {
+            'env': {'passthrough': null},
+          },
+          'env.passthrough: must be a list',
+        ),
+        (
+          {
+            'env': {
+              'passthrough': [null],
+            },
+          },
+          'env.passthrough[0]: must be an environment variable name',
+        ),
+        (
+          {
+            'allow': [
+              {'tool': 'bash', 'argv': null},
+            ],
+          },
+          'allow[0].argv: must be a list',
+        ),
+        (
+          {
+            'allow': [
+              {'tool': null},
+            ],
+          },
+          'allow[0].tool: must be one of',
+        ),
+        (
+          {
+            'allow': [null],
+          },
+          'allow[0]: must be an object',
+        ),
+        (
+          {
+            'hooks': [null],
+          },
+          'hooks[0]: must be an object',
+        ),
+        (
+          {
+            'hooks': [withNull('name')],
+          },
+          'hooks[0].name: must be',
+        ),
+        (
+          {
+            'hooks': [withNull('argv')],
+          },
+          'hooks[0].argv: must be a list',
+        ),
+        (
+          {
+            'hooks': [withNull('tools')],
+          },
+          'hooks[0].tools: must be a list',
+        ),
+        (
+          {
+            'hooks': [withNull('policy')],
+          },
+          'hooks[0].policy: must be',
+        ),
+        (
+          {
+            'hooks': [withNull('timeout_ms')],
+          },
+          'hooks[0].timeout_ms: must be',
+        ),
+      ];
+      for (final (json, message) in cases) {
+        write(json);
+        expect(
+          refused().message,
+          startsWith('${path()}: $message'),
+          reason: jsonEncode(json),
+        );
+      }
+
+      // Omitted is still fine.
+      write({
+        'hooks': [hook],
+        'env': <String, Object?>{},
+        'allow': <Object?>[],
+      });
+      expect(UserConfig.load(home.path).hooks, hasLength(1));
+    });
+
     test('unknown key or bad type refuses to start naming the path', () {
       write('{"allow": [], "allwo": []}');
       expect(refused().message, '${path()}: unknown key allwo');
