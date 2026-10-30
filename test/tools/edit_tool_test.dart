@@ -308,6 +308,15 @@ void main() {
     final swapped = put('s.txt', utf8.encode('x\ny\nz'));
     await edit('s.txt', _anchors(swapped.readAsBytesSync()), [_delete(2, 3)]);
     expect(utf8.decode(swapped.readAsBytesSync()), 'x\n');
+
+    // Deleting the unterminated last line and inserting after it adds no
+    // blank line: the delete already left the output ending in a newline.
+    final gone = put('g.txt', utf8.encode('a\nb'));
+    await edit('g.txt', _anchors(gone.readAsBytesSync()), [
+      _delete(2, 2),
+      _insert(2, 'c'),
+    ]);
+    expect(utf8.decode(gone.readAsBytesSync()), 'a\nc');
   });
 
   test('invalid UTF-8 file is refused unchanged', () async {

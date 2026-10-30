@@ -264,6 +264,7 @@ final class _Plan {
     final n = file.count;
     final first = file.firstTerminator;
     var done = 0; // original lines 1..done are in the output
+    var tailDeleted = false; // the original last line was deleted
     void copyUpTo(int line) {
       if (line > done) out.add(file.range(done + 1, line));
       done = math.max(done, line);
@@ -274,6 +275,7 @@ final class _Plan {
       switch (op.kind) {
         case _Kind.delete:
           done = op.end;
+          tailDeleted = op.end == n;
         case _Kind.replace:
           for (final (j, text) in op.text.indexed) {
             out.add(text);
@@ -291,7 +293,9 @@ final class _Plan {
           final after = op.start;
           final follows = after == 0 ? first : file.terminator(after);
           final unterminatedTail = after > 0 && after == n && follows.isEmpty;
-          if (unterminatedTail) out.add(first);
+          // The separator closes the unterminated last line, unless a delete
+          // removed that line and the output already ends at a line break.
+          if (unterminatedTail && !tailDeleted) out.add(first);
           for (final (j, text) in op.text.indexed) {
             out.add(text);
             final last = j == op.text.length - 1;

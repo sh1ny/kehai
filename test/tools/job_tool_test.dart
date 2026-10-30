@@ -11,12 +11,19 @@ void main() {
       () async {
         final h = await BashHarness.create();
         final started = await h.call('bash', {
-          'command': 'echo first; sleep 3; echo last',
+          'command': 'echo first; sleep 6; echo last',
           'timeout_s': 1,
         });
         final id = jobIdIn(started);
 
-        final output = await h.call('job', {'id': id, 'action': 'output'});
+        // Under load the shell may not have printed yet at hand-off.
+        var output = await h.call('job', {'id': id, 'action': 'output'});
+        final clock = Stopwatch()..start();
+        while (!output.contains('first') &&
+            clock.elapsed < const Duration(seconds: 4)) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          output = await h.call('job', {'id': id, 'action': 'output'});
+        }
 
         final snapshot = h.lastCall;
         expect(snapshot['envelope'], 'ok');
