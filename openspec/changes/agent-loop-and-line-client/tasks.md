@@ -105,7 +105,7 @@ The *Missing configuration* row is red because its expectation grows (no default
 
 ## 1. ADR and architecture index
 
-- [ ] 1.1 Write `docs/adr/0011-conversation-tree-layout-and-rpc-protocol-v1.md` (`Status: accepted`, today's date, `Supersedes: none`). Per design D2, D4, D11 and D12 it records:
+- [x] 1.1 Write `docs/adr/0011-conversation-tree-layout-and-rpc-protocol-v1.md` (`Status: accepted`, today's date, `Supersedes: none`). Per design D2, D4, D11 and D12 it records:
   - `body/exchanges/x-<turn>` and `body/steps/s-<turn>` with their fields, and the one-`merge` step commit ordered by output index;
   - the call node's `model` reference, as an addition to ADR 0010's call fields (0010 stays in force);
   - protocol v1: messages, request-id admission, turn-based staleness, reliable and droppable output, coalesced resync.

@@ -162,6 +162,7 @@ All seven ADRs accepted on 2026-10-28 after [amendment review, round 4 and requi
 | [0008](../docs/adr/0008-journal-format-v1.md) | Journal format v1: operations, paths, rewind and result handles | None |
 | [0009](../docs/adr/0009-openai-subscription-credentials-and-protocol-authority.md) | OpenAI subscription credentials and protocol authority | None |
 | [0010](../docs/adr/0010-tool-call-and-job-tree-layout.md) | Tool-call and job tree layout, guarded appends and block anchors | None |
+| [0011](../docs/adr/0011-conversation-tree-layout-and-rpc-protocol-v1.md) | Conversation tree layout (exchanges, steps, call model text) and RPC protocol v1 | None |
 
 ## Source reference map
 
