@@ -14,7 +14,7 @@ The change sets `skip_specs: true` (repository tooling, no spec-level behavior),
 
 ## 2. Nightly full-suite workflow
 
-- [ ] 2.1 Write `.github/workflows/nightly.yml`: `schedule` (`17 3 * * *`) and `workflow_dispatch`; same permissions, setup, pins and caches as 1.1; matrix on both OSes with `timeout-minutes: 120`, running `mise run get` then the full `dart test` (slow tag included). Verify: the file parses as YAML, every `uses:` is SHA-pinned, and `ci.yml` and `nightly.yml` pin identical SHAs for each shared action.
+- [x] 2.1 Write `.github/workflows/nightly.yml`: `schedule` (`17 3 * * *`) and `workflow_dispatch`; same permissions, setup, pins and caches as 1.1; matrix on both OSes with `timeout-minutes: 120`, running `mise run get` then the full `dart test` (slow tag included). Verify: the file parses as YAML, every `uses:` is SHA-pinned, and `ci.yml` and `nightly.yml` pin identical SHAs for each shared action.
 
 ## 3. Integration check
 
