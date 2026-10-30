@@ -18,7 +18,7 @@ The change sets `skip_specs: true` (repository tooling, no spec-level behavior),
 
 ## 3. Integration check
 
-- [ ] 3.1 Run `mise exec -- openspec validate --all --strict` and `mise run format:check` locally; both pass.
+- [x] 3.1 Run `mise exec -- openspec validate --all --strict` and `mise run format:check` locally; both pass.
 
 ## Workflow follow-up
 
