@@ -839,14 +839,15 @@ final class GrepTool implements Tool {
     ToolContext context,
     Map<String, Object?> input,
   ) async {
-    final (found, missing) = await _rgOf(context, _rg);
-    if (missing != null) return missing;
+    // The target is checked before rg is probed: a bad path starts nothing.
     final (target, failed) = _resolveTarget(
       context,
       input,
       directoryOnly: false,
     );
     if (failed != null) return failed;
+    final (found, missing) = await _rgOf(context, _rg);
+    if (missing != null) return missing;
     final glob = input['glob'] as String?;
     final rewriter = SearchLineRewriter(
       grep: true,
@@ -902,14 +903,15 @@ final class FindTool implements Tool {
     ToolContext context,
     Map<String, Object?> input,
   ) async {
-    final (found, missing) = await _rgOf(context, _rg);
-    if (missing != null) return missing;
+    // The target is checked before rg is probed: a bad path starts nothing.
     final (target, failed) = _resolveTarget(
       context,
       input,
       directoryOnly: true,
     );
     if (failed != null) return failed;
+    final (found, missing) = await _rgOf(context, _rg);
+    if (missing != null) return missing;
     final rewriter = SearchLineRewriter(
       grep: false,
       prefix: target!.prefix,

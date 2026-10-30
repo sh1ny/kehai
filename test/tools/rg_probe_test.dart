@@ -80,6 +80,26 @@ void main() {
     expect(h.lastCall['status'], 'failed');
   });
 
+  test('a missing search path fails before rg is probed', () async {
+    final pidFile = p.join((await tempDir()).path, 'probe.pid');
+    final h = await BashHarness.create(
+      config: UserConfig(rgPath: await _hangingRg(pidFile)),
+      seams: const ToolRuntimeSeams(rgProbeTimeout: Duration(minutes: 5)),
+    );
+
+    for (final (tool, input) in [
+      ('find', {'glob': '*', 'path': 'nope'}),
+      ('grep', {'pattern': 'x', 'path': 'nope'}),
+    ]) {
+      final text = await h
+          .call(tool, input)
+          .timeout(const Duration(seconds: 20));
+      expect(text, contains('no such directory nope'), reason: tool);
+    }
+    expect(h.jobNodes, isEmpty, reason: 'no probe job started');
+    expect(File(pidFile).existsSync(), isFalse);
+  });
+
   test('close terminates the probe and the waiting call ends', () async {
     final pidFile = p.join((await tempDir()).path, 'probe.pid');
     final h = await BashHarness.create(
