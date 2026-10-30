@@ -103,7 +103,9 @@ void main() {
     expect(_alive(pid), isFalse);
     await call.timeout(const Duration(seconds: 20));
     // The call stopped waiting for the probe and ended cancelled.
-    expect(h.lastCall['summary'], 'cancelled');
+    expect(h.lastCall['status'], 'cancelled');
+    expect(h.lastCall['reason'], 'shutdown');
+    expect(h.lastCall['summary'], 'cancelled: shutdown');
     expect(h.jobNodes.values.single['state'], 'cancelled');
   });
 

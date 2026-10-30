@@ -547,11 +547,16 @@ final class ToolRuntime {
       permission: permission,
     );
     final tool = _invoke(_tools[live.tool]!, context, input);
-    final first = await Future.any<_Step>([
+    var first = await Future.any<_Step>([
       tool.then(_ToolDone.new),
       live.token.whenCancelled.then((_) => const _Cancelled()),
       stored.then(_StoreEnded.new),
     ]);
+    // A tool that returned because its call was cancelled can win the race
+    // against the token; the call still ends cancelled.
+    if (first is _ToolDone && live.token.isCancelled) {
+      first = const _Cancelled();
+    }
     switch (first) {
       case _ToolDone(:final outcome):
         pipe.close();
