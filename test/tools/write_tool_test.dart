@@ -87,4 +87,32 @@ void main() {
       expect(utf8.decode(target.readAsBytesSync()), 'new');
     },
   );
+
+  test(
+    'the temporary file has the target mode before any content is written',
+    skip: Platform.isWindows ? 'POSIX permission bits' : null,
+    () async {
+      final target = File(p.join(ws.path, '.env'))..writeAsStringSync('old');
+      Process.runSync('chmod', ['600', target.path]);
+      int? mode;
+      int? length;
+
+      await write(
+        '.env',
+        'SECRET=new',
+        seams: FileWriteSeams(
+          beforeContent: (temporary) async {
+            final stat = File(temporary).statSync();
+            mode = stat.mode & 0xFFF;
+            length = stat.size;
+          },
+        ),
+      );
+
+      expect(length, 0);
+      expect(mode, int.parse('600', radix: 8));
+      expect(target.statSync().mode & 0xFFF, int.parse('600', radix: 8));
+      expect(target.readAsStringSync(), 'SECRET=new');
+    },
+  );
 }

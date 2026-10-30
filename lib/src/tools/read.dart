@@ -169,6 +169,12 @@ final class _Pass {
 
   static const _changedMessage = 'file changed during read; read it again';
 
+  static const _stopped = ToolOutcome(
+    status: ResultStatus.error,
+    summary: 'read stopped: output closed',
+    complete: false,
+  );
+
   Future<ToolOutcome> run(int? offset, int? limit) async {
     await _fill(0);
     final sniff = _dataLength < _sniffBytes ? _dataLength : _sniffBytes;
@@ -186,6 +192,9 @@ final class _Pass {
     final hasher = BlockHasher(hashing: false);
     var position = 0;
     var eof = false;
+    // Set when the call is cancelled or its output closed during a pass that
+    // renders nothing; the read then unwinds so the source closes promptly.
+    var stopped = false;
 
     /// Feeds [segmenter] from `position` until [done] or the end of the
     /// file; [flush] runs after each feed.
@@ -195,6 +204,10 @@ final class _Pass {
       bool Function() done,
     ) async {
       while (!done()) {
+        if (context.cancel.isCancelled || context.output.isClosed) {
+          stopped = true;
+          return;
+        }
         if (position >= _size) {
           segmenter.finish();
           eof = true;
@@ -207,8 +220,8 @@ final class _Pass {
           return;
         }
         final at = position - _dataStart;
-        final stopped = segmenter.feed(_data, at, _dataLength);
-        position += stopped - at;
+        final fed = segmenter.feed(_data, at, _dataLength);
+        position += fed - at;
         await flush();
       }
     }
@@ -219,6 +232,7 @@ final class _Pass {
     final first = offset == null ? 0 : (offset - 1) ~/ blockLines;
     for (var block = 0; block < first && !eof; block++) {
       await advance(hasher.segmenter, noFlush, () => hasher.blockDone);
+      if (stopped) return _stopped;
       hasher.startBlock();
     }
     var startLine = first * blockLines + 1;
@@ -235,6 +249,7 @@ final class _Pass {
       final blockAfterCr = hasher.segmenter.afterCr;
       if (!eof) {
         await advance(hasher.segmenter, noFlush, () => hasher.blockDone);
+        if (stopped) return _stopped;
       }
       final lines = hasher.linesInBlock;
       if (lines == 0) {
@@ -273,11 +288,7 @@ final class _Pass {
         position += stopped - at;
         if (renderer.pending >= _flushBytes) await renderer.flush();
         if (context.cancel.isCancelled || context.output.isClosed) {
-          return const ToolOutcome(
-            status: ResultStatus.error,
-            summary: 'read stopped: output closed',
-            complete: false,
-          );
+          return _stopped;
         }
       }
       await renderer.flush();
@@ -302,6 +313,7 @@ final class _Pass {
       ..hashing = false
       ..stopAtBlock = false;
     await advance(hasher.segmenter, noFlush, () => eof);
+    if (stopped) return _stopped;
     if (await _changed()) return failure(_changedMessage);
 
     final total = hasher.totalLines;

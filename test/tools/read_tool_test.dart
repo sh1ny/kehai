@@ -27,6 +27,26 @@ Future<(ToolOutcome, RecordingOutput)> _read(
   return (outcome, output);
 }
 
+/// A source that cancels [token] once it has served [after] reads.
+final class _CancellingSource implements ReadSource {
+  _CancellingSource(this._file, this.token, this.after);
+
+  final RandomAccessFile _file;
+  final CancelToken token;
+  final int after;
+  int reads = 0;
+
+  @override
+  Future<int> readAt(int position, Uint8List buffer) async {
+    if (++reads == after) token.cancel();
+    await _file.setPosition(position);
+    return _file.readInto(buffer);
+  }
+
+  @override
+  Future<void> close() => _file.close();
+}
+
 String _lines(int n) => n == 1 ? '1 line' : '$n lines';
 
 void main() {
@@ -71,6 +91,32 @@ void main() {
     expect(output.text, '1#${hash.single}:a \n2:b\n3:c\n4:d\n');
     // One ending of each kind: the tie goes to LF.
     expect(outcome.summary, 'c.txt: 4 lines, LF');
+  });
+
+  test('a cancel stops the skip and count passes promptly', () async {
+    final file = File(p.join(ws.path, 'big.txt'));
+    writeRepeated(file, Uint8List(_mib)..fillRange(0, _mib, 0x0a), 16);
+
+    for (final input in [
+      // Skipping to an offset near the end.
+      {'path': 'big.txt', 'offset': 16 * _mib - 1, 'limit': 1},
+      // Counting the lines after a one-line window.
+      {'path': 'big.txt', 'limit': 1},
+    ]) {
+      final token = CancelToken();
+      late _CancellingSource source;
+      final output = RecordingOutput();
+      final outcome = await ReadTool(
+        seams: ReadSeams(
+          open: (f) async =>
+              source = _CancellingSource(await f.open(), token, 3),
+        ),
+      ).run(toolContext(ws, output, cancel: token), input);
+
+      expect(outcome.status, ResultStatus.error, reason: '$input');
+      expect(outcome.complete, isFalse, reason: '$input');
+      expect(source.reads, lessThan(10), reason: '$input');
+    }
   });
 
   test('empty file reads 0 lines ok', () async {

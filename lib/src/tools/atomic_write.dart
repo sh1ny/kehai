@@ -19,10 +19,14 @@ typedef RenameFile = Future<void> Function(String from, String to);
 /// Test seams of the tools that write files.
 final class FileWriteSeams {
   /// Creates seams; every callback is optional.
-  const FileWriteSeams({this.rename, this.beforeRename});
+  const FileWriteSeams({this.rename, this.beforeRename, this.beforeContent});
 
   /// Replaces the rename, so a test can fail or count it.
   final RenameFile? rename;
+
+  /// Runs once the temporary file at the given path is created and its mode
+  /// set, before any content is written to it.
+  final Future<void> Function(String temporary)? beforeContent;
 
   /// Runs once the temporary file is written and before the target is checked
   /// for changes and renamed over.
@@ -89,20 +93,23 @@ Future<void> writeAtomically(
       throw WriteFailure('cannot create ${temporary.path}: ${e.message}');
     }
     try {
+      // The target's mode is applied before any byte is written, so a private
+      // file's new content is never readable through a wider temporary file.
+      final existing = await FileStat.stat(target);
+      if (existing.type == FileSystemEntityType.file && !Platform.isWindows) {
+        try {
+          PosixLibc.instance.chmod(temporary.path, existing.mode & 0xFFF);
+        } on CredentialStoreError catch (e) {
+          throw WriteFailure('cannot keep permissions: ${e.message}');
+        }
+      }
+      await seams.beforeContent?.call(temporary.path);
       await out.writeFrom(bytes);
       await out.flush();
     } on FileSystemException catch (e) {
       throw WriteFailure('write failed: ${e.message}');
     } finally {
       await out.close();
-    }
-    final existing = await FileStat.stat(target);
-    if (existing.type == FileSystemEntityType.file && !Platform.isWindows) {
-      try {
-        PosixLibc.instance.chmod(temporary.path, existing.mode & 0xFFF);
-      } on CredentialStoreError catch (e) {
-        throw WriteFailure('cannot keep permissions: ${e.message}');
-      }
     }
     await seams.beforeRename?.call();
     if (unchangedSince != null) {

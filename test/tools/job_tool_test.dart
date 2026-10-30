@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:test/test.dart';
 
 import '../support/bash_support.dart';
@@ -88,6 +90,32 @@ void main() {
       expect(h.lastCall['envelope'], 'ok');
       expect(h.job(id)['state'], 'cancelled');
       expect(h.job(id)['reason'], 'user');
+    }, skip: skip);
+    test('a wait that ends early leaves no timer running', () async {
+      final h = await BashHarness.create();
+      final started = await h.call('bash', {
+        'command': 'sleep 2',
+        'timeout_s': 1,
+      });
+      final id = jobIdIn(started);
+
+      // Record the timers the wait creates; its 600 s limit must not
+      // outlive it, or it keeps the isolate alive after close.
+      final timers = <Timer>[];
+      await runZoned(
+        () => h.call('job', {'id': id, 'action': 'wait', 'timeout_s': 600}),
+        zoneSpecification: ZoneSpecification(
+          createTimer: (self, parent, zone, duration, f) {
+            final timer = parent.createTimer(zone, duration, f);
+            if (duration >= const Duration(seconds: 600)) timers.add(timer);
+            return timer;
+          },
+        ),
+      );
+
+      expect(h.job(id)['state'], 'settled');
+      expect(timers, isNotEmpty);
+      expect(timers.where((t) => t.isActive), isEmpty);
     }, skip: skip);
   });
 }

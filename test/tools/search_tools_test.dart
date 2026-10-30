@@ -172,6 +172,32 @@ void main() {
         expect(found, isA<RgFound>());
         expect((found as RgFound).path, inside.path);
       });
+
+      test('a relative rgPath resolves against the workspace root', () async {
+        final inside = copyRg(Directory(p.join(ws.path, 'tools')));
+        final relative = p.join('tools', p.basename(inside.path));
+        File(p.join(ws.path, 'sub', 'a.txt'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('needle\n');
+
+        final found = await resolveRg(
+          rgPath: relative,
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {'PATH': ''},
+        );
+
+        expect(found, isA<RgFound>());
+        expect((found as RgFound).path, inside.path);
+        // A search from a subdirectory runs the same executable.
+        final (outcome, output) = await _run(
+          GrepTool(Future.value(found)),
+          ws,
+          {'pattern': 'needle', 'path': 'sub'},
+        );
+        expect(outcome.status, ResultStatus.ok, reason: outcome.summary);
+        expect(output.lines, ['sub/a.txt:1: needle']);
+      });
     });
 
     test(

@@ -114,15 +114,20 @@ final class JobTool implements Tool {
     final limit = timeout is int ? Duration(seconds: timeout) : defaultJobWait;
     final done = jobs.whenDone(id);
     if (done != null) {
-      final cancelled = Completer<void>();
-      final detach = context.cancel.listen(cancelled.complete);
+      final ended = Completer<void>();
+      void end() {
+        if (!ended.isCompleted) ended.complete();
+      }
+
+      final detach = context.cancel.listen(end);
+      // A cancellable timer: a wait that ends early must not leave its limit
+      // running, which would keep the isolate alive after close.
+      final timer = Timer(limit, end);
+      unawaited(done.then<void>((_) => end(), onError: (Object _) => end()));
       try {
-        await Future.any<Object?>([
-          done.then<Object?>((_) => null, onError: (Object _) => null),
-          Future<void>.delayed(limit),
-          cancelled.future,
-        ]);
+        await ended.future;
       } finally {
+        timer.cancel();
         detach();
       }
     }

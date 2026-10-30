@@ -115,13 +115,18 @@ Future<RgResolution> resolveRg({
   String? setsid,
   Duration probeTimeout = defaultRgProbeTimeout,
 }) async {
-  final exe =
-      rgPath ??
-      resolveProgram(
-        'rg',
-        workspaceRoot: workspaceRoot,
-        environment: environment ?? Platform.environment,
-      );
+  // A relative rgPath with a directory part is resolved against the workspace
+  // root once, so every search, whatever its working directory, runs the
+  // executable the probe checked. A bare name is left to the OS lookup.
+  final exe = rgPath != null
+      ? (p.isAbsolute(rgPath) || p.split(rgPath).length == 1
+            ? rgPath
+            : p.normalize(p.join(workspaceRoot, rgPath)))
+      : resolveProgram(
+          'rg',
+          workspaceRoot: workspaceRoot,
+          environment: environment ?? Platform.environment,
+        );
   if (exe == null) return RgMissing(configPath);
   if (jobs != null) {
     return _probeAsJob(
