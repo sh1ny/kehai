@@ -9,6 +9,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../permissions/workspace_paths.dart';
+
 /// Which shell runs `bash` commands.
 enum ShellKind {
   /// `bash` on Linux and macOS.
@@ -144,9 +146,25 @@ Iterable<String> allOnPath(
   }
 }
 
+/// [probe] narrowed to files whose real path is outside [workspaceRoot].
+///
+/// A program the repository supplies (a `PATH` entry inside the workspace, or
+/// a link into it) is repository code, so it is never picked automatically,
+/// as for `resolveProgram`. With no [workspaceRoot], [probe] is unchanged.
+FileProbe _outsideWorkspace(FileProbe probe, String? workspaceRoot) {
+  if (workspaceRoot == null) return probe;
+  final root = realPath(workspaceRoot);
+  return (path) {
+    if (!probe(path)) return false;
+    final real = realPath(path);
+    return root != null && real != null && !isInside(root, real);
+  };
+}
+
 /// Finds the shell for the host.
 ///
-/// [environment] defaults to the process environment, [windows] to the host
+/// With a [workspaceRoot] nothing inside it is chosen: not the shell, nor
+/// `setsid`, nor `git`. [environment] defaults to the process environment, [windows] to the host
 /// platform and [isFile] to a real filesystem check.
 ///
 /// On Linux and macOS it is `bash` on `PATH`. On Windows it is Git Bash's
@@ -157,10 +175,11 @@ ShellDetection detectShell({
   Map<String, String>? environment,
   bool? windows,
   FileProbe? isFile,
+  String? workspaceRoot,
 }) {
   final env = environment ?? Platform.environment;
   final onWindows = windows ?? Platform.isWindows;
-  final probe = isFile ?? _isFile;
+  final probe = _outsideWorkspace(isFile ?? _isFile, workspaceRoot);
   if (!onWindows) {
     final bash = findOnPath(const ['bash'], env, windows: false, isFile: probe);
     if (bash == null) return const ShellDetection.missing(['bash']);

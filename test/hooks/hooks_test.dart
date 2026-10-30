@@ -326,6 +326,35 @@ void main() {
     },
   );
 
+  test('a stage timeout cancels a job still paused before launch', () async {
+    final dir = await tempDir();
+    final marker = p.join(dir.path, 'ran.pid');
+    final release = Completer<void>();
+    final h = await _attach([
+      _hook(
+        'late',
+        _dart('hang_forever.dart', [marker]),
+        policy: HookPolicy.deny,
+        timeout: const Duration(milliseconds: 300),
+      ),
+    ], jobHooks: JobHooks(afterPending: (_) => release.future));
+    addTearDown(() => release.isCompleted ? null : release.complete());
+
+    final item = await h.runtime.run(_bash('p1'));
+
+    // The stage gave up while the job was still reserved.
+    expect(item.output, contains('timed out after 300 ms'));
+    expect(h.tool.ran, isEmpty);
+    release.complete();
+    await h.jobsGone();
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    expect(File(marker).existsSync(), isFalse, reason: 'hook never ran');
+    final job = h.jobs().values.single;
+    expect(job['state'], 'cancelled');
+    expect(job['reason'], 'deadline');
+  });
+
   test('a slow job settle does not hold the call past the grace', () async {
     final release = Completer<void>();
     final h = await _attach([

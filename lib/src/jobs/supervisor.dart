@@ -357,6 +357,16 @@ const int _esrch = 3;
 const int _maxHandoffRetries = 16;
 const Set<String> _terminalStates = {'settled', 'failed', 'cancelled'};
 
+/// The system `taskkill`, by absolute path: a bare name would also be looked
+/// for in the working directory, which can be the workspace.
+String _taskkill() {
+  final root =
+      Platform.environment['SystemRoot'] ?? Platform.environment['windir'];
+  if (root == null) return 'taskkill';
+  final path = p.join(root, 'System32', 'taskkill.exe');
+  return File(path).existsSync() ? path : 'taskkill';
+}
+
 int _libcSignal(int pgid, int signal) => PosixLibc.instance.kill(-pgid, signal);
 
 enum _Phase { launching, running, handoff }
@@ -815,7 +825,7 @@ final class JobSupervisor {
     final process = started.process;
     if (_windows) {
       try {
-        await Process.run('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+        await Process.run(_taskkill(), ['/PID', '${process.pid}', '/T', '/F']);
       } on ProcessException {
         process.kill();
       }

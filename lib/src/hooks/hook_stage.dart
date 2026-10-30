@@ -148,6 +148,15 @@ final class HookStage implements CallStage {
       detach();
     }
     if (result == null) {
+      // The job may still be reserved or launching (admission, spools and the
+      // launch run before its own deadline starts). Cancel it, so a launch
+      // still in flight is stopped at once and the hook never outlives the
+      // stage.
+      unawaited(
+        jobs
+            .cancelJob(handle.id, reason: 'deadline')
+            .then<void>((_) {}, onError: (Object _) {}),
+      );
       return _failed(
         hook,
         handle.id,

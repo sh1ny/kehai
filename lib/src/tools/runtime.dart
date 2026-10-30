@@ -189,7 +189,9 @@ final class ToolRuntime {
         : UserConfig.load(kehaiHome.path);
     // Detected once, now. A missing shell never fails attach: it fails the
     // `bash` calls, and the other tools work.
-    final detection = shell ?? detectShell();
+    final detection =
+        shell ??
+        detectShell(workspaceRoot: realPath(workspace.path) ?? workspace.path);
     final prompts = PromptChannel(answerer);
     // Resolved once, now. It runs on while attach finishes; a missing `rg`
     // never fails attach, it fails the calls that need it.
