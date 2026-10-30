@@ -17,6 +17,7 @@ import '../jobs/supervisor.dart';
 import '../provider/provider.dart';
 import '../config/user_config.dart';
 import '../results/result_store.dart';
+import '../shell/direct_exec.dart' show resolveProgram;
 import '../shell/launch.dart';
 import '../tools/tool.dart';
 
@@ -103,6 +104,15 @@ final class HookStage implements CallStage {
     List<int> payload,
     CancelToken cancel,
   ) async {
+    final program = _program(hook.argv.first);
+    if (program == null) {
+      return _failed(
+        hook,
+        null,
+        'could not start: ${hook.argv.first} does not resolve outside the '
+        'workspace',
+      );
+    }
     final JobHandle handle;
     try {
       handle = jobs.start(
@@ -115,7 +125,7 @@ final class HookStage implements CallStage {
           deadline: hook.timeout,
           launch: () async {
             final process = await startProcess(
-              hook.argv.first,
+              program,
               hook.argv.skip(1).toList(),
               workingDirectory: workspace,
               environment: environment,
@@ -205,6 +215,20 @@ final class HookStage implements CallStage {
   }
 
   /// A hook that gave no answer: ignored when optional, a denial otherwise.
+  /// The program a hook runs, or null when a bare name does not resolve.
+  ///
+  /// A path is the user's own choice and runs as configured. A bare name
+  /// resolves only through absolute `PATH` entries outside the workspace, as
+  /// every launcher does, so a checkout cannot supply the hook program.
+  String? _program(String name) {
+    if (name.contains('/') || name.contains(r'\')) return name;
+    return resolveProgram(
+      name,
+      workspaceRoot: workspace,
+      environment: environment,
+    );
+  }
+
   _Run _failed(HookConfig hook, String? job, String what) {
     if (hook.policy == HookPolicy.optional) {
       return _Run(
