@@ -23,6 +23,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
+      # Windows runners default to core.autocrlf=true, which rewrites LF
+      # files (byte-exact test fixtures included) to CRLF on checkout. Check
+      # out the committed bytes, as on Linux.
+      - name: Keep committed line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
