@@ -5,9 +5,12 @@
 #
 # Usage: bash pr-pair.sh <subcommand> [options]
 #   identity <dir>                    fetch URL + every push URL of origin -> owner/name
-#   context --code <dir> [--store <dir>]
+#   context --code <dir> [--store <dir>] [--only repos]
 #                                     per-repo login, main, validate, reviewers, merge_ready (specwright.yaml + planning_store:);
-#                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting)
+#                                     merge (user|agent), merge_method, delete_branch (bad value = exit 2 bad_setting;
+#                                     --only repos skips that check, for callers that never merge, such as vcs.sh)
+#   vcs --code <dir>                  independent backend settings -> {"ok":true,"code":"git|jj","store":"git|jj"};
+#                                     absent settings default independently to git; unknown values stop with unknown_vcs
 #   tier --code <dir>                 cheap_tier.enabled: {"ok": true, "cheap_tier": bool} (true only for a parsed true; anything else
 #                                     is false, with a "note" when the value or the section is not true/false/a map). Reads no other
 #                                     setting, so a bad pr.merge_method cannot change it; exit 0 for any readable settings file
@@ -89,6 +92,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
@@ -583,7 +587,7 @@ def setting_text(m, key):
     return str(v).lower() if isinstance(v, bool) else str(v)
 
 
-def contexts(code, store):
+def contexts(code, store, check_merge=True):
     s = load_settings(code)
     pr = s.get("pr") or {}
     out = {"code": repo_ctx(s, code, "code"), "store": repo_ctx(s, store, "store") if store else None,
@@ -595,7 +599,7 @@ def contexts(code, store):
     if merge not in (None, "") and merge not in ("user", "agent"):
         out["merge_note"] = f"pr.merge: {setting_text(pr, 'merge')} is not user or agent; treated as user"
     out["merge_method"], out["delete_branch"] = "merge", True
-    if out["merge"] != "agent":  # only the agent merge reads them: user mode keeps today's behaviour
+    if out["merge"] != "agent" or not check_merge:  # only the agent merge reads them: user mode keeps today's behaviour
         return out
     method = pr.get("merge_method")
     method = "merge" if method is None else method
@@ -718,9 +722,11 @@ def cmd_identity(argv):
 
 
 def cmd_context(argv):
-    a, _ = parse_args(argv, {"--code": "code", "--store": "store"})
+    a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--only": "only"})
     need(a, "code")
-    c = contexts(a["code"], a.get("store"))
+    if a.get("only") not in (None, "repos"):
+        usage("--only takes repos")
+    c = contexts(a["code"], a.get("store"), check_merge=a.get("only") != "repos")
     for k, d in (("code", a["code"]), ("store", a.get("store"))):
         if c[k] is not None:
             try:
@@ -746,6 +752,29 @@ def cmd_tier(argv):
     elif v is not False and v is not None:
         out["note"] = f"cheap_tier.enabled: {setting_text(section, 'enabled')} is not true or false; treated as false"
     return out
+def cmd_vcs(argv):
+    a, _ = parse_args(argv, {"--code": "code"})
+    need(a, "code")
+    raw = load_settings(a["code"])
+    planning_store = raw.get("planning_store")
+    if not isinstance(planning_store, dict):
+        planning_store = {}
+
+    def selected(section, name):
+        value = section.get("vcs")
+        if value is None:
+            return "git"
+        if value not in ("git", "jj"):
+            raise Stop("unknown_vcs", f"unknown {name} VCS {value!r}; accepted values: git, jj")
+        return value
+
+    return {
+        "ok": True,
+        "code": selected(raw, "code"),
+        "store": selected(planning_store, "planning_store"),
+    }
+
+
 
 
 def cmd_discover(argv):
@@ -1224,6 +1253,11 @@ def cmd_pair_state(argv):
     return {**r, "action": "ready" if not r["waiting_on"] else "wait"}
 
 
+def is_jj(d):
+    """A jj repo: it has .jj/ at its toplevel (colocated)."""
+    return os.path.isdir(os.path.join(toplevel(d), ".jj"))
+
+
 def remote_contains(d, branch, sha):
     r = git_net(d, "ls-remote", "origin", f"refs/heads/{branch}")
     if r.returncode != 0:
@@ -1236,7 +1270,8 @@ def remote_contains(d, branch, sha):
         return True
     if git(d, "cat-file", "-e", remote + "^{commit}").returncode != 0:
         # another checkout pushed a tip this repo lacks: fetch it (FETCH_HEAD only, no local ref moves) before the ancestry test
-        git_net(d, "fetch", "-q", "origin", f"refs/heads/{branch}")
+        # --refmap= on a jj repo: jj imports a remote-tracking move into a tracked bookmark, so only FETCH_HEAD may change
+        git_net(d, "fetch", "-q", *(["--refmap="] if is_jj(d) else []), "origin", f"refs/heads/{branch}")
     r = git(d, "merge-base", "--is-ancestor", sha, remote)
     if r.returncode in (0, 1):
         return r.returncode == 0
@@ -1979,6 +2014,34 @@ def cmd_branch_check(argv):
     return {"ok": True, "delete": False, "reason": "lacking", "lacking": lacking(f"{mref}..{tip}", "--not", head)}
 
 
+def vcs_sh(*args):
+    return run([BASH, f"{os.environ['PR_PAIR_DIR']}/vcs.sh", *args])
+
+
+def vcs_plan(cwd, role, code, operation, branch, *extra):
+    """The commands vcs.sh plan prints for one operation in a jj repo, as {cmd: argv, cwd}."""
+    r = vcs_sh("plan", "--repo", cwd, "--role", role, "--code", code, "--operation", operation, "--branch", branch, *extra)
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        doc = {}
+    if not doc.get("ok"):
+        raise Stop(doc.get("error") or "vcs_error", doc.get("message") or f"vcs.sh plan failed in {cwd}: {r.stderr.strip()}")
+    return [[x.replace("\\", "/") if re.match(r"^[A-Za-z]:\\", x) else x for x in shlex.split(c)] for c in doc["commands"]]  # drive paths: forward slashes
+
+
+def vcs_branch(cwd, role, code):
+    """The current branch of a repo, read through vcs.sh state."""
+    r = vcs_sh("state", "--repo", cwd, "--role", role, "--code", code)
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        doc = {}
+    if not doc.get("ok"):
+        raise Stop(doc.get("error") or "vcs_error", doc.get("message") or f"vcs.sh state failed in {cwd}: {r.stderr.strip()}")
+    return doc["branch"]
+
+
 def cmd_cleanup(argv):
     a, _ = parse_args(argv, {"--code": "code", "--store": "store", "--branch": "branch"})
     need(a, "code", "store", "branch")
@@ -1987,6 +2050,7 @@ def cmd_cleanup(argv):
     ctx = contexts(a["code"], a["store"])
     as_sh = f"{os.environ['PR_PAIR_DIR']}/as.sh"
     members, keep, out = e["set"], [], {}
+    backends = cmd_vcs(["--code", a["code"]])
     all_merged = bool(members) and all(e[k]["pr"] and e[k]["pr"]["state"] == "MERGED" for k in members)
     for k, d in (("code", a["code"]), ("store", a["store"])):
         side, main = e[k], e[k]["main"]
@@ -1994,21 +2058,32 @@ def cmd_cleanup(argv):
         exists = has_ref(d, f"refs/heads/{branch}")
         ent = {"expected": side["expected"], "repo": side["repo"], "dir": cwd, "merged": False, "branch_exists": exists, "pr": pr, "commands": []}
         cmd = lambda *c: {"cmd": list(c), "cwd": cwd}
+        jj = backends[k] == "jj"  # a jj repo gets vcs.sh plan's commands; a Git repo keeps the Git commands below
         if side["expected"] and pr and pr["state"] == "MERGED":
             ent["merged"] = True
             if exists:
                 # after the pull, branch-check decides: the skill runs `delete` only when it answers delete: true
                 check = ["pr-pair.sh", "branch-check", "--dir", cwd, "--branch", branch, "--main", main] + (["--head", pr["head_sha"]] if pr.get("head_sha") else [])
-                ent["commands"] = [cmd("git", "checkout", main), cmd("bash", as_sh, ctx[k]["login"] or ambient_login(), "git", "pull", "--ff-only"), cmd(*check)]
-                ent["delete"] = ["git", "branch", "-D", branch]
+                if jj:
+                    login = ctx[k]["login"] or ambient_login()
+                    ent["commands"] = ([cmd(*c) for c in vcs_plan(cwd, k, a["code"], "switch", main)] +
+                                       [cmd(*c) for c in vcs_plan(cwd, k, a["code"], "pull", main, "--login", login)] + [cmd(*check)])
+                    ent["delete"] = vcs_plan(cwd, k, a["code"], "delete-branch", branch, "--force")[0]
+                else:
+                    ent["commands"] = [cmd("git", "checkout", main), cmd("bash", as_sh, ctx[k]["login"] or ambient_login(), "git", "pull", "--ff-only"), cmd(*check)]
+                    ent["delete"] = ["git", "branch", "-D", branch]
         elif side["expected"]:
             keep.append({"repo": k, "slug": side["repo"], "state": pr["state"] if pr else "NONE", "branch": branch,
                          "url": pr["url"] if pr else None})
         elif k == "store" and exists and side["reason"] == "no_github_origin":  # no PR can merge it: the user shares it by hand
             keep.append({"repo": k, "slug": None, "state": "SHARE_BY_HAND", "branch": branch, "url": None})
         elif k == "code" and exists and all_merged:  # the empty code branch, kept until now
-            cur = git(d, "branch", "--show-current").stdout.strip()
-            ent["commands"] = ([cmd("git", "checkout", main)] if cur == branch else []) + [cmd("git", "branch", "-d", branch)]
+            cur = vcs_branch(cwd, k, a["code"])
+            if jj:
+                ent["commands"] = (([cmd(*c) for c in vcs_plan(cwd, k, a["code"], "switch", main)] if cur == branch else []) +
+                                   [cmd(*c) for c in vcs_plan(cwd, k, a["code"], "delete-branch", branch)])
+            else:
+                ent["commands"] = ([cmd("git", "checkout", main)] if cur == branch else []) + [cmd("git", "branch", "-d", branch)]
         out[k] = ent
     return {"ok": True, "branch": branch, "set": members, "code": out["code"], "store": out["store"], "keep": keep}
 
@@ -2128,7 +2203,7 @@ def cmd_item_issues(argv):
     return {"ok": True, "found": found, "missing": [i for i in items if i not in found]}
 
 
-COMMANDS = {"identity": cmd_identity, "context": cmd_context, "tier": cmd_tier, "discover": cmd_discover, "expected": cmd_expected,
+COMMANDS = {"identity": cmd_identity, "context": cmd_context, "tier": cmd_tier, "vcs": cmd_vcs, "discover": cmd_discover, "expected": cmd_expected,
             "ensure-pr": cmd_ensure_pr, "closing-check": cmd_closing_check,
             "closed-check": cmd_closed_check, "link": cmd_link, "pair-state": cmd_pair_state, "rounds": cmd_rounds,
             "pass": cmd_pass, "cleanup-plan": cmd_cleanup, "branch-check": cmd_branch_check, "merge": cmd_merge,

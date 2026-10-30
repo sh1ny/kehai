@@ -19,7 +19,7 @@
 #   bump --to MAJOR.MINOR.PATCH       rewrite only the captured version in every version file (temp file + rename each);
 #                                     the target must be greater than the current version. Never commits. Rerunning an
 #                                     interrupted bump to the same target completes it
-#   status --version V [--main <ref>] [--store <dir> [--store-main <ref>] [--store-prefix <path>]]
+#   status --version V [--main <ref>] [--base <branch>] [--store <dir> [--store-main <ref>] [--store-prefix <path>]]
 #                                     V's release commit: the first commit on <ref>'s first-parent history whose primary file
 #                                     reads V (default: the local main; the skill passes origin/<main>). It must be a merge
 #                                     commit or a commit whose subject ends in (#<n>), and its version files must all read V.
@@ -44,7 +44,9 @@
 #                                     with --store = the store main's archive dirs (not code_changes: none) whose code-merge
 #                                     proof is in that range: `merge: <name>` subject (finish: local) or a merged PR from the
 #                                     code repo's own <prefix>/<name> branch (one `gh api --paginate .../pulls` call; a failure
-#                                     is exit 3, pr_discovery_failed). --store-prefix defaults to openspec.
+#                                     is exit 3, pr_discovery_failed). --store-prefix defaults to openspec. --base is the GitHub
+#                                     base branch that call lists PRs of (a jj run passes the fetched commit as --main, which
+#                                     names no branch); without it the branch is --main's name after `origin/`, or the main name.
 #   notes --proposal <file>           parse one proposal's `## Release Notes` section: no repo, no git or network call, and no
 #                                     release.enabled needed. Exit 0: summary, items {added|changed|fixed|removed: [{text, line}]}
 #                                     (line = the notes line, an unreferenced item ending in the literal ` (#<pr>)`). Exit 1:
@@ -54,7 +56,7 @@
 #                                     only the current version) that are not published, oldest first (published = tag on origin;
 #                                     --local, or no origin remote: a local tag, with no network call):
 #                                     {latest_tagged, tags: local|origin, untagged: [{version, tag, release_commit}]}
-#   publish --version V [--main ref] [--store ...]
+#   publish --version V [--main ref] [--base <branch>] [--store ...]
 #                                     after the opt-in, merge-method, release-commit, agreement and older-untagged gates, reads
 #                                     the tag locally and on origin (ls-remote) and does only what is missing: annotated tag on
 #                                     the release commit (notes = its message), `git push origin refs/tags/<tag>:refs/tags/<tag>`
@@ -1320,10 +1322,11 @@ def gh_run(st, *args, paged=False):
                env=env, paged=paged)
 
 
-def merged_pulls(st, ref):
-    """One paginated gh call for the closed PRs into the code main; exit 3 when it fails."""
+def merged_pulls(st, ref, base=None):
+    """One paginated gh call for the closed PRs into the code main; exit 3 when it fails. `base` (--base) names the GitHub
+    base branch when given; else it is taken from an origin/<name> ref (a bare commit, as a jj run reads, names no branch)."""
     slug = code_slug(st)
-    branch = ref[len("origin/"):] if ref.startswith("origin/") else ref
+    branch = base or (ref[len("origin/"):] if ref.startswith("origin/") else ref)
     url = f"repos/{slug}/pulls?state=closed&base={branch}&per_page=100"
     r = gh_run(st, "api", "--paginate", url, paged=True)
     shown = f"gh api --paginate {url}"
@@ -1377,7 +1380,7 @@ def store_changes(st, a, prev, rel, rng):
                 found.append((i, cands[m.group(1)], None))
     elif cands:
         main_name = detect_main(st) if not a.get("main") else a["main"]
-        slug, pulls = merged_pulls(st, main_name)
+        slug, pulls = merged_pulls(st, main_name, a.get("base"))
         pos = {sha: i for i, (sha, _) in enumerate(rng)}
         for p in sorted(pulls, key=lambda p: p.get("number") or 0):
             head, sha = p.get("head") or {}, p.get("merge_commit_sha")
@@ -1772,9 +1775,9 @@ STORE_OPTS = {"--store": "store", "--store-main": "store-main", "--store-prefix"
 COMMANDS = {
     "check": (cmd_check, {"--main": "main"}),
     "bump": (cmd_bump, {"--to": "to"}),
-    "status": (cmd_status, {"--version": "version", "--main": "main", **STORE_OPTS}),
+    "status": (cmd_status, {"--version": "version", "--main": "main", "--base": "base", **STORE_OPTS}),
     "untagged": (cmd_untagged, {"--main": "main", "--local": Flag("local")}),
-    "publish": (cmd_publish, {"--version": "version", "--main": "main", **STORE_OPTS}),
+    "publish": (cmd_publish, {"--version": "version", "--main": "main", "--base": "base", **STORE_OPTS}),
 }
 
 

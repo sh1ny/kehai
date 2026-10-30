@@ -4,7 +4,7 @@
 # commits; the user runs the scripts it prints. Every run prints ONE JSON document.
 #
 # Usage: bash finish.sh [--dir <planning toplevel>] undo-archive-plan --change <name> --archived-name <archived>
-#                       --prefix <P> --main <main> [--branch <branch>] [--type <commit type>]
+#                       --prefix <P> --main <main> [--branch <branch>] [--type <commit type>] [--code <code toplevel>]
 #   undo-archive-plan   the plan to undo the archive of <name> (its directory <P>/changes/archive/<archived>/) and of every
 #                       change archived with it. <P> is the openspec root inside the planning repo ("openspec"). --dir is the
 #                       planning repo (default: the current directory; store-backed: the store's toplevel). --branch is the
@@ -38,8 +38,15 @@
 #                       archive directories restore to one <P>/changes/<name>/), member_missing (a later commit deleted a
 #                       member's archive directory; `paths` names them), backup_exists (the backup directory exists),
 #                       bad_ref, not_a_repo.
+#                       The current branch is read through ../../specwright-pr/scripts/vcs.sh `state` (exit 2, error
+#                       vcs_script_missing, naming the path when that script is absent). --code is the code repo's toplevel; give
+#                       it with `--dir <store>` so the store's own backend is probed. On a jj repo `script` works the working copy
+#                       and commits only the touched paths with `jj commit`, then sets the branch's bookmark; it runs no Git write.
+#                       It guards with `vcs.sh state`, `git rev-parse HEAD` (the colocated Git HEAD is `@-`) and
+#                       `jj diff -r @ --name-only` over the touched paths. An archive committed on another branch needs `@` empty
+#                       (else dirty_tree) and the script starts with `jj new <branch>`.
 # Exit: 0 done, 1 stop (the JSON has "ok": false, "error" and "message"), 2 usage.
-# Needs bash, git and Python 3.8+.
+# Needs bash, git and Python 3.8+ (and jj for a jj repo).
 set -euo pipefail
 
 py=
@@ -47,6 +54,10 @@ for c in python3 python; do
   if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then py=$c; break; fi
 done
 [ -n "$py" ] || { echo '{"ok":false,"error":"no_python","message":"finish.sh needs python 3.8+"}'; exit 2; }
+FIN_DIR=$(cd "$(dirname "$0")" && pwd -P)
+FIN_BASH=${BASH:-bash}
+if command -v cygpath >/dev/null 2>&1; then FIN_DIR=$(cygpath -m "$FIN_DIR"); FIN_BASH=$(cygpath -w "$FIN_BASH"); fi
+export FIN_DIR FIN_BASH
 
 exec "$py" -I -X utf8 - "$@" <<'PYSRC'
 import json
@@ -58,6 +69,8 @@ import sys
 
 ENV = dict(os.environ)
 ENV.setdefault("GIT_TERMINAL_PROMPT", "0")
+VCS_SH = os.path.normpath(os.path.join(os.environ["FIN_DIR"], "..", "..", "specwright-pr", "scripts", "vcs.sh")).replace("\\", "/")
+BASH = os.environ.get("FIN_BASH") or "bash"
 DATE_RX = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 DEFERRED_RX = re.compile(r"(?m)^VERDICT: DEFERRED[ \t]*\r?$")
 
@@ -95,6 +108,24 @@ def nul_list(r):
     return [x.decode("utf-8", "replace") for x in r.stdout.split(b"\0") if x]
 
 
+def vcs_state(top, code):
+    """The branch and the working-copy changes, read through vcs.sh state (Git or jj, the repo's own backend)."""
+    if not os.path.isfile(VCS_SH):
+        raise Stop("vcs_script_missing", f"{VCS_SH} is missing; finish.sh reads the branch through it", code=2, path=VCS_SH)
+    role = ["--role", "store", "--code", code] if code else ["--role", "code"]
+    try:
+        r = subprocess.run([BASH, VCS_SH, "state", "--repo", top, *role], cwd=top, env=ENV, capture_output=True)
+    except OSError as e:
+        raise Stop("vcs_error", f"could not run {VCS_SH}: {e}")
+    try:
+        doc = json.loads(r.stdout.decode("utf-8", "replace"))
+    except ValueError:
+        raise Stop("vcs_error", f"{VCS_SH} state printed no JSON: " + r.stderr.decode("utf-8", "replace").strip())
+    if not doc.get("ok"):
+        raise Stop(str(doc.get("error") or "vcs_error"), str(doc.get("message") or "vcs.sh state failed"))
+    return doc
+
+
 def parse_args(argv, spec):
     a, i = {}, 0
     while i < len(argv):
@@ -112,6 +143,11 @@ def parse_args(argv, spec):
 
 
 q = shlex.quote
+
+
+def dq(text):
+    """A jj string literal: fileset `root:"<path>"` and revset `"<name>"`."""
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def join(*parts):
@@ -135,7 +171,9 @@ def cmd_undo(d, a):
     if r.returncode != 0:
         raise Stop("not_a_repo", "the repository has no commit")
     head = text_of(r)
-    cb = text_of(git(top, "branch", "--show-current"))
+    vs = vcs_state(top, a.get("code"))
+    jj = vs["backend"] == "jj"
+    cb = vs["branch"]
     branch = a.get("branch") or cb
     if not branch:
         usage("--branch is required on a detached HEAD")
@@ -169,7 +207,7 @@ def cmd_undo(d, a):
             return None
 
     def staged():
-        return nul_list(git(top, "diff", "--cached", "--name-only", "-z"))
+        return [] if jj else nul_list(git(top, "diff", "--cached", "--name-only", "-z"))  # no index on jj
 
     def unique_members(order):
         """Two archive directories that restore to one changes/<name>/ would nest one inside the other."""
@@ -196,7 +234,10 @@ def cmd_undo(d, a):
     if uncommitted:
         mode, A, T, plan_branch = "uncommitted", None, head, cb
         names = {}
-        others = nul_list(git(top, "ls-files", "-z", "--others", "--exclude-standard", "--", join(P, "changes", "archive") + "/"))
+        if jj:  # Git's index does not follow the jj working copy: the added files are @'s changes
+            others = [e["path"] for e in vs["dirty"] if e["status"] == "A" and e["path"].startswith(join(P, "changes", "archive") + "/")]
+        else:
+            others = nul_list(git(top, "ls-files", "-z", "--others", "--exclude-standard", "--", join(P, "changes", "archive") + "/"))
         base = join(P, "changes", "archive") + "/"
         for path in others:
             rest = path[len(base):] if path.startswith(base) else ""
@@ -272,7 +313,11 @@ def cmd_undo(d, a):
         A = adds[0]
         if not has(T, ad):
             raise Stop("no_archive", f"The archive commit(s) {', '.join(x[:9] for x in adds)} of {change} were reverted: {ad} is not on {branch}", commits=adds)
-        if branch != cb:
+        if branch != cb and jj:
+            if vs["dirty_paths"]:
+                raise Stop("dirty_tree", f"The working copy @ is not empty, so it cannot move onto {branch} with jj new: "
+                           + ", ".join(vs["dirty_paths"]), files=vs["dirty_paths"])
+        elif branch != cb:
             dirty = text_of(git(top, "status", "--porcelain")).splitlines()
             if dirty:
                 raise Stop("dirty_tree", "The working tree is dirty, so the branch cannot be checked out: " + "; ".join(x.strip() for x in dirty), files=[x[3:] for x in dirty])
@@ -326,7 +371,9 @@ def cmd_undo(d, a):
         gone_specs = [f for f in mod + new if not has(T, f)]  # a later deletion is an amendment: keep it
         marker_dirs = {m["name"]: join(m["dir"], "specwright-change.yaml") in added and has(T, join(m["dir"], "specwright-change.yaml")) for m in members}
         carried = []
-        if branch == cb:
+        if branch == cb and jj:
+            carried = [p for p in vs["dirty_paths"] if any(p.startswith(m["dir"] + "/") for m in members)]
+        elif branch == cb:
             pathspecs = [m["dir"] for m in members]
             out = git(top, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", *pathspecs).stdout.split(b"\0")
             carried = [x.decode("utf-8", "replace")[3:] for x in out if len(x) > 3]
@@ -352,13 +399,29 @@ def cmd_undo(d, a):
 
     # ---- the guard ---------------------------------------------------------------------------------------------
     sq = q
-    lines = ["set -euo pipefail", f"cd {sq(top)}"]
+    if jj:
+        rev = branch if re.fullmatch(r"[A-Za-z0-9._/]+(-[A-Za-z0-9._/]+)*", branch) else dq(branch)  # a revset symbol or string
+        touched_all = [m["dir"] for m in members] + [join(P, "changes", m["name"]) for m in members] + main_mod + main_new
+        fsets = " ".join(sq("root:" + dq(f)) for f in touched_all)
+        state_cmd = f'bash {sq(VCS_SH)} state --repo {sq(top)} ' + (f"--role store --code {sq(a['code'])}" if a.get("code") else "--role code")
+        lines = ["set -euo pipefail", f"cd {sq(top)}"]
+        if mode == "committed" and branch != cb:
+            lines += ['test -z "$(jj diff -r @ --name-only)"', f'test "$(git rev-parse {sq("refs/heads/" + branch)})" = {sq(T)}',
+                      f"jj new {sq(rev)}"]
+        lines += [f'case "$({state_cmd})" in *{sq(chr(34) + "branch" + chr(34) + ": " + json.dumps(plan_branch, ensure_ascii=False))}*) ;; *) echo "wrong branch" >&2; exit 1 ;; esac',
+                  f'test "$(git rev-parse HEAD)" = {sq(T)}']
+        if mode == "committed":
+            lines.append(f'test -z "$(jj diff -r @ --name-only {fsets})"')
+        lines.append(f"test ! -e {sq(backup_dir)}")
+    else:
+        lines = ["set -euo pipefail", f"cd {sq(top)}"]
     guard = [f'test "$(git branch --show-current)" = {sq(plan_branch)}', f'test "$(git rev-parse HEAD)" = {sq(T)}',
              "git diff --cached --quiet", f"test ! -e {sq(backup_dir)}"]
-    if mode == "committed" and branch != cb:
-        lines += ['test -z "$(git status --porcelain)"', f'test "$(git rev-parse {sq("refs/heads/" + branch)})" = {sq(T)}',
-                  f"git checkout -q {sq(branch)} --"]
-    lines += guard
+    if not jj:
+        if mode == "committed" and branch != cb:
+            lines += ['test -z "$(git status --porcelain)"', f'test "$(git rev-parse {sq("refs/heads/" + branch)})" = {sq(T)}',
+                      f"git checkout -q {sq(branch)} --"]
+        lines += guard
 
     # ---- the backups -------------------------------------------------------------------------------------------
     dirs = sorted({backup_dir + "/amended/" + os.path.dirname(f) for f in backup_files} |
@@ -372,7 +435,7 @@ def cmd_undo(d, a):
     if not backup_files:
         lines.append(f"mkdir -p -- {sq(backup_dir)}")
 
-    if mode == "committed":
+    if mode == "committed" and not jj:
         for m in members:
             lines.append(f"git rm -r -q --cached -- {sq(m['dir'])}")
             lines.append(f"git read-tree --prefix={sq(join(P, 'changes', m['name']) + '/')} {sq(T + ':' + m['dir'])}")
@@ -389,16 +452,29 @@ def cmd_undo(d, a):
         if marker_dirs[m["name"]]:
             lines.append(f"rm -f -- {sq(join(P, 'changes', m['name'], 'specwright-change.yaml'))}")
     src = f"--source={sq(A + '^')}" if mode == "committed" else f"--source={sq(T)}"
-    if main_mod:
+    if main_mod and jj:
+        lines.append(f"jj restore --from {sq(A + '-' if mode == 'committed' else T)} " + " ".join(sq("root:" + dq(f)) for f in main_mod))
+    elif main_mod:
         lines.append(f"git restore {src} --worktree -- " + " ".join(sq(f) for f in main_mod))
     if main_new:
         lines.append("rm -f -- " + " ".join(sq(f) for f in main_new))
         for dn in sorted({os.path.dirname(f) for f in main_new}):
             lines.append(f"rmdir {sq(dn)} 2>/dev/null || true")
+    if jj and mode == "committed":
+        subject = f"{typ}({change}): undo archive of {', '.join(names_all)}"
+        lines.append(f"jj commit -m {sq(subject)} {fsets}")
+        lines.append(f"jj bookmark set {sq(rev)} -r @-")
     lines.append(f"echo {sq('Undo done. Saved copies are in ' + backup_dir)}")
     script = "\n".join(lines) + "\n"
 
-    if mode == "committed":
+    if mode == "committed" and jj:
+        warnings.append("If the script fails after it began changing the working copy and before it commits, run "
+                        f"`jj restore {fsets}` and plan again. Unlike the Git script, the working tree is NOT untouched "
+                        "until the commit on jj: the moves and restores happen in @ first.")
+        if vs["dirty_paths"] and branch == cb and any(p.startswith(tuple(f + "/" for f in touched_all)) or p in touched_all for p in vs["dirty_paths"]):
+            warnings.append("@ already holds changes under the touched paths, so the script's guard stops before it moves anything. "
+                            "Commit them elsewhere or set them aside, then plan again.")
+    elif mode == "committed":
         touched = [m["dir"] for m in members] + [join(P, "changes", m["name"]) for m in members] + main_mod + main_new
         warnings.append("If the script fails after it began changing the index and before it commits, run "
                         "`git restore --staged -- " + " ".join(touched) + "` and plan again; the working tree is untouched until the commit.")
@@ -461,7 +537,7 @@ def _type_of(branch):
 
 COMMANDS = {
     "undo-archive-plan": (cmd_undo, {"--change": "change", "--archived-name": "archived", "--prefix": "prefix",
-                                     "--main": "main", "--branch": "branch", "--type": "type"}),
+                                     "--main": "main", "--branch": "branch", "--type": "type", "--code": "code"}),
 }
 
 
@@ -473,7 +549,7 @@ def main(argv):
         d, rest = rest[1], rest[2:]
     if not rest or rest[0] not in COMMANDS:
         usage("usage: finish.sh [--dir <planning toplevel>] undo-archive-plan --change <name> --archived-name <archived> "
-              "--prefix <P> --main <main> [--branch <branch>] [--type <type>]")
+              "--prefix <P> --main <main> [--branch <branch>] [--type <type>] [--code <code toplevel>]")
     fn, spec = COMMANDS[rest[0]]
     a = parse_args(rest[1:], spec)
     emit(fn(d or os.getcwd(), a))

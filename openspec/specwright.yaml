@@ -108,6 +108,10 @@ pr:
 # group of a TIER: LIGHT change to specwright-implementer-light, a pinned copy
 # of the implementer on the cheaper model (Claude Code: haiku, OMP: pi/smol).
 # FULL changes, reviews, watch and the orchestrator never change.
+# Backend for this repository's branch state and version-control writes:
+# git (default) | jj. Selection is explicit and never inferred from .jj/.
+vcs: git
+
 cheap_tier:
   enabled: false
 
