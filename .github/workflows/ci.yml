@@ -1,0 +1,65 @@
+# Checks every pull request and every push to main on Linux and Windows.
+# The slow-tagged tests run in nightly.yml.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older run. Each push to main gets
+# its own group (a shared group would drop a pending run when a third one
+# queues), so every main commit keeps a result.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs and caches the tools pinned in mise.toml, and exports the
+      # mise environment (PATH, DART_DATA_HOME) to the later steps.
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          version: 2026.10.24
+
+      # Scans the fresh checkout, before dependencies land in the tree.
+      - name: Secrets scan
+        if: runner.os == 'Linux'
+        run: mise run secrets
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Fetch dependencies
+        run: mise run get
+
+      - name: Format
+        run: mise run format:check
+
+      - name: Analyze
+        run: mise run analyze
+
+      - name: Test
+        run: dart test --exclude-tags slow
+
+      - name: Validate OpenSpec
+        if: runner.os == 'Linux'
+        run: mise run openspec:validate
