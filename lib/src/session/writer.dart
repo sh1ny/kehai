@@ -868,7 +868,8 @@ final RegExp _resultHandle = RegExp(r'^r/[0-9a-f]{12}$');
 ///
 /// A reference is an object `{handle, complete}` (ADR 0010). A bare `handle`
 /// field, such as a `read_more` call's input, names a result without
-/// installing a reference to it, so it is not checked.
+/// installing a reference to it, so it is not checked. Nor is a call's
+/// `input`: it is the model's data, recorded as given, and installs nothing.
 void _collectHandles(Object? value, Set<String> out) {
   switch (value) {
     case final Map<Object?, Object?> map:
@@ -878,7 +879,8 @@ void _collectHandles(Object? value, Set<String> out) {
           _resultHandle.hasMatch(handle)) {
         out.add(handle);
       }
-      for (final child in map.values) {
+      for (final MapEntry(:key, value: child) in map.entries) {
+        if (key == 'input') continue;
         _collectHandles(child, out);
       }
     case final List<Object?> list:

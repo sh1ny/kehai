@@ -317,6 +317,26 @@ void main() {
         expect(order, isEmpty, reason: 'no hook or gate ran');
       },
     );
+
+    test('input shaped like a result reference is recorded as input', () async {
+      final tool = _FakeTool((c, i) => _writes(c, 'x'));
+      final h = await _attach(root, tools: {'read': tool});
+
+      final item = await h.runtime.run(
+        _call(
+          'm3',
+          'read',
+          '{"path":"x","handle":"r/000000000000","complete":true,'
+              '"nested":[{"handle":"r/0123456789ab","complete":false}]}',
+        ),
+      );
+
+      expect(item.output, startsWith('[read error]'));
+      expect(h.statuses('m3'), ['pending', 'failed']);
+      expect(h.node('m3')['input'], containsPair('handle', 'r/000000000000'));
+      expect(h.stored(h.node('m3')), isNotEmpty);
+      expect(tool.inputs, isEmpty);
+    });
   });
 
   group('call node', () {
