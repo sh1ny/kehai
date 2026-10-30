@@ -159,6 +159,31 @@ void main() {
         expect(File(marker).existsSync(), isFalse);
       }, skip: Platform.isWindows ? 'needs a POSIX script' : false);
 
+      // Feedback round 4: a bare configured name is looked up like the
+      // default, never by the OS, which would search the workspace too.
+      test('a bare configured rgPath resolves outside the workspace', () async {
+        final inside = copyRg(Directory(p.join(ws.path, 'bin')));
+        final outsideDir = await tempDir();
+        final outside = copyRg(outsideDir);
+
+        final shadowed = await resolveRg(
+          rgPath: 'rg',
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {'PATH': p.dirname(inside.path)},
+        );
+        expect(shadowed, isA<RgMissing>());
+
+        final found = await resolveRg(
+          rgPath: 'rg',
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {'PATH': outsideDir.path},
+        );
+        expect(found, isA<RgFound>());
+        expect((found as RgFound).path, outside.path);
+      });
+
       test('a configured rgPath inside the workspace still works', () async {
         final inside = copyRg(Directory(p.join(ws.path, 'mine')));
 

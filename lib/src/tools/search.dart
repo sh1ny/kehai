@@ -117,13 +117,14 @@ Future<RgResolution> resolveRg({
 }) async {
   // A relative rgPath with a directory part is resolved against the workspace
   // root once, so every search, whatever its working directory, runs the
-  // executable the probe checked. A bare name is left to the OS lookup.
-  final exe = rgPath != null
-      ? (p.isAbsolute(rgPath) || p.split(rgPath).length == 1
+  // executable the probe checked. A bare name, configured or the default
+  // `rg`, resolves only outside the workspace, never by the OS lookup.
+  final exe = rgPath != null && p.split(rgPath).length > 1
+      ? (p.isAbsolute(rgPath)
             ? rgPath
             : p.normalize(p.join(workspaceRoot, rgPath)))
       : resolveProgram(
-          'rg',
+          rgPath ?? 'rg',
           workspaceRoot: workspaceRoot,
           environment: environment ?? Platform.environment,
         );
