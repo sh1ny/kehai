@@ -10,7 +10,7 @@ The change sets `skip_specs: true` (repository tooling, no spec-level behavior),
 
 ## 1. Pull-request and main CI workflow
 
-- [ ] 1.1 Write `.github/workflows/ci.yml` per design D1-D6: triggers `push` to `main` and `pull_request`; top-level `permissions: contents: read`; `concurrency` cancelling superseded PR runs only; matrix `ubuntu-latest`/`windows-latest` with `fail-fast: false` and `timeout-minutes: 30`; steps checkout (`persist-credentials: false`) → mise-action (pinned mise `version`) → Linux-only `mise run secrets` → pub cache → `mise run get` → `mise run format:check` → `mise run analyze` → `dart test --exclude-tags slow` → Linux-only `mise run openspec:validate`. Verify: the file parses as YAML, and every `uses:` line matches `@[0-9a-f]{40} # v`.
+- [x] 1.1 Write `.github/workflows/ci.yml` per design D1-D6: triggers `push` to `main` and `pull_request`; top-level `permissions: contents: read`; `concurrency` cancelling superseded PR runs only; matrix `ubuntu-latest`/`windows-latest` with `fail-fast: false` and `timeout-minutes: 30`; steps checkout (`persist-credentials: false`) → mise-action (pinned mise `version`) → Linux-only `mise run secrets` → pub cache → `mise run get` → `mise run format:check` → `mise run analyze` → `dart test --exclude-tags slow` → Linux-only `mise run openspec:validate`. Verify: the file parses as YAML, and every `uses:` line matches `@[0-9a-f]{40} # v`.
 
 ## 2. Nightly full-suite workflow
 
