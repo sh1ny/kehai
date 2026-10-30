@@ -59,8 +59,8 @@ See proposal.md for scope. Relevant current state:
 
 ### D6: Cancellation and time bounds
 
-- **Choice:** CI `concurrency: group: ci-${{ github.event.pull_request.number || github.ref }}`, `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` — a new push to a PR cancels its older run; pushes to `main` are never cancelled, so every `main` commit keeps a result. Nightly uses its own group without cancellation. Job `timeout-minutes`: 30 for CI, 120 for nightly (slow tests run with a 10x timeout). Nightly runs at `17 3 * * *` UTC (off the hour to avoid the scheduler's top-of-hour congestion).
-- **Rejected:** cancelling on every ref including `main`, because a fast sequence of merges would leave `main` commits without a CI result.
+- **Choice:** CI `concurrency: group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}`, `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` — a new push to a PR cancels its older run; each push to `main` gets its own group, because a shared group keeps only one pending run and would drop the middle of three rapid merges, so every `main` commit keeps a result. Nightly uses its own group without cancellation. Job `timeout-minutes`: 30 for CI, 120 for nightly (slow tests run with a 10x timeout). Nightly runs at `17 3 * * *` UTC (off the hour to avoid the scheduler's top-of-hour congestion).
+- **Rejected:** one shared group per ref including `main` (with or without `cancel-in-progress`), because GitHub replaces a pending run in a group when another queues, so a fast sequence of merges would leave `main` commits without a CI result.
 - **Reversal cost:** low.
 
 ## Risks / Trade-offs
