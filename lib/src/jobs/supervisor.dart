@@ -13,6 +13,7 @@ import '../results/live_result.dart';
 import '../results/result_store.dart';
 import '../session/path.dart';
 import '../session/record.dart';
+import '../session/write_gate.dart';
 import '../session/writer.dart';
 import '../shell/detect.dart';
 import '../shell/launch.dart';
@@ -462,8 +463,10 @@ final class JobSupervisor {
     GroupSignal? groupSignal,
     bool? windows,
     bool reconcile = true,
+    WriteGate? writeGate,
   }) : _signal = groupSignal ?? _libcSignal,
        _windows = windows ?? Platform.isWindows,
+       writeGate = writeGate ?? WriteGate(),
        recovery = JobRecovery(writer, store, hooks: hooks) {
     if (reconcile) _subscribe();
   }
@@ -481,6 +484,9 @@ final class JobSupervisor {
 
   /// The session writer.
   final SessionWriter writer;
+
+  /// The gate every writer operation of the supervisor passes (design D17).
+  final WriteGate writeGate;
 
   /// The result store.
   final ResultStore store;
@@ -1242,7 +1248,7 @@ final class JobSupervisor {
 
   Future<void> _register(Iterable<ResultDescriptor> descriptors) async {
     for (final descriptor in descriptors) {
-      await writer.recordResult(descriptor);
+      await writeGate.run(() => writer.recordResult(descriptor));
     }
   }
 
@@ -1327,7 +1333,7 @@ final class JobSupervisor {
 
   Future<GuardedOutcome> _append(
     GuardedDecision Function(GuardedRead read) build,
-  ) => writer.applyGuarded(build);
+  ) => writeGate.run(() => writer.applyGuarded(build));
 
   JournalRecord _record(String path, Op op, [Object? value]) =>
       JournalRecord(turn: writer.currentTurn, path: path, op: op, value: value);

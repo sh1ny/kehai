@@ -120,12 +120,12 @@ The *Missing configuration* row is red because its expectation grows (no default
 
 ## 3. Runtime and writer seams
 
-- [ ] 3.1 Write failing tests in `test/tools/runtime_test.dart`:
+- [x] 3.1 Write failing tests in `test/tools/runtime_test.dart`:
   - `run(call, cancel: token)` links the call to the exchange token, and a call admitted with an already-cancelled token is recorded `pending` → `cancelled` (reason `user`) with a stored result and no hook, prompt or effect;
   - the terminal `merge` carries `model: {handle, complete: true}` whose stored bytes equal the returned model text, including storage-failure and denied calls.
 
   Implement both in `lib/src/tools/runtime.dart` (D4, D5). Verify that `runtime_test.dart` passes.
-- [ ] 3.2 Write failing tests in `test/session/write_gate_test.dart`: with flushes paused, 128 concurrent gated operations never exceed 48 in the writer, run in FIFO order and never raise `writer busy`. Implement the engine write gate (D17) and route the runtime, supervisor and (later) driver and server writes through it. Verify that the new file and `mise run test -- test/session test/tools test/jobs` pass.
+- [x] 3.2 Write failing tests in `test/session/write_gate_test.dart`: with flushes paused, 128 concurrent gated operations never exceed 48 in the writer, run in FIFO order and never raise `writer busy`. Implement the engine write gate (D17) and route the runtime, supervisor and (later) driver and server writes through it. Verify that the new file and `mise run test -- test/session test/tools test/jobs` pass.
 
 ## 4. Earliest runnable loop
 

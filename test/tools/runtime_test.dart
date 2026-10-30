@@ -50,6 +50,24 @@ final class _Stage implements CallStage {
   }
 }
 
+/// A stage that denies every call.
+final class _Deny implements CallStage {
+  const _Deny();
+
+  @override
+  Future<StageOutcome> check(StageCall call, CancelToken cancel) async =>
+      const StageOutcome.deny('no way');
+}
+
+/// A stage that lets a call through and adds a diagnostic line.
+final class _Diag implements CallStage {
+  const _Diag();
+
+  @override
+  Future<StageOutcome> check(StageCall call, CancelToken cancel) async =>
+      const StageOutcome.proceed(diag: [('hooks', 'heads up')]);
+}
+
 ToolCall _call(String id, String name, [String args = '{"command":"x"}']) =>
     ToolCall(callId: id, name: name, argumentsJson: args);
 
@@ -92,6 +110,12 @@ final class _Harness {
   ];
 
   int get journalLines => journalOf(dir).readAsLinesSync().length;
+
+  /// The bytes a `{handle, complete}` reference resolves to.
+  String storedAt(Map<String, Object?> ref) {
+    final resolved = resolveHandle(writer.tree, dir, ref['handle']! as String);
+    return utf8.decode(resolved.file.readAsBytesSync());
+  }
 
   /// The bytes a call's result handle resolves to through the tree.
   String stored(Map<String, Object?> node) {
@@ -441,6 +465,131 @@ void main() {
         expect(h.journalLines, lines);
         expect(h.node('l1')['status'], 'cancelled');
         expect(h.statuses('l1'), ['pending', 'running', 'cancelled']);
+      },
+    );
+  });
+
+  group('exchange token and model text', () {
+    test('run links the call to the exchange token', () async {
+      final started = Completer<void>();
+      final tool = _FakeTool((c, i) async {
+        started.complete();
+        await c.cancel.whenCancelled;
+        return const ToolOutcome(summary: 'late');
+      });
+      final h = await _attach(root, tools: {'bash': tool});
+      final exchange = CancelToken();
+
+      final run = h.runtime.run(_call('x1', 'bash'), cancel: exchange);
+      await started.future;
+      exchange.cancel();
+      final item = await run;
+
+      final node = h.node('x1');
+      expect(node['status'], 'cancelled');
+      expect(node['reason'], 'user');
+      expect(item.output, startsWith('[bash error] cancelled: user'));
+      expect(h.statuses('x1'), ['pending', 'running', 'cancelled']);
+    });
+
+    test('a call admitted with a cancelled token is recorded cancelled '
+        'with a stored result and no hook, prompt or effect', () async {
+      final order = <String>[];
+      final tool = _FakeTool((c, i) => _writes(c, 'x'));
+      final h = await _attach(
+        root,
+        tools: {'bash': tool},
+        hooks: _Stage('hooks', order),
+        gate: _Stage('gate', order),
+      );
+      final exchange = CancelToken()..cancel();
+
+      final item = await h.runtime.run(_call('x2', 'bash'), cancel: exchange);
+
+      expect(h.statuses('x2'), ['pending', 'cancelled']);
+      final node = h.node('x2');
+      expect(node['reason'], 'user');
+      expect(node['summary'], 'cancelled: user');
+      expect(node['result'], isA<Map<String, Object?>>());
+      expect(item.output, startsWith('[bash error] cancelled: user'));
+      expect(order, isEmpty);
+      expect(tool.started, isEmpty);
+    });
+
+    test(
+      'an invalid call admitted with a cancelled token is cancelled too',
+      () async {
+        final h = await _attach(root);
+        final exchange = CancelToken()..cancel();
+
+        await h.runtime.run(_call('x3', 'rm_rf', '{}'), cancel: exchange);
+
+        expect(h.statuses('x3'), ['pending', 'cancelled']);
+        expect(h.node('x3')['reason'], 'user');
+      },
+    );
+
+    test('the terminal record carries the model text it returned', () async {
+      final tool = _FakeTool((c, i) => _writes(c, 'a\nb\n'));
+      final h = await _attach(
+        root,
+        tools: {'read': tool},
+        hooks: const _Diag(),
+      );
+
+      final item = await h.runtime.run(_call('m1', 'read', '{"path":"x"}'));
+
+      final node = h.node('m1');
+      expect(node['status'], 'settled');
+      final model = node['model']! as Map<String, Object?>;
+      expect(model['complete'], isTrue);
+      expect(h.storedAt(model), item.output);
+      expect(item.output, contains('[diag hooks] heads up'));
+      final last = h.records().last;
+      expect((last.value! as Map).keys, containsAll(['result', 'model']));
+    });
+
+    test('a denied call stores its model text', () async {
+      final tool = _FakeTool((c, i) => _writes(c, 'x'));
+      final h = await _attach(root, tools: {'bash': tool}, gate: const _Deny());
+
+      final item = await h.runtime.run(_call('d1', 'bash'));
+
+      final node = h.node('d1');
+      expect(node['envelope'], 'denied');
+      final model = node['model']! as Map<String, Object?>;
+      expect(model['complete'], isTrue);
+      expect(h.storedAt(model), item.output);
+      expect(item.output, contains('no way'));
+    });
+
+    test(
+      'a storage failure returns its text and stores it as the model',
+      () async {
+        final tool = _FakeTool((c, i) async {
+          await c.output.writeText('aaaa\n');
+          await c.output.writeText('bbbb\n');
+          await c.cancel.whenCancelled;
+          return const ToolOutcome(summary: 'never recorded');
+        });
+        final h = await _attach(
+          root,
+          tools: {'bash': tool},
+          storeHooks: ResultStoreHooks(
+            beforeWrite: (index, chunk) async {
+              if (index == 1) throw const FileSystemException('disk full');
+            },
+          ),
+        );
+
+        final item = await h.runtime.run(_call('f2', 'bash'));
+
+        final node = h.node('f2');
+        expect(node.containsKey('result'), isFalse);
+        expect(item.output, startsWith('[bash error] storage failure'));
+        final model = node['model']! as Map<String, Object?>;
+        expect(model['complete'], isTrue);
+        expect(h.storedAt(model), item.output);
       },
     );
   });

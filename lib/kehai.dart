@@ -15,6 +15,7 @@ export 'src/session/ownership.dart'
 export 'src/session/requests.dart';
 export 'src/session/state.dart';
 export 'src/session/writer.dart';
+export 'src/session/write_gate.dart';
 export 'src/results/composer.dart';
 export 'src/results/descriptor.dart';
 export 'src/results/line_scanner.dart';
