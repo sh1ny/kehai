@@ -18,9 +18,10 @@ The change sets `skip_specs: true` (repository tooling, no spec-level behavior),
 
 ## 3. Integration check
 
-- [ ] 3.1 Run `mise exec -- openspec validate --all --strict` locally (passes), then after the PR opens confirm its CI run finished with both `check (ubuntu-latest)` and `check (windows-latest)` jobs green; any failure is diagnosed from the Actions log and fixed only if it is workflow environment setup.
+- [ ] 3.1 Run `mise exec -- openspec validate --all --strict` and `mise run format:check` locally; both pass.
 
 ## Workflow follow-up
 
+- After the PR opens (specwright-pr ship/watch), confirm its CI run finished with both `check (ubuntu-latest)` and `check (windows-latest)` jobs green; diagnose any failure from the Actions log and fix it here only if it is workflow environment setup.
 - `nightly.yml` can only be dispatched once it is on `main` (GitHub registers `workflow_dispatch` and `schedule` from the default branch); after merge, run it once by hand to confirm the slow tests pass on both runners.
 - Branch protection (making the two `check` jobs required) is the repository owner's choice and is not part of this change.
