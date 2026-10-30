@@ -173,7 +173,10 @@ void main() {
   group('search tools', () {
     late RgFound rg;
     setUpAll(() async {
-      rg = await resolveRg(configPath: 'config.json') as RgFound;
+      rg = await resolveRg(
+        configPath: 'config.json',
+        workspaceRoot: Directory.systemTemp.path,
+      ) as RgFound;
     });
 
     Future<(ToolOutcome, RecordingOutput)> run(

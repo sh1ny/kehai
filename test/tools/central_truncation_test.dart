@@ -140,11 +140,21 @@ void main() {
           'edit': _Tee(const EditTool(), produced),
           'write': _Tee(const WriteTool(), produced),
           'grep': _Tee(
-            GrepTool(resolveRg(configPath: 'config.json')),
+            GrepTool(
+              resolveRg(
+                configPath: 'config.json',
+                workspaceRoot: Directory.systemTemp.path,
+              ),
+            ),
             produced,
           ),
           'find': _Tee(
-            FindTool(resolveRg(configPath: 'config.json')),
+            FindTool(
+              resolveRg(
+                configPath: 'config.json',
+                workspaceRoot: Directory.systemTemp.path,
+              ),
+            ),
             produced,
           ),
           'ls': _Tee(const LsTool(), produced),

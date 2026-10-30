@@ -18,6 +18,7 @@ import '../permissions/workspace_paths.dart';
 import '../results/composer.dart';
 import '../results/result_store.dart';
 import '../shell/launch.dart';
+import '../shell/direct_exec.dart' show resolveProgram;
 import 'child_env.dart';
 import 'file_access.dart';
 import 'glob_match.dart';
@@ -56,14 +57,25 @@ final class RgMissing extends RgResolution {
 /// Finds `rg` once: [rgPath], else `PATH`; `rg --version` must succeed.
 ///
 /// [environment] is only searched for `PATH`; it defaults to the process
-/// environment. A missing or unrunnable `rg` gives [RgMissing] naming
+/// environment. Discovery on `PATH` goes through the resolver direct bash
+/// execution uses: only absolute entries count, and nothing whose real path
+/// is inside [workspaceRoot], so a repository cannot supply the `rg` that
+/// runs here. An [rgPath] is the user's own choice and is used as given. A
+/// missing or unrunnable `rg` gives [RgMissing] naming
 /// [configPath].
 Future<RgResolution> resolveRg({
   String? rgPath,
   required String configPath,
+  required String workspaceRoot,
   Map<String, String>? environment,
 }) async {
-  final exe = rgPath ?? _findOnPath(environment ?? Platform.environment);
+  final exe =
+      rgPath ??
+      resolveProgram(
+        'rg',
+        workspaceRoot: workspaceRoot,
+        environment: environment ?? Platform.environment,
+      );
   if (exe == null) return RgMissing(configPath);
   try {
     final result = await Process.run(
@@ -81,24 +93,6 @@ Future<RgResolution> resolveRg({
   } on ProcessException {
     return RgMissing(configPath);
   }
-}
-
-String? _findOnPath(Map<String, String> environment) {
-  final key = environment.keys.firstWhere(
-    (k) => k.toUpperCase() == 'PATH',
-    orElse: () => '',
-  );
-  final path = environment[key];
-  if (path == null) return null;
-  final name = Platform.isWindows ? 'rg.exe' : 'rg';
-  for (final dir in path.split(Platform.isWindows ? ';' : ':')) {
-    if (dir.isEmpty) continue;
-    final candidate = p.join(dir, name);
-    if (FileSystemEntity.typeSync(candidate) == FileSystemEntityType.file) {
-      return p.absolute(candidate);
-    }
-  }
-  return null;
 }
 
 /// A started child, without a shell.

@@ -211,6 +211,64 @@ void main() {
       expect((await pending).denyReason, isNotNull);
     });
 
+    const anyBash = UserConfig(allow: [AllowRule('bash')]);
+
+    test('a tool-wide bash rule allows a plain simple command', () async {
+      final outcome = await env
+          .gate(config: anyBash)
+          .check(_call('bash', {'command': 'jj log -n 3'}), CancelToken());
+
+      expect(outcome.denyReason, isNull);
+      expect(outcome.record, {
+        'decision': 'allow',
+        'by': 'user',
+        'rule': 'bash',
+      });
+      expect(env.answerer.items, isEmpty);
+    });
+
+    test('a tool-wide bash rule does not approve a compound command', () async {
+      final pending = env
+          .gate(config: anyBash)
+          .check(_call('bash', {'command': 'echo a && echo b'}), CancelToken());
+      final item = await env.answerer.item(0);
+      expect(item.input['command'], 'echo a && echo b');
+      env.channel.reply(item.key, 'deny');
+      expect((await pending).denyReason, isNotNull);
+
+      // Under yolo the command falls through to yolo, not to the rule.
+      final yolo = await env
+          .gate(config: anyBash, yolo: true)
+          .check(_call('bash', {'command': 'echo a; echo b'}), CancelToken());
+      expect(yolo.record, {'decision': 'allow', 'by': 'yolo'});
+    });
+
+    test('a tool-wide bash rule does not approve a workspace-shadowed '
+        'program', () async {
+      final shadow = fakeBin(Directory(p.join(env.workspace.path, 'sh')), [
+        'jj',
+      ]);
+      final gate = PermissionGate(
+        workspace: env.workspace,
+        kehaiHome: env.home,
+        prompts: env.channel,
+        config: anyBash,
+        posixShell: true,
+        environment: {
+          'PATH': [shadow.path, '.'].join(Platform.isWindows ? ';' : ':'),
+        },
+      );
+
+      final pending = gate.check(
+        _call('bash', {'command': 'jj status'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.tool, 'bash');
+      env.channel.reply(item.key, 'deny');
+      expect((await pending).denyReason, isNotNull);
+    });
+
     test('prefix rule does not approve an appended command', () async {
       final pending = env
           .gate(config: jjStatus)
@@ -315,6 +373,40 @@ void main() {
     Map<String, Object?> node(SessionWriter w, String id) =>
         w.tree.get(SessionPath.parse('body/calls/${callKey(id)}'))!
             as Map<String, Object?>;
+
+    test(
+      'a tool-wide bash rule still prompts for a compound command',
+      () async {
+        final root = await tempDir();
+        final writer = await createWriter(root);
+        var runs = 0;
+        final runtime = await ToolRuntime.attach(
+          writer,
+          ResultStore(writer.sessionDir),
+          workspace: env.workspace,
+          kehaiHome: env.home,
+          config: const UserConfig(allow: [AllowRule('bash')]),
+          answerer: env.answerer,
+          tools: {'bash': _Counting(() => runs++)},
+        );
+        addTearDown(runtime.close);
+
+        final done = runtime.run(
+          ToolCall(
+            callId: 'k1',
+            name: 'bash',
+            argumentsJson: jsonEncode({'command': 'echo a && echo b'}),
+          ),
+        );
+        final item = await env.answerer.item(0);
+        expect(runtime.prompts.reply(item.key, 'deny'), isNull);
+        await done;
+
+        final n = node(writer, 'k1');
+        expect(n['permission'], {'decision': 'deny', 'by': 'answer'});
+        expect(runs, 0);
+      },
+    );
 
     test('denied prompt settles denied without effect', () async {
       final (runtime, writer, runs) = await attach(

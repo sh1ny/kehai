@@ -195,6 +195,7 @@ final class ToolRuntime {
     // never fails attach, it fails the calls that need it.
     final rg = resolveRg(
       rgPath: config.rgPath,
+      workspaceRoot: realPath(workspace.path) ?? workspace.path,
       configPath: kehaiHome == null
           ? configFileName
           : p.join(kehaiHome.path, configFileName),

@@ -33,7 +33,10 @@ void main() {
   late Directory ws;
   late RgFound rg;
   setUpAll(() async {
-    final found = await resolveRg(configPath: _configPath);
+    final found = await resolveRg(
+      configPath: _configPath,
+      workspaceRoot: Directory.systemTemp.path,
+    );
     expect(found, isA<RgFound>(), reason: 'rg must be on PATH to run tests');
     rg = found as RgFound;
   });
@@ -54,6 +57,7 @@ void main() {
       final explicit = await resolveRg(
         rgPath: rg.path,
         configPath: _configPath,
+        workspaceRoot: ws.path,
         environment: {'PATH': ''},
       );
       expect(explicit, isA<RgFound>());
@@ -62,6 +66,7 @@ void main() {
 
       final viaPath = await resolveRg(
         configPath: _configPath,
+        workspaceRoot: ws.path,
         environment: {'PATH': p.dirname(rg.path)},
       );
       expect(viaPath, isA<RgFound>());
@@ -69,8 +74,104 @@ void main() {
 
       // A file that is not rg fails --version and is not accepted.
       final fake = put('not-rg.txt', 'hello');
-      final bad = await resolveRg(rgPath: fake.path, configPath: _configPath);
+      final bad = await resolveRg(
+        rgPath: fake.path,
+        configPath: _configPath,
+        workspaceRoot: ws.path,
+      );
       expect(bad, isA<RgMissing>());
+    });
+
+    group('discovery never runs a repository program', () {
+      /// A copy of the real rg at `dir/rg`, so it runs and reports a version.
+      File copyRg(Directory dir) {
+        dir.createSync(recursive: true);
+        return File(rg.path)
+            .copySync(p.join(dir.path, Platform.isWindows ? 'rg.exe' : 'rg'));
+      }
+
+      test('a relative PATH entry is skipped', () async {
+        final inside = Directory(p.join(ws.path, 'bin'));
+        copyRg(inside);
+        final before = Directory.current;
+        Directory.current = ws.path;
+        try {
+          for (final entry in ['.', 'bin', '']) {
+            final found = await resolveRg(
+              configPath: _configPath,
+              workspaceRoot: ws.path,
+              environment: {'PATH': entry},
+            );
+            expect(found, isA<RgMissing>(), reason: 'entry "$entry"');
+          }
+          copyRg(ws);
+          final dot = await resolveRg(
+            configPath: _configPath,
+            workspaceRoot: ws.path,
+            environment: {'PATH': '.'},
+          );
+          expect(dot, isA<RgMissing>());
+        } finally {
+          Directory.current = before;
+        }
+      });
+
+      test('a workspace rg that shadows an outside one is skipped', () async {
+        final inside = copyRg(Directory(p.join(ws.path, 'shadow')));
+        final outsideDir = await tempDir();
+        final outside = copyRg(outsideDir);
+        final separator = Platform.isWindows ? ';' : ':';
+
+        final found = await resolveRg(
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {
+            'PATH': [p.dirname(inside.path), outsideDir.path].join(separator),
+          },
+        );
+        expect(found, isA<RgFound>());
+        expect((found as RgFound).path, outside.path);
+
+        final onlyInside = await resolveRg(
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {'PATH': p.dirname(inside.path)},
+        );
+        expect(onlyInside, isA<RgMissing>());
+      });
+
+      test('a workspace rg is never executed during discovery', () async {
+        final marker = p.join(ws.path, 'ran');
+        final dir = Directory(p.join(ws.path, 'evil'))..createSync();
+        final script = File(p.join(dir.path, 'rg'))
+          ..writeAsStringSync(
+            '#!/bin/sh\ntouch "$marker"\necho "ripgrep 1.0.0"\n',
+          );
+        Process.runSync('chmod', ['755', script.path]);
+
+        final found = await resolveRg(
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {'PATH': dir.path},
+        );
+
+        expect(found, isA<RgMissing>());
+        expect(File(marker).existsSync(), isFalse);
+      }, skip: Platform.isWindows ? 'needs a POSIX script' : false);
+
+      test('a configured rgPath inside the workspace still works', () async {
+        final inside = copyRg(Directory(p.join(ws.path, 'mine')));
+
+        final found = await resolveRg(
+          rgPath: inside.path,
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {'PATH': ''},
+        );
+
+        expect(found, isA<RgFound>());
+        expect((found as RgFound).path, inside.path);
+      });
     });
 
     test(
@@ -80,11 +181,13 @@ void main() {
         final missing = [
           await resolveRg(
             configPath: _configPath,
+            workspaceRoot: ws.path,
             environment: {'PATH': empty.path},
           ),
           await resolveRg(
             rgPath: p.join(ws.path, 'no-such-rg'),
             configPath: _configPath,
+            workspaceRoot: ws.path,
           ),
         ];
         put('a.txt', 'needle\n');

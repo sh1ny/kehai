@@ -187,7 +187,10 @@ void main() {
   }, skip: skipWithoutShell());
 
   test('ls, grep and find resolve path the way the gate does', () async {
-    final rg = await resolveRg(configPath: 'config.json') as RgFound;
+    final rg = await resolveRg(
+      configPath: 'config.json',
+      workspaceRoot: Directory.systemTemp.path,
+    ) as RgFound;
     File(p.join(outside.path, 'only-outside.txt')).writeAsStringSync('o');
 
     final lsOut = RecordingOutput();

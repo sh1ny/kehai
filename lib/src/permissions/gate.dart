@@ -161,9 +161,14 @@ final class PermissionGate implements CallStage {
   String? _userRule(StageCall call) {
     for (final rule in config.allow) {
       if (rule.tool != call.tool) continue;
-      final prefix = rule.argv;
-      if (prefix == null) return rule.label;
-      if (call.tool != 'bash' || !posixShell) continue;
+      if (rule.tool != 'bash') {
+        if (rule.argv == null) return rule.label;
+        continue;
+      }
+      // A bash rule, with or without an argv prefix, matches only a simple
+      // command whose program resolves outside the workspace.
+      final prefix = rule.argv ?? const <String>[];
+      if (!posixShell) continue;
       final command = call.input['command'];
       final argv = command is String ? tokenizeSimple(command) : null;
       if (argv == null || argv.length < prefix.length) continue;
