@@ -210,6 +210,9 @@ final class ExchangeDriver {
   /// The running exchange's cancel token, or null when idle.
   CancelToken? get exchangeToken => _token;
 
+  /// The reason a cancelled exchange records: `user` unless shut down.
+  String _cancelReason = 'user';
+
   /// Interrupts the running exchange; returns whether one was running.
   ///
   /// It cancels the exchange token, which aborts the provider stream and any
@@ -222,6 +225,13 @@ final class ExchangeDriver {
     token.cancel();
     await runtime.cancelTurn();
     return true;
+  }
+
+  /// Cancels the running exchange for engine shutdown, so its step and end
+  /// carry reason `shutdown`. The caller cancels the live calls itself.
+  void cancelForShutdown() {
+    _cancelReason = 'shutdown';
+    _token?.cancel();
   }
 
   /// Records every step and exchange a dead engine left `running` as
@@ -324,6 +334,7 @@ final class ExchangeDriver {
   ) async {
     final key = _exchangeKey(first);
     final token = _token = CancelToken();
+    _cancelReason = 'user';
     await _apply(
       JournalRecord(
         turn: first,
@@ -346,7 +357,7 @@ final class ExchangeDriver {
         break;
       }
       if (token.isCancelled) {
-        end = const _End('cancelled', 'user');
+        end = _End('cancelled', _cancelReason);
         break;
       }
       if (steps >= maxSteps) {
@@ -439,8 +450,8 @@ final class ExchangeDriver {
       final _End end;
       if (cancelled) {
         state = 'cancelled';
-        reason = 'user';
-        end = const _End('cancelled', 'user');
+        reason = _cancelReason;
+        end = _End('cancelled', _cancelReason);
       } else if (failure!.kind == ProviderFailureKind.contextOverflow) {
         state = 'failed';
         reason = 'context overflow';

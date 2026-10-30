@@ -60,6 +60,10 @@ Future<int> runRpc({
   SessionWriter? writer;
   ToolRuntime? runtime;
   ExchangeDriver? driver;
+  // A terminal sends Ctrl-C to the engine as well as the client; listening
+  // ignores it (on Windows it also consumes the console event), so only the
+  // `interrupt` command cancels (design D14).
+  final sigint = ProcessSignal.sigint.watch().listen((_) {});
   try {
     final real = realPath(workspace.path) ?? p.absolute(workspace.path);
     final canonical = canonicalWorkspace(workspace.path);
@@ -151,6 +155,7 @@ Future<int> runRpc({
   } on CredentialStoreError catch (e) {
     return _fatal(output, 'credentials unavailable: ${printable(e.message)}');
   } finally {
+    await sigint.cancel();
     await runtime?.close();
     await driver?.close();
     await writer?.close();

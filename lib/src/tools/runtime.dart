@@ -400,6 +400,13 @@ final class ToolRuntime {
   /// [JobSupervisor.cancelJob].
   Future<CancelOutcome> cancelJob(String id) => jobs.cancelJob(id);
 
+  /// Cancels the calls live now with reason `shutdown`, like [cancelTurn],
+  /// without closing the runtime; the server calls it when its input ends.
+  ///
+  /// The reasons are set before this returns its future, so cancelling the
+  /// exchange token right after cannot give those calls reason `user`.
+  Future<int> cancelForShutdown() => _cancelAll('shutdown');
+
   /// Stops admitting calls and cancels the ones still live, jobs included.
   Future<void> close() async {
     _closed = true;
@@ -409,6 +416,12 @@ final class ToolRuntime {
 
   Future<int> _cancelAll(String reason) async {
     final calls = _live.values.toList();
+    // Every call gets its reason now: a running call is cancelled only after
+    // the pending ones ended, and a cancelled exchange token would otherwise
+    // give it `user` first.
+    for (final call in calls) {
+      call.cancelReason ??= reason;
+    }
     var cancelled = 0;
     for (final running in [false, true]) {
       final group = [

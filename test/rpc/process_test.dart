@@ -45,6 +45,24 @@ final class Engine {
     return lines.current;
   }
 
+  /// Reads lines until one satisfies [test], answering every permission prompt
+  /// with `allow` on the way.
+  Future<Map<String, Object?>> lineWhere(
+    bool Function(Map<String, Object?> line) test,
+  ) async {
+    while (true) {
+      final line = await nextLine();
+      if (line['type'] == 'prompt') {
+        final item = line['item']! as Map<String, Object?>;
+        send({'type': 'answer', 'key': item['key'], 'text': 'allow'});
+      }
+      if (test(line)) return line;
+    }
+  }
+
+  void send(Map<String, Object?> command) =>
+      process.stdin.writeln(jsonEncode(command));
+
   Future<int> exitCode() => process.exitCode.timeout(
     const Duration(seconds: 90),
     onTimeout: () {
@@ -90,7 +108,19 @@ Future<Engine> startEngine(
   );
 }
 
+/// Whether [line] is an update that sets the node at [path] to a map with
+/// `state` or `status` equal to [value].
+bool _updates(Map<String, Object?> line, String path, String value) {
+  if (line['type'] != 'update') return false;
+  final record = line['record']! as Map<String, Object?>;
+  final node = record['value'];
+  return record['path'] == path &&
+      node is Map<String, Object?> &&
+      (node['state'] == value || node['status'] == value);
+}
+
 void main() {
+  final unixOnly = Platform.isWindows ? 'unix only' : false;
   late TestHome home;
   late Directory workspace;
 
@@ -237,5 +267,112 @@ void main() {
         expect(await engine.exitCode(), 0);
       },
     );
+  });
+
+  group('Signals and client loss', () {
+    test('[unix] SIGINT to the engine does not stop the exchange', () async {
+      final fake = await FakeOpenAi.start();
+      home.store.replace(loggedInRecord());
+      File(p.join(home.path, 'config.json'))
+          .writeAsStringSync(jsonEncode({'model': 'gpt-fake'}));
+      final turn = sseTextTurn('par');
+      fake.responsesScripts.add(
+        ResponsesScript.sse([
+          turn[0],
+          turn[1],
+          const Delay(Duration(seconds: 2)),
+          ...turn.skip(2),
+        ]),
+      );
+      final engine = await startEngine(
+        const [],
+        home: home,
+        workspace: workspace,
+        fake: fake,
+      );
+      await engine.nextLine();
+      await engine.nextLine();
+      engine.send({'type': 'submit', 'id': 'r1', 'text': 'hi', 'turn': 0});
+      await engine.lineWhere((l) => l['type'] == 'stream');
+
+      expect(engine.process.kill(ProcessSignal.sigint), isTrue);
+
+      final done = await engine.lineWhere(
+        (l) => _updates(l, 'meta/requests/r1', 'completed'),
+      );
+      final outcome =
+          ((done['record']! as Map<String, Object?>)['value']!
+                  as Map<String, Object?>)['outcome']
+              as Map<String, Object?>;
+      expect(outcome['state'], 'done');
+      await engine.process.stdin.close();
+      expect(await engine.exitCode(), 0);
+    }, skip: unixOnly);
+
+    test('stdin EOF cancels the foreground bash, releases the lock and '
+        'exits 0', () async {
+      final fake = await FakeOpenAi.start();
+      home.store.replace(loggedInRecord());
+      File(p.join(home.path, 'config.json'))
+          .writeAsStringSync(jsonEncode({'model': 'gpt-fake'}));
+      fake.responsesScripts.add(
+        ResponsesScript.sse([
+          SseEvent.json('response.created', {
+            'response': {'id': 'resp_1'},
+          }),
+          SseEvent.json('response.output_item.done', {
+            'item': {
+              'type': 'function_call',
+              'call_id': 'call_sleep',
+              'name': 'bash',
+              'arguments': jsonEncode({'command': 'sleep 120'}),
+            },
+          }),
+          SseEvent.json('response.completed', {
+            'response': {'id': 'resp_1'},
+          }),
+        ]),
+      );
+      final engine = await startEngine(
+        const [],
+        home: home,
+        workspace: workspace,
+        fake: fake,
+      );
+      final hello = await engine.nextLine();
+      await engine.nextLine();
+      engine.send({'type': 'submit', 'id': 'r1', 'text': 'wait', 'turn': 0});
+      final key = callKey('call_sleep');
+      await engine.lineWhere((l) => _updates(l, 'body/calls/$key', 'running'));
+
+      await engine.process.stdin.close();
+
+      expect(await engine.exitCode(), 0);
+      final dir = Directory(
+        p.join(
+          home.path,
+          'sessions',
+          keyOf(workspace.path),
+          hello['session']! as String,
+        ),
+      );
+      final reopened = await SessionWriter.open(dir);
+      addTearDown(reopened.close);
+      final tree = reopened.tree;
+      expect(
+        tree.get(SessionPath.parse('body/calls/$key')),
+        allOf(
+          containsPair('status', 'cancelled'),
+          containsPair('reason', 'shutdown'),
+        ),
+      );
+      expect(
+        tree.get(SessionPath.parse('body/exchanges/x-00000001')),
+        allOf(
+          containsPair('state', 'cancelled'),
+          containsPair('reason', 'shutdown'),
+        ),
+      );
+    });
   });
 }

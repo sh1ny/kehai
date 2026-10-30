@@ -37,6 +37,7 @@ final class RpcRig {
   final RpcServer server;
 
   final StreamController<List<int>> _input;
+  late final StreamSubscription<String> _lines;
 
   /// Every event the server wrote, decoded, in order.
   final List<Map<String, Object?>> events = [];
@@ -54,6 +55,15 @@ final class RpcRig {
 
   /// Writes raw [bytes].
   void sendBytes(List<int> bytes) => _input.add(bytes);
+
+  /// Whether the server paused its reading of the input.
+  bool get inputPaused => _input.isPaused;
+
+  /// Stops reading the server's output, as a client that stalled.
+  void stallOutput() => _lines.pause();
+
+  /// Reads the server's output again.
+  void resumeOutput() => _lines.resume();
 
   /// Ends the input, as a client that went away.
   Future<void> closeInput() => _input.close();
@@ -110,6 +120,7 @@ final class RpcRig {
 
   /// Closes the input and waits for the server to return.
   Future<int> finish() async {
+    resumeOutput();
     if (!_input.isClosed) unawaited(_input.close());
     return exit;
   }
@@ -122,10 +133,14 @@ Future<RpcRig> rpcRig(
   CallStage? gate,
   bool kehaiHome = false,
   int seedTurn = 0,
+  PumpLimits limits = const PumpLimits(),
+  Directory? resumeSession,
 }) async {
   final root = await tempDir();
   final ws = Directory(p.join(root.path, 'ws'))..createSync();
-  final writer = await SessionWriter.create(Directory(p.join(root.path, 's')));
+  final writer = resumeSession != null
+      ? await SessionWriter.open(resumeSession)
+      : await SessionWriter.create(Directory(p.join(root.path, 's')));
   for (var turn = 1; turn <= seedTurn; turn++) {
     await writer.apply(
       rec(turn, 'body/exchanges/x-seed$turn', Op.set, {'state': 'done'}),
@@ -163,17 +178,19 @@ Future<RpcRig> rpcRig(
       workspace: ws.path,
       model: 'gpt-5.5',
     ),
+    limits: limits,
   );
   final rig = RpcRig._(writer, runtime, driver, provider, server, input);
-  out.stream.transform(utf8.decoder).transform(const LineSplitter()).listen((
-    line,
-  ) {
-    rig.events.add(jsonDecode(line) as Map<String, Object?>);
-    for (final wake in rig._waiting.toList()) {
-      if (!wake.isCompleted) wake.complete();
-    }
-    rig._waiting.clear();
-  });
+  rig._lines = out.stream
+      .transform(utf8.decoder)
+      .transform(const LineSplitter())
+      .listen((line) {
+        rig.events.add(jsonDecode(line) as Map<String, Object?>);
+        for (final wake in rig._waiting.toList()) {
+          if (!wake.isCompleted) wake.complete();
+        }
+        rig._waiting.clear();
+      });
   rig.exit = server.run();
   addTearDown(() async {
     await rig.finish();
@@ -189,3 +206,55 @@ List<ProviderEvent> textStep(List<String> deltas) => [
   for (final d in deltas) TextDelta(d),
   const Completed(StopReason.endTurn),
 ];
+
+/// The tree a client holds after reading [events]: the last `snapshot` with
+/// every later `update` at or after its offset applied.
+///
+/// Null before the first snapshot. A `resync` drops the mirror until the
+/// snapshot that follows it.
+SessionTree? mirrorOf(List<Map<String, Object?>> events) {
+  SessionTree? mirror;
+  var from = 0;
+  for (final event in events) {
+    switch (event['type']) {
+      case 'resync':
+        mirror = null;
+      case 'snapshot':
+        mirror = SessionTree.fromJson(event['tree']! as Map<Object?, Object?>);
+        from = event['offset']! as int;
+      case 'update':
+        final offset = event['offset']! as int;
+        final record = event['record']! as Map<String, Object?>;
+        // A mirror holds no timeline to rewind; the resync that follows resets it.
+        if (record['op'] == 'rewind') {
+          mirror = null;
+        } else if (mirror != null && offset >= from) {
+          mirror.apply(
+            JournalRecord(
+              turn: record['turn']! as int,
+              path: record['path']! as String,
+              op: Op.fromWire(record['op']! as String)!,
+              value: record['value'],
+            ),
+          );
+        }
+    }
+  }
+  return mirror;
+}
+
+/// Waits until the client mirror of [rig] equals the engine's tree.
+Future<void> expectConverges(RpcRig rig) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 8));
+  while (true) {
+    final mirror = mirrorOf(rig.events);
+    if (mirror != null &&
+        equals(rig.writer.tree.toJson()).matches(mirror.toJson(), {})) {
+      return;
+    }
+    if (DateTime.now().isAfter(deadline)) {
+      fail('the client mirror never matched the engine tree');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+  }
+}

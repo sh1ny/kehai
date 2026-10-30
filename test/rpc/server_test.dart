@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:kehai/kehai.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_provider.dart';
 import '../support/rpc_support.dart';
+import '../support/session_support.dart';
 
 /// A tool that records that it ran and settles `ok`.
 final class _Flag implements Tool {
@@ -36,6 +39,17 @@ FakeProvider _gated(Completer<void> release, List<List<ProviderEvent>> steps) =>
 
 Map<String, Object?> _record(Map<String, Object?> update) =>
     update['record']! as Map<String, Object?>;
+
+/// Waits until the engine's tree records request [id] as no longer admitted.
+Future<void> _untilSettled(RpcRig rig, String id) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 8));
+  while (true) {
+    final node = rig.writer.tree.get(SessionPath.parse('meta/requests/$id'));
+    if (node is Map<String, Object?> && node['state'] != 'admitted') return;
+    if (DateTime.now().isAfter(deadline)) fail('request $id never settled');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+}
 
 void main() {
   group('Materialization then ordered updates', () {
@@ -83,6 +97,56 @@ void main() {
         expect(rig.ofType('resync'), isEmpty);
       },
     );
+
+    test(
+      'rewind update is followed by resync and the rewound snapshot',
+      () async {
+        final rig = await rpcRig(FakeProvider.steps(const []));
+        await rig.nextOfType('snapshot');
+        await rig.writer.apply(rec(1, 'body/a', Op.set, 1));
+        await rig.writer.apply(rec(2, 'body/b', Op.set, 2));
+
+        final rewind = await rig.writer.rewind(1);
+
+        final resync = await rig.nextOfType('resync');
+        final at = rig.events.indexOf(resync);
+        expect(rig.events[at - 1]['type'], 'update');
+        expect(rig.events[at - 1]['offset'], rewind.offset);
+        expect(_record(rig.events[at - 1])['op'], 'rewind');
+        final snapshot = await rig.nextOfType('snapshot', from: at + 1);
+        expect(rig.events[at + 1], same(snapshot));
+        expect(snapshot['tree'], rig.writer.tree.toJson());
+        expect(snapshot['offset'], rig.writer.committedLength);
+        final body = (snapshot['tree']! as Map<String, Object?>)['body'];
+        expect(body, {'a': 1});
+        await expectConverges(rig);
+      },
+    );
+
+    test('snapshot offset after a cut torn tail is the cut length', () async {
+      final root = await tempDir();
+      final first = await SessionWriter.create(Directory(root.path));
+      await first.apply(rec(1, 'body/a', Op.set, 1));
+      final committed = first.committedLength;
+      await first.close();
+      final journal = journalOf(first.sessionDir);
+      journal.writeAsBytesSync(
+        utf8.encode('{"turn":2,"pa'),
+        mode: FileMode.append,
+      );
+      expect(journal.lengthSync(), greaterThan(committed));
+
+      final rig = await rpcRig(
+        FakeProvider.steps(const []),
+        resumeSession: first.sessionDir,
+      );
+      final snapshot = await rig.nextOfType('snapshot');
+
+      expect(rig.writer.tornTail, isNotNull);
+      expect(journal.lengthSync(), committed);
+      expect(snapshot['offset'], committed);
+      expect(snapshot['offset'], rig.writer.committedLength);
+    });
   });
 
   group('Ephemeral stream events', () {
@@ -113,6 +177,33 @@ void main() {
       expect(output, [
         {'type': 'text', 'text': 'Hello'},
       ]);
+    });
+  });
+
+  group('Ephemeral stream events', () {
+    test('dropped deltas leave the whole text in snapshot or update', () async {
+      final provider = FakeProvider((request, cancel, call) async* {
+        for (var i = 0; i < 300; i++) {
+          yield const TextDelta('x');
+        }
+        yield const Completed(StopReason.endTurn);
+      });
+      final rig = await rpcRig(
+        provider,
+        limits: const PumpLimits(droppable: 2048, batch: 1024),
+      );
+      await rig.nextOfType('snapshot');
+      rig.stallOutput();
+
+      rig.send({'type': 'submit', 'id': 'r1', 'text': 'go', 'turn': 0});
+      await _untilSettled(rig, 'r1');
+      rig.resumeOutput();
+
+      await expectConverges(rig);
+      expect(rig.ofType('resync'), isNotEmpty);
+      expect(rig.ofType('stream').length, lessThan(300));
+      final mirror = mirrorOf(rig.events)!;
+      expect(jsonEncode(mirror.toJson()), contains('x' * 300));
     });
   });
 

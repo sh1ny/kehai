@@ -51,14 +51,14 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | engine-rpc → Session opened for the workspace | Session locked | test/rpc/process_test.dart | resume of a locked session writes fatal naming the holder and exits 1 | green |
 | engine-rpc → Session opened for the workspace | Nothing to resume | test/rpc/process_test.dart | resume with no session writes fatal and exits 1 | green |
 | engine-rpc → Materialization then ordered updates | Client tree matches the engine | test/rpc/server_test.dart | snapshot plus updates equals the engine tree through one exchange | green |
-| engine-rpc → Materialization then ordered updates | Rewind committed | test/rpc/server_test.dart | rewind update is followed by resync and the rewound snapshot | red |
-| engine-rpc → Materialization then ordered updates | Offsets after resume | test/rpc/server_test.dart | snapshot offset after a cut torn tail is the cut length | red |
-| engine-rpc → Resync of a slow client | Client stops reading | test/rpc/pump_test.dart | stalled reader gets resync and snapshot then converges | red |
-| engine-rpc → Resync of a slow client | Repeated overflow while stalled | test/rpc/pump_test.dart | three overflows keep one pending resync with the latest tree | red |
-| engine-rpc → Resync of a slow client | Commands while output is stalled | test/rpc/pump_test.dart | 1 MiB of pending replies pauses stdin reading | red |
-| engine-rpc → Resync of a slow client | Client keeps up | test/rpc/pump_test.dart | prompt reader never gets resync | red |
+| engine-rpc → Materialization then ordered updates | Rewind committed | test/rpc/server_test.dart | rewind update is followed by resync and the rewound snapshot | green |
+| engine-rpc → Materialization then ordered updates | Offsets after resume | test/rpc/server_test.dart | snapshot offset after a cut torn tail is the cut length | green |
+| engine-rpc → Resync of a slow client | Client stops reading | test/rpc/pump_test.dart | stalled reader gets resync and snapshot then converges | green |
+| engine-rpc → Resync of a slow client | Repeated overflow while stalled | test/rpc/pump_test.dart | three overflows keep one pending resync with the latest tree | green |
+| engine-rpc → Resync of a slow client | Commands while output is stalled | test/rpc/pump_test.dart | 1 MiB of pending replies pauses stdin reading | green |
+| engine-rpc → Resync of a slow client | Client keeps up | test/rpc/pump_test.dart | prompt reader never gets resync | green |
 | engine-rpc → Ephemeral stream events | Streamed text matches the commit | test/rpc/server_test.dart | two stream events then the committed Hello update | green |
-| engine-rpc → Ephemeral stream events | Deltas lost to a resync | test/rpc/server_test.dart | dropped deltas leave the whole text in snapshot or update | red |
+| engine-rpc → Ephemeral stream events | Deltas lost to a resync | test/rpc/server_test.dart | dropped deltas leave the whole text in snapshot or update | green |
 | engine-rpc → Commands correlated by request id | Duplicate submit | test/rpc/server_test.dart | duplicate submit reports the recorded state and runs once | green |
 | engine-rpc → Commands correlated by request id | Id collision | test/rpc/server_test.dart | reused id with other text is a request id collision | green |
 | engine-rpc → Commands correlated by request id | Stale submit | test/rpc/server_test.dart | submit at an older turn is stale and not admitted | green |
@@ -67,8 +67,8 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | engine-rpc → Interrupt, answer and status | Wrong answer | test/rpc/server_test.dart | answer outside the choices errors and the prompt stays open | green |
 | engine-rpc → Prompts reach the client | Permission prompt | test/rpc/server_test.dart | non-autoapproved bash sends a permission prompt and allow runs it | green |
 | engine-rpc → Prompts reach the client | Prompt withdrawn by interrupt | test/rpc/server_test.dart | interrupt withdraws the open question and a late answer is refused | green |
-| engine-rpc → Signals and client loss | Ctrl-C reaches the engine | test/rpc/process_test.dart | [unix] SIGINT to the engine does not stop the exchange | red |
-| engine-rpc → Signals and client loss | Client exits mid-exchange | test/rpc/process_test.dart | stdin EOF cancels the foreground bash, releases the lock and exits 0 | red |
+| engine-rpc → Signals and client loss | Ctrl-C reaches the engine | test/rpc/process_test.dart | [unix] SIGINT to the engine does not stop the exchange | green |
+| engine-rpc → Signals and client loss | Client exits mid-exchange | test/rpc/process_test.dart | stdin EOF cancels the foreground bash, releases the lock and exits 0 | green |
 | line-client → Client over the engine process | Start | test/client/process_test.dart | kehai --model starts kehai rpc and shows session, model and prompt | green |
 | line-client → Client over the engine process | Engine cannot start | test/client/process_test.dart | logged-out start prints the engine fatal and exits 1 | green |
 | line-client → Model selection | No model configured | test/client/process_test.dart | no model anywhere fails with the hint and the model list | green |
@@ -144,8 +144,8 @@ The *Missing configuration* row is red because its expectation grows (no default
 
 ## 6. RPC output pump and signals
 
-- [ ] 6.1 Write the failing `test/rpc/pump_test.dart` rows, and the `server_test.dart` rows *Rewind committed*, *Offsets after resume* and *Deltas lost to a resync*. Replace the simple pump with the D12 pump: 16 MiB droppable, 1 MiB reliable with stdin pause, one coalesced `resync` + `snapshot` taken at write time. Verify that the rows pass and flip them green.
-- [ ] 6.2 Write the failing `test/rpc/process_test.dart` rows *Ctrl-C reaches the engine* (`[unix]`) and *Client exits mid-exchange*. Implement the engine's ignored `SIGINT` and stdin-EOF shutdown (D14). Verify on Windows and through the WSL runner, and flip the rows green.
+- [x] 6.1 Write the failing `test/rpc/pump_test.dart` rows, and the `server_test.dart` rows *Rewind committed*, *Offsets after resume* and *Deltas lost to a resync*. Replace the simple pump with the D12 pump: 16 MiB droppable, 1 MiB reliable with stdin pause, one coalesced `resync` + `snapshot` taken at write time. Verify that the rows pass and flip them green.
+- [x] 6.2 Write the failing `test/rpc/process_test.dart` rows *Ctrl-C reaches the engine* (`[unix]`) and *Client exits mid-exchange*. Implement the engine's ignored `SIGINT` and stdin-EOF shutdown (D14). Verify on Windows and through the WSL runner, and flip the rows green.
 
 ## 7. Line client prompts, Ctrl-C and Windows
 

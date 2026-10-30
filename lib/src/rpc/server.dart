@@ -85,6 +85,7 @@ final class RpcServer {
     required this.input,
     required this.output,
     required this.hello,
+    this.limits = const PumpLimits(),
   });
 
   /// The session writer.
@@ -108,16 +109,31 @@ final class RpcServer {
   /// What `hello` reports.
   final HelloInfo hello;
 
-  late final OutputPump _pump = OutputPump(output);
+  /// The output bounds.
+  final PumpLimits limits;
+
+  /// The reliable bytes waiting to be written.
+  int get pendingReliableBytes => _pump.reliableBytes;
+
+  late final OutputPump _pump = OutputPump(
+    output,
+    limits: limits,
+    resync: _resyncEvents,
+    onRelief: _syncReading,
+  );
   final Completer<int> _end = Completer<int>();
   StreamSubscription<CommittedUpdate>? _updates;
+  StreamSubscription<LineEvent>? _commands;
   Future<void> _running = Future.value();
+  bool _handling = false;
+  bool _readPaused = false;
 
   /// Serves until the input ends or a fatal error; returns the exit code.
   ///
-  /// On end of input the running exchange is cancelled and awaited, and the
-  /// pump is flushed. Closing the runtime, the driver and the writer is the
-  /// caller's, who owns them. After a `fatal` line the code is 1.
+  /// On end of input the running exchange and every live call are cancelled
+  /// (the calls with reason `shutdown`) and awaited, and the pump is flushed.
+  /// Closing the runtime, the driver and the writer is the caller's, who owns
+  /// them. After a `fatal` line the code is 1.
   Future<int> run() async {
     answerer.bind(_pump.send);
     _pump.send(
@@ -137,12 +153,14 @@ final class RpcServer {
     _subscribe();
     _sendSnapshot();
 
-    final commands = readLines(input).listen(null);
+    final commands = _commands = readLines(input).listen(null);
     commands
       ..onData((event) {
-        commands.pause();
+        _handling = true;
+        _syncReading();
         _handle(event).whenComplete(() {
-          if (!_end.isCompleted) commands.resume();
+          _handling = false;
+          _syncReading();
         });
       })
       ..onError((Object _) => _finish(0))
@@ -152,11 +170,30 @@ final class RpcServer {
     await commands.cancel();
     await deltas.cancel();
     await _updates?.cancel();
-    driver.exchangeToken?.cancel();
+    // The reasons are set before the exchange token cancels, which would
+    // otherwise record its calls as cancelled by the user.
+    final calls = runtime.cancelForShutdown();
+    driver.cancelForShutdown();
+    await calls;
     await _running.timeout(_shutdownWait, onTimeout: () {});
     answerer.bind((_) {});
     await _pump.flush();
     return code;
+  }
+
+  /// Reads commands only while none is being handled and the replies are not
+  /// backed up past the reliable limit, so a stalled client's writes block.
+  void _syncReading() {
+    final commands = _commands;
+    if (commands == null || _end.isCompleted) return;
+    final wantPaused = _handling || _pump.saturated;
+    if (wantPaused == _readPaused) return;
+    _readPaused = wantPaused;
+    if (wantPaused) {
+      commands.pause();
+    } else {
+      commands.resume();
+    }
   }
 
   void _finish(int code) {
@@ -183,13 +220,23 @@ final class RpcServer {
     ),
   );
 
-  /// Tells the client to drop its mirror and start again from a fresh
-  /// snapshot, then resumes the updates after it.
-  void _resync() {
+  /// The events the pump writes for a pending resync: the client drops its
+  /// mirror and starts again from this snapshot.
+  ///
+  /// The updates are resubscribed before the tree is read, in one step, so
+  /// none falls between them; those committed since the resync was requested
+  /// are in the snapshot and were not queued.
+  List<Map<String, Object?>> _resyncEvents() {
     unawaited(_updates?.cancel());
-    _pump.send(const {'type': 'resync'});
-    _subscribe();
-    _sendSnapshot();
+    if (!_end.isCompleted) _subscribe();
+    return [
+      const {'type': 'resync'},
+      snapshotEvent(
+        offset: writer.committedLength,
+        turn: writer.currentTurn,
+        tree: writer.tree.toJson(),
+      ),
+    ];
   }
 
   void _onUpdate(CommittedUpdate update) {
@@ -203,12 +250,13 @@ final class RpcServer {
       }),
       droppable: true,
     );
-    // A client mirror holds no timeline to fold a rewind into.
-    if (record.op == Op.rewind) _resync();
+    // A client mirror holds no timeline to fold a rewind into; the resync
+    // follows the update, which stays queued.
+    if (record.op == Op.rewind) _pump.requestResync(keepQueued: true);
   }
 
   void _onUpdateError(Object error) {
-    if (error is ResyncRequired) _resync();
+    if (error is ResyncRequired) _pump.requestResync();
   }
 
   Future<void> _handle(LineEvent event) async {
