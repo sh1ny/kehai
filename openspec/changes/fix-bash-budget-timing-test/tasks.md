@@ -10,7 +10,7 @@ The change sets `skip_specs: true` (test timing margins only, no spec-level beha
 
 ## 1. Test margins
 
-- [ ] 1.1 In `test/shell/bash_tool_test.dart`, change the budget-expiry test to run `echo start; sleep 15; echo end`, assert `clock.elapsed < 10 s`, and pass `limit: const Duration(seconds: 60)` to its final `waitFor`, per design D1. Verify: `dart test -j 1 test/shell/bash_tool_test.dart --exclude-tags slow` passes locally on Windows, and the PR's `check (windows-latest)` and `check (ubuntu-latest)` jobs pass.
+- [x] 1.1 In `test/shell/bash_tool_test.dart`, change the budget-expiry test to run `echo start; sleep 15; echo end`, assert `clock.elapsed < 10 s`, and pass `limit: const Duration(seconds: 60)` to its final `waitFor`, per design D1. Verify: `dart test -j 1 test/shell/bash_tool_test.dart --exclude-tags slow` passes locally on Windows, and the PR's `check (windows-latest)` and `check (ubuntu-latest)` jobs pass.
 
 ## Workflow follow-up
 
