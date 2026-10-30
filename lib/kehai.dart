@@ -86,3 +86,14 @@ export 'src/shell/launch.dart'
 export 'src/jobs/recovery.dart';
 export 'src/jobs/supervisor.dart';
 export 'src/hooks/hook_stage.dart' show HookStage, maxHookReasonBytes;
+export 'src/loop/driver.dart';
+export 'src/loop/instructions.dart';
+export 'src/loop/request_builder.dart';
+export 'src/loop/sensorium.dart';
+export 'src/client/client.dart';
+export 'src/client/engine_process.dart';
+export 'src/rpc/codec.dart';
+export 'src/rpc/protocol.dart';
+export 'src/rpc/pump.dart';
+export 'src/rpc/server.dart';
+export 'src/rpc/session_location.dart';

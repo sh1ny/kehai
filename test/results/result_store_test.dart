@@ -191,6 +191,69 @@ void main() {
     expect(_resultFiles(dir), hasLength(2));
   });
 
+  test(
+    'a store of held bytes waits for the move in flight, then reads',
+    () async {
+      // Windows refuses to open a file another store deletes or renames onto,
+      // so a second store of the same hash must not touch the final name while
+      // the first owns it, even through another store instance.
+      final dir = _sessionDir(root);
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final first = ResultStore(
+        dir,
+        hooks: ResultStoreHooks(
+          inFinalize: () async {
+            entered.complete();
+            await release.future;
+          },
+        ),
+      );
+      var moves = 0;
+      final second = ResultStore(
+        dir,
+        hooks: ResultStoreHooks(inFinalize: () async => moves++),
+      );
+      final bytes = utf8.encode('same\n');
+      final firstWrite = first.storeResult(Stream.value(bytes));
+      await entered.future;
+
+      var secondDone = false;
+      final secondWrite = second.storeResult(Stream.value(bytes)).then((w) {
+        secondDone = true;
+        return w;
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(secondDone, isFalse, reason: 'second store must wait');
+      expect(moves, 0);
+
+      release.complete();
+      expect(await firstWrite, isA<ResultComplete>());
+      final write = await secondWrite as ResultComplete;
+      expect(moves, 0, reason: 'second finds the bytes in place');
+      final file = File(
+        p.join(dir.path, resultsDirName, write.descriptor.sha256),
+      );
+      expect(await file.readAsString(), 'same\n');
+      expect(_resultFiles(dir), [write.descriptor.sha256]);
+    },
+  );
+
+  test('32 concurrent stores each read their bytes straight back', () async {
+    final dir = _sessionDir(root);
+    final store = ResultStore(dir);
+    await Future.wait([
+      for (var i = 0; i < 32; i++)
+        () async {
+          final write = await store.storeResult(const Stream.empty());
+          final d = (write as ResultComplete).descriptor;
+          final file = File(p.join(dir.path, resultsDirName, d.sha256));
+          expect(await file.readAsString(), isEmpty);
+        }(),
+    ]);
+    expect(_resultFiles(dir), hasLength(1));
+  });
+
   test('flush and rename failures leave no final-name file', () async {
     var n = 0;
     for (final hooks in [

@@ -1,6 +1,7 @@
 /// Content-addressed storage of whole tool results.
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -21,6 +22,7 @@ final class ResultStoreHooks {
     this.afterWrite,
     this.beforeFlush,
     this.beforeRename,
+    this.inFinalize,
   });
 
   /// Runs before chunk number `index` is written; may throw to inject a fault.
@@ -34,6 +36,10 @@ final class ResultStoreHooks {
 
   /// Runs before the temporary file is renamed; may throw.
   final Future<void> Function()? beforeRename;
+
+  /// Runs while the store owns the final name, before it deletes a torn
+  /// target and renames; only called when the target does not hold the bytes.
+  final Future<void> Function()? inFinalize;
 }
 
 /// The outcome of [ResultStore.storeResult].
@@ -225,6 +231,7 @@ final class ResultStore {
         File(tempPath),
         File(p.join(dir.path, digest)),
         accepted,
+        inFinalize: hooks.inFinalize,
       );
     } on Object catch (e) {
       return ResultStorageFailed(accepted, tempPath, e);
@@ -242,19 +249,45 @@ final class ResultStore {
 /// size is a torn file and is replaced. A rename that fails because a
 /// concurrent store of the same bytes got there first (Windows refuses to
 /// rename onto a file being renamed) counts as stored.
-Future<void> _moveToFinal(File temporary, File target, int bytes) async {
-  if (_holds(target, bytes)) {
-    await temporary.delete();
-    return;
+///
+/// Moves onto one final name are serialized within the process: on Windows a
+/// reader opening the final file fails with a sharing violation while another
+/// store deletes or renames onto it, so a store of the same bytes waits for
+/// the one in flight and then finds the target already holding them.
+Future<void> _moveToFinal(
+  File temporary,
+  File target,
+  int bytes, {
+  Future<void> Function()? inFinalize,
+}) async {
+  final key = p.canonicalize(target.path);
+  for (var pending = _finalizing[key]; pending != null;) {
+    await pending;
+    pending = _finalizing[key];
   }
+  final done = Completer<void>();
+  _finalizing[key] = done.future;
   try {
-    if (target.existsSync()) await target.delete();
-    await temporary.rename(target.path);
-  } on FileSystemException {
-    if (!_holds(target, bytes)) rethrow;
-    await temporary.delete();
+    if (_holds(target, bytes)) {
+      await temporary.delete();
+      return;
+    }
+    await inFinalize?.call();
+    try {
+      if (target.existsSync()) await target.delete();
+      await temporary.rename(target.path);
+    } on FileSystemException {
+      if (!_holds(target, bytes)) rethrow;
+      await temporary.delete();
+    }
+  } finally {
+    _finalizing.remove(key);
+    done.complete();
   }
 }
+
+/// The moves in flight in this process, by canonical final path.
+final Map<String, Future<void>> _finalizing = {};
 
 bool _holds(File target, int bytes) {
   try {

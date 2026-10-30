@@ -444,3 +444,7 @@ None that change specs, approach or tasks. The sensorium's `HH:MM` uses local ti
 ## Dogfood record
 
 Filled in during apply. Once the earliest runnable loop exists (task group 4), each later task group is first attempted inside Kehai (`kehai` in this repo, ChatGPT plan login). Each step Kehai could not do, and why, is listed here. Specwright commands and subagents are expected to be unsupported until change 5.
+
+- **4.6 smoke run, 2026-10-30, Windows 11, model `gpt-6.1-sol`.** One piped prompt: read `pubspec.yaml`, run `dart analyze lib/src/loop`, report.
+  - First attempt (session `20261030T212805Z-77f53596`): steps 1 (`read`, autoapproved) and 2 (`bash`, permission prompt answered `1`) committed, then the client hit end of piped input while the answer was in flight and closed the engine's stdin; the engine cancelled the running `dart analyze` and the exchange ended `cancelled`. A line-client defect (end of non-terminal input did not wait for the running exchange), fixed with a regression test before task 4.6 was ticked. The cancelled call was recorded with reason `user`, where the engine-rpc spec wants `shutdown` on stdin EOF; that is task 6.2's work.
+  - Second attempt (session `20261030T213023Z-8d5ba020`): three steps, no failure. `read` settled `ok`, `bash` was allowed at the prompt and settled `ok` (exit 0, no issues), and the final step answered "The package name is `kehai`, and `dart analyze lib/src/loop` exited successfully with no issues found." The client exited 0.
