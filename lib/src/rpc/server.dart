@@ -286,10 +286,9 @@ final class RpcServer {
   }
 
   Future<void> _interrupt() async {
-    final running = driver.busy;
-    driver.exchangeToken?.cancel();
+    final bool running;
     try {
-      await runtime.cancelTurn();
+      running = await driver.interrupt();
     } on StorageError catch (e) {
       _fatal('storage failure: ${e.message}');
       return;

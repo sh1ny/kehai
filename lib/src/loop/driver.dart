@@ -17,6 +17,7 @@ import '../session/writer.dart';
 import '../tools/runtime.dart';
 import 'instructions.dart';
 import 'request_builder.dart';
+import 'retry.dart';
 import 'sensorium.dart';
 
 /// The most steps one exchange runs (design D10).
@@ -125,27 +126,10 @@ final class SubmitBusy extends SubmitOutcome {
   const SubmitBusy();
 }
 
-/// Decides whether a failed request is sent again (design D8).
-///
-/// Retry itself is task 5.2; the driver only asks.
-abstract interface class RetryPolicy {
-  /// How long to wait before send number `attempts + 1`, or null to give up.
-  Duration? delayFor(ProviderFailure failure, int attempts);
-}
-
-/// The policy that never retries.
-final class NoRetry implements RetryPolicy {
-  /// Creates the policy.
-  const NoRetry();
-
-  @override
-  Duration? delayFor(ProviderFailure failure, int attempts) => null;
-}
-
 /// Pause points that make races deterministic in tests.
 final class DriverSeams {
   /// Creates seams; every callback is optional.
-  const DriverSeams({this.beforeStepCommit, this.afterStepCommit});
+  const DriverSeams({this.beforeStepCommit, this.afterStepCommit, this.sleep});
 
   /// Runs with the step's turn before its completion record is written.
   final Future<void> Function(int turn)? beforeStepCommit;
@@ -153,6 +137,10 @@ final class DriverSeams {
   /// Runs with the step's turn after its completion record was written and
   /// before its calls are submitted.
   final Future<void> Function(int turn)? afterStepCommit;
+
+  /// Waits [delay] before a retry; a test substitutes a fake clock. The wait
+  /// still ends at once on interrupt.
+  final Future<void> Function(Duration delay)? sleep;
 }
 
 /// Drives the exchanges of one session, one at a time.
@@ -171,7 +159,7 @@ final class ExchangeDriver {
     required this.model,
     this.contextWindow,
     DateTime Function()? clock,
-    this.retryPolicy = const NoRetry(),
+    this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
   }) : _builder = RequestBuilder(
          sessionDir: writer.sessionDir,
@@ -211,8 +199,6 @@ final class ExchangeDriver {
   bool _busy = false;
 
   /// The running exchange's cancel token, or null when idle.
-  ///
-  /// Interrupt (task 5.1) cancels it and calls `runtime.cancelTurn()`.
   CancelToken? _token;
 
   /// The ephemeral stream deltas of the running step.
@@ -223,6 +209,63 @@ final class ExchangeDriver {
 
   /// The running exchange's cancel token, or null when idle.
   CancelToken? get exchangeToken => _token;
+
+  /// Interrupts the running exchange; returns whether one was running.
+  ///
+  /// It cancels the exchange token, which aborts the provider stream and any
+  /// retry wait and links every call admitted from now on, then cancels the
+  /// calls live at this moment and awaits them. The exchange records its own
+  /// end. Background jobs are untouched; idle, nothing is recorded.
+  Future<bool> interrupt() async {
+    final token = _token;
+    if (token == null) return false;
+    token.cancel();
+    await runtime.cancelTurn();
+    return true;
+  }
+
+  /// Records every step and exchange a dead engine left `running` as
+  /// `cancelled` with reason `interrupted`, one `merge` each, and returns how
+  /// many exchanges it finalized (design D5).
+  ///
+  /// Nothing is sent to the provider and no call is run again; the calls and
+  /// jobs of the dead engine were finalized by `ToolRuntime.attach`. A session
+  /// whose exchanges all ended records nothing. Call it before the first
+  /// `submit`.
+  Future<int> finalizeUnfinished() async {
+    for (final key in _runningKeys('body/steps')) {
+      await _apply(
+        JournalRecord(
+          turn: writer.currentTurn,
+          path: 'body/steps/$key',
+          op: Op.merge,
+          value: _interrupted,
+        ),
+      );
+    }
+    final exchanges = _runningKeys('body/exchanges');
+    for (final key in exchanges) {
+      await _apply(
+        JournalRecord(
+          turn: writer.currentTurn,
+          path: 'body/exchanges/$key',
+          op: Op.merge,
+          value: {..._interrupted, 'last': writer.currentTurn},
+        ),
+      );
+    }
+    return exchanges.length;
+  }
+
+  /// The keys under [path] whose nodes are `running`, in key order.
+  List<String> _runningKeys(String path) {
+    final nodes = writer.tree.get(SessionPath.parse(path));
+    if (nodes is! Map<String, Object?>) return const [];
+    return [
+      for (final key in nodes.keys.toList()..sort())
+        if (nodes[key] case {'state': 'running'}) key,
+    ];
+  }
 
   /// Closes the delta stream.
   Future<void> close() => _deltas.close();
@@ -379,19 +422,18 @@ final class ExchangeDriver {
       }
       final delay = retryPolicy.delayFor(failure, attempts);
       if (delay == null) break;
-      await Future.any<void>([
-        Future<void>.delayed(delay),
-        token.whenCancelled,
-      ]);
+      await _wait(delay, token);
       if (token.isCancelled) break;
     }
 
     final parts = streamed.ordered();
     final partial = parts.whereType<_TextPart>().map((t) => '${t.text}').join();
     final failure = streamed.failure;
-    if (failure != null) {
-      final cancelled =
-          failure.kind == ProviderFailureKind.cancelled || token.isCancelled;
+    // The token is authoritative: a stream that ended or even completed after
+    // the interrupt is a cancelled step, without a provider failure to say so.
+    final cancelled =
+        token.isCancelled || failure?.kind == ProviderFailureKind.cancelled;
+    if (cancelled || failure != null) {
       final String state;
       final String reason;
       final _End end;
@@ -399,7 +441,7 @@ final class ExchangeDriver {
         state = 'cancelled';
         reason = 'user';
         end = const _End('cancelled', 'user');
-      } else if (failure.kind == ProviderFailureKind.contextOverflow) {
+      } else if (failure!.kind == ProviderFailureKind.contextOverflow) {
         state = 'failed';
         reason = 'context overflow';
         end = _End('stopped', _overflowMessage(built.used));
@@ -410,20 +452,21 @@ final class ExchangeDriver {
         end = const _End('failed', stepOutputLimitReason);
       } else {
         state = 'failed';
-        reason = 'model request failed: ${failure.message}';
+        reason = _failureReason(failure, attempts);
         end = _End('failed', reason);
       }
       await _mergeStep(turn, {
         'state': state,
         'reason': reason,
         'attempts': attempts,
-        'failure': {
-          'kind': failure.kind.wire,
-          'message': failure.message,
-          'status': ?failure.status,
-          'code': ?failure.code,
-          'sent': failure.sent,
-        },
+        if (failure != null)
+          'failure': {
+            'kind': failure.kind.wire,
+            'message': failure.message,
+            'status': ?failure.status,
+            'code': ?failure.code,
+            'sent': failure.sent,
+          },
         if (partial.isNotEmpty) 'partial': partial,
         'context': context,
       });
@@ -519,6 +562,31 @@ final class ExchangeDriver {
     return streamed;
   }
 
+  /// Waits [delay], or until [token] is cancelled.
+  Future<void> _wait(Duration delay, CancelToken token) {
+    final custom = seams.sleep;
+    if (custom != null) {
+      return Future.any<void>([custom(delay), token.whenCancelled]);
+    }
+    final done = Completer<void>();
+    final timer = Timer(delay, done.complete);
+    final detach = token.listen(() {
+      timer.cancel();
+      if (!done.isCompleted) done.complete();
+    });
+    return done.future.whenComplete(detach);
+  }
+
+  String _failureReason(ProviderFailure failure, int attempts) {
+    final base = attempts > 1
+        ? 'model request failed after $attempts attempts: ${failure.message}'
+        : 'model request failed: ${failure.message}';
+    final asked = failure.retryAfter;
+    return asked != null && asked > maxRetryAfter
+        ? '$base; the server asked to wait ${asked.inSeconds} s'
+        : base;
+  }
+
   String _overflowMessage(int used) {
     final window = contextWindow;
     final size = window == null
@@ -542,6 +610,11 @@ final class ExchangeDriver {
   Future<T> _gated<T>(Future<T> Function() operation) =>
       runtime.writeGate.run(operation);
 }
+
+const Map<String, Object?> _interrupted = {
+  'state': 'cancelled',
+  'reason': 'interrupted',
+};
 
 String _exchangeKey(int turn) => 'x-${turn.toString().padLeft(8, '0')}';
 

@@ -89,6 +89,7 @@ export 'src/hooks/hook_stage.dart' show HookStage, maxHookReasonBytes;
 export 'src/loop/driver.dart';
 export 'src/loop/instructions.dart';
 export 'src/loop/request_builder.dart';
+export 'src/loop/retry.dart';
 export 'src/loop/sensorium.dart';
 export 'src/client/client.dart';
 export 'src/client/engine_process.dart';

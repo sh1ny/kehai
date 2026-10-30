@@ -119,8 +119,9 @@ Future<int> runRpc({
       model: model,
       contextWindow: resolveContextWindow(config, model, models),
     );
-    // Task 5.3: finalize the exchanges and steps a dead engine left running
-    // here, before hello. Calls and jobs were finalized by attach.
+    // Calls and jobs were finalized by attach; the exchanges and steps a dead
+    // engine left running are finalized here, before hello (design D5).
+    final exchanges = await driver.finalizeUnfinished();
     final server = RpcServer(
       writer: writer,
       runtime: runtime,
@@ -135,6 +136,7 @@ Future<int> runRpc({
         requests: writer.interruptedRequests,
         calls: runtime.resumed.calls,
         jobs: runtime.resumed.jobs,
+        exchanges: exchanges,
       ),
     );
     return await server.run();

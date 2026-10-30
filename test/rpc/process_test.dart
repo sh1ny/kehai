@@ -15,6 +15,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/fake_openai.dart';
+import '../support/killed_exchange_support.dart';
 import '../support/login_support.dart';
 
 /// The directory key of [workspace] under the sessions tree (design D13).
@@ -181,5 +182,60 @@ void main() {
       expect(fatal['message'], 'no session to resume for this workspace');
       expect(await engine.exitCode(), 1);
     });
+  });
+
+  group('Interrupt, answer and status', () {
+    test(
+      'status of a request killed mid-exchange is interrupted effect-uncertain',
+      () async {
+        final fake = await FakeOpenAi.start();
+        home.store.replace(loggedInRecord());
+        File(p.join(home.path, 'config.json'))
+            .writeAsStringSync(jsonEncode({'model': 'gpt-fake'}));
+        final killed = await startKilledExchange(
+          sessions: Directory(
+            p.join(home.path, 'sessions', keyOf(workspace.path)),
+          ),
+          workspace: workspace,
+        );
+        await killed.kill();
+
+        final engine = await startEngine(
+          const ['--resume'],
+          home: home,
+          workspace: workspace,
+          fake: fake,
+        );
+        final hello = await engine.nextLine();
+        final snapshot = await engine.nextLine();
+
+        expect(hello['type'], 'hello');
+        expect(hello['resumed'], containsPair('requests', 1));
+        expect(hello['resumed'], containsPair('exchanges', 1));
+        final body =
+            (snapshot['tree']! as Map<String, Object?>)['body']!
+                as Map<String, Object?>;
+        for (final node in [
+          (body['exchanges']! as Map<String, Object?>)['x-00000001'],
+          (body['steps']! as Map<String, Object?>)['s-00000001'],
+        ]) {
+          expect(node, containsPair('state', 'cancelled'));
+          expect(node, containsPair('reason', 'interrupted'));
+        }
+
+        engine.process.stdin.writeln(
+          jsonEncode({'type': 'status', 'id': 'r9'}),
+        );
+        final reply = await engine.nextLine();
+        expect(reply['type'], 'reply');
+        expect(reply['to'], 'r9');
+        expect(reply['state'], 'interrupted');
+        expect(reply['reason'], 'effect-uncertain');
+        expect(fake.responsesRequests, isEmpty, reason: 'not executed again');
+
+        await engine.process.stdin.close();
+        expect(await engine.exitCode(), 0);
+      },
+    );
   });
 }

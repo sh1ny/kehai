@@ -19,14 +19,14 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | agent-loop → Tool calls of a step | Parallel calls | test/loop/driver_test.dart | three read calls overlap and the next step waits for all | green |
 | agent-loop → Tool calls of a step | Many calls in one step | test/loop/driver_test.dart | 128 calls under slowed flushes all get terminal nodes and no writer busy | green |
 | agent-loop → Tool calls of a step | Denied call | test/loop/driver_test.dart | denied bash call sends its envelope and the exchange continues | green |
-| agent-loop → Interrupt | Interrupt during a model stream | test/loop/interrupt_test.dart | interrupt mid-stream records cancelled step with partial text | red |
-| agent-loop → Interrupt | Interrupt while tools run | test/loop/interrupt_test.dart | interrupt cancels running bash and withdraws the open prompt | red |
-| agent-loop → Interrupt | Interrupt while the step commits | test/loop/interrupt_test.dart | interrupt during the step commit cancels both writes before any effect | red |
-| agent-loop → Interrupt | Interrupt when idle | test/loop/interrupt_test.dart | idle interrupt records nothing and replies no exchange running | red |
-| agent-loop → Bounded retry of unstarted requests | Rate limit then success | test/loop/retry_test.dart | rate_limited with Retry-After 3 retries once and records 2 attempts | red |
-| agent-loop → Bounded retry of unstarted requests | Retries exhausted | test/loop/retry_test.dart | five unsent network failures end failed after 5 attempts | red |
-| agent-loop → Bounded retry of unstarted requests | Failure after the body was sent | test/loop/retry_test.dart | server 500 and sent network failures are not repeated | red |
-| agent-loop → Bounded retry of unstarted requests | Retry-After too long | test/loop/retry_test.dart | Retry-After 600 is not retried and names the wait | red |
+| agent-loop → Interrupt | Interrupt during a model stream | test/loop/interrupt_test.dart | interrupt mid-stream records cancelled step with partial text | green |
+| agent-loop → Interrupt | Interrupt while tools run | test/loop/interrupt_test.dart | interrupt cancels running bash and withdraws the open prompt | green |
+| agent-loop → Interrupt | Interrupt while the step commits | test/loop/interrupt_test.dart | interrupt during the step commit cancels both writes before any effect | green |
+| agent-loop → Interrupt | Interrupt when idle | test/loop/interrupt_test.dart | idle interrupt records nothing and replies no exchange running | green |
+| agent-loop → Bounded retry of unstarted requests | Rate limit then success | test/loop/retry_test.dart | rate_limited with Retry-After 3 retries once and records 2 attempts | green |
+| agent-loop → Bounded retry of unstarted requests | Retries exhausted | test/loop/retry_test.dart | five unsent network failures end failed after 5 attempts | green |
+| agent-loop → Bounded retry of unstarted requests | Failure after the body was sent | test/loop/retry_test.dart | server 500 and sent network failures are not repeated | green |
+| agent-loop → Bounded retry of unstarted requests | Retry-After too long | test/loop/retry_test.dart | Retry-After 600 is not retried and names the wait | green |
 | agent-loop → Context overflow stops the exchange | Estimate over the window | test/loop/driver_test.dart | estimate over a known window stops before sending | green |
 | agent-loop → Context overflow stops the exchange | Provider reports overflow | test/loop/driver_test.dart | provider context_overflow stops the exchange without retry | green |
 | agent-loop → Step output limit | Endless small deltas | test/loop/driver_test.dart | response_output_limit fails the step with its partial text | green |
@@ -34,8 +34,8 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | agent-loop → Step output limit | Large but bounded reply | test/loop/driver_test.dart | 3 MiB reply completes whole | green |
 | agent-loop → Step limit | Runaway loop | test/loop/driver_test.dart | 200th step's calls settle then the exchange stops at step limit | green |
 | agent-loop → Step limit | Normal exchange | test/loop/driver_test.dart | three-step exchange records no step limit | green |
-| agent-loop → Resume finalizes unfinished exchanges | Crash mid-step | test/loop/resume_test.dart | killed engine mid-step is finalized cancelled interrupted on reopen | red |
-| agent-loop → Resume finalizes unfinished exchanges | Clean session | test/loop/resume_test.dart | reopening a clean session records nothing | red |
+| agent-loop → Resume finalizes unfinished exchanges | Crash mid-step | test/loop/resume_test.dart | killed engine mid-step is finalized cancelled interrupted on reopen | green |
+| agent-loop → Resume finalizes unfinished exchanges | Clean session | test/loop/resume_test.dart | reopening a clean session records nothing | green |
 | agent-loop → A hung hook cannot stall the exchange | Optional hook hangs | test/loop/hung_hook_test.dart | hung optional read hook is killed and the next step starts | red |
 | agent-loop → A hung hook cannot stall the exchange | Deny-class hook hangs | test/loop/hung_hook_test.dart | hung deny bash hook denies the call and the exchange continues | red |
 | turn-perception → One request-only sensorium block | Second step of an exchange | test/loop/sensorium_test.dart | only the last request item is a sensorium block and instructions are stable | green |
@@ -62,7 +62,7 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | engine-rpc → Commands correlated by request id | Duplicate submit | test/rpc/server_test.dart | duplicate submit reports the recorded state and runs once | green |
 | engine-rpc → Commands correlated by request id | Id collision | test/rpc/server_test.dart | reused id with other text is a request id collision | green |
 | engine-rpc → Commands correlated by request id | Stale submit | test/rpc/server_test.dart | submit at an older turn is stale and not admitted | green |
-| engine-rpc → Interrupt, answer and status | Status after a crash | test/rpc/process_test.dart | status of a request killed mid-exchange is interrupted effect-uncertain | red |
+| engine-rpc → Interrupt, answer and status | Status after a crash | test/rpc/process_test.dart | status of a request killed mid-exchange is interrupted effect-uncertain | green |
 | engine-rpc → Interrupt, answer and status | Unknown request | test/rpc/server_test.dart | status of an unknown id is not-admitted | green |
 | engine-rpc → Interrupt, answer and status | Wrong answer | test/rpc/server_test.dart | answer outside the choices errors and the prompt stays open | green |
 | engine-rpc → Prompts reach the client | Permission prompt | test/rpc/server_test.dart | non-autoapproved bash sends a permission prompt and allow runs it | green |
@@ -138,9 +138,9 @@ The *Missing configuration* row is red because its expectation grows (no default
 
 ## 5. Interrupt, retry and resume
 
-- [ ] 5.1 Write the failing `test/loop/interrupt_test.dart` rows, using the writer pause seam for *Interrupt while the step commits*. Implement interrupt in the driver (token cancel, `cancelTurn`, cancelled step with `partial`, prompt withdrawal). Verify that the file passes and flip its rows green.
-- [ ] 5.2 Write the failing `test/loop/retry_test.dart` rows on a fake clock. Implement the D8 policy in the driver (1/2/4/8 s, `Retry-After` up to 60 s, interruptible waits, `attempts`). Verify that the file passes and flip its rows green.
-- [ ] 5.3 Write the failing `test/loop/resume_test.dart` rows and `test/rpc/process_test.dart` *Status after a crash*, using a killed engine fixture in `test/fixtures/`. Implement resume finalization after `ToolRuntime.attach`, before `hello`. Verify that the rows pass and flip them green.
+- [x] 5.1 Write the failing `test/loop/interrupt_test.dart` rows, using the writer pause seam for *Interrupt while the step commits*. Implement interrupt in the driver (token cancel, `cancelTurn`, cancelled step with `partial`, prompt withdrawal). Verify that the file passes and flip its rows green.
+- [x] 5.2 Write the failing `test/loop/retry_test.dart` rows on a fake clock. Implement the D8 policy in the driver (1/2/4/8 s, `Retry-After` up to 60 s, interruptible waits, `attempts`). Verify that the file passes and flip its rows green.
+- [x] 5.3 Write the failing `test/loop/resume_test.dart` rows and `test/rpc/process_test.dart` *Status after a crash*, using a killed engine fixture in `test/fixtures/`. Implement resume finalization after `ToolRuntime.attach`, before `hello`. Verify that the rows pass and flip them green.
 
 ## 6. RPC output pump and signals
 
