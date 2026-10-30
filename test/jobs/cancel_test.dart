@@ -190,4 +190,77 @@ void main() {
     },
     skip: skip,
   );
+
+  // Feedback round 3: a cancel that lands before `setsid` made the group
+  // finds no group. That is not proof the command is gone: the direct
+  // process is still alive and may yet run it.
+  test('a group not yet established is not a confirmed termination', () async {
+    int noGroup(int pgid, int signal) => 3; // ESRCH, always.
+
+    final h = await JobHarness.create(
+      groupSignal: noGroup,
+      windows: false,
+      timings: const JobTimings(
+        grace: Duration(milliseconds: 200),
+        probe: Duration(milliseconds: 300),
+      ),
+    );
+    late Process process;
+    final handle = h.supervisor.start(
+      h.request(
+        'exec sleep 30',
+        launch: h.recordingLauncher(
+          'exec sleep 30',
+          (started) => process = started.process,
+          groupKnown: true,
+        ),
+      ),
+    );
+    await waitFor(
+      () => h.node(handle.id)?['state'] == 'running',
+      what: 'the job to run',
+    );
+
+    await h.supervisor.cancelJob(handle.id);
+
+    final node = h.node(handle.id)!;
+    expect(node['state'], 'cancelled');
+    expect(node['cleanup'], 'uncertain: process group not established');
+    expect(node['signal'], 'kill');
+    await process.exitCode.timeout(const Duration(seconds: 5));
+    // `setsid` and its race exist on POSIX only.
+  }, skip: unix);
+
+  test(
+    'a process that exits while its group is unreachable is confirmed',
+    () async {
+      int noGroup(int pgid, int signal) => 3; // ESRCH, always.
+
+      final h = await JobHarness.create(
+        groupSignal: noGroup,
+        windows: false,
+        timings: const JobTimings(
+          grace: Duration(seconds: 5),
+          probe: Duration(milliseconds: 300),
+        ),
+      );
+      final handle = h.supervisor.start(
+        h.request(
+          'sleep 0.5',
+          launch: h.recordingLauncher('sleep 0.5', (_) {}, groupKnown: true),
+        ),
+      );
+      await waitFor(
+        () => h.node(handle.id)?['state'] == 'running',
+        what: 'the job to run',
+      );
+
+      await h.supervisor.cancelJob(handle.id);
+
+      final node = h.node(handle.id)!;
+      expect(node['cleanup'], 'confirmed');
+      expect(node['signal'], isNot('kill'));
+    },
+    skip: skip,
+  );
 }

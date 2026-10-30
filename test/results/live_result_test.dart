@@ -79,6 +79,43 @@ void main() {
       expect(await live.seal(), secondDescriptor);
     });
 
+    // Feedback round 3: a flush that fails is a storage failure, so the bash
+    // hand-off takes its cancelling path; and sealing still closes the spool.
+    test('a snapshot whose flush fails is a storage failure', () async {
+      final path = p.join(sessionDir.path, resultsDirName, _spool);
+      final real = await store.begin(_spool);
+      await real.seal();
+      final failing = _FlushFails(
+        await File(path).open(mode: FileMode.writeOnly),
+      );
+      final live = LiveResult(store, _spool, failing);
+      await live.write(utf8.encode('abc'));
+
+      final outcome = await live.snapshot();
+
+      expect(outcome, isA<ResultStorageFailed>());
+      final failed = outcome as ResultStorageFailed;
+      expect(failed.bytesAccepted, 3);
+      expect(failed.tempPath, path);
+      expect(failed.error, isA<FileSystemException>());
+      await failing.inner.close();
+    });
+
+    test('a seal whose flush fails still closes the spool', () async {
+      final path = p.join(sessionDir.path, resultsDirName, _spool);
+      await (await store.begin(_spool)).seal();
+      final failing = _FlushFails(
+        await File(path).open(mode: FileMode.writeOnly),
+      );
+      final live = LiveResult(store, _spool, failing);
+
+      await expectLater(live.seal(), throwsA(isA<FileSystemException>()));
+
+      expect(failing.closed, isTrue);
+      // The handle is gone, so the spool can be deleted on every platform.
+      File(path).deleteSync();
+    });
+
     test('write after seal fails', () async {
       final live = await store.begin(_spool);
       await live.seal();
@@ -167,4 +204,35 @@ void main() {
       );
     });
   });
+}
+
+/// A spool file whose flush always fails, as a deferred ENOSPC would.
+final class _FlushFails implements RandomAccessFile {
+  _FlushFails(this.inner);
+
+  final RandomAccessFile inner;
+  bool closed = false;
+
+  @override
+  Future<RandomAccessFile> flush() async =>
+      throw const FileSystemException('flush failed');
+
+  @override
+  Future<RandomAccessFile> writeFrom(
+    List<int> buffer, [
+    int start = 0,
+    int? end,
+  ]) async {
+    await inner.writeFrom(buffer, start, end);
+    return this;
+  }
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    await inner.close();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

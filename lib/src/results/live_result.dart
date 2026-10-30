@@ -89,6 +89,7 @@ final class LiveResult {
   final RandomAccessFile _file;
   final _Tally _tally = _Tally();
   ResultDescriptor? _sealed;
+  bool _closed = false;
 
   /// The spool file name under `results/`.
   final String spoolName;
@@ -109,10 +110,17 @@ final class LiveResult {
   /// Stores the accepted prefix of the spool as its own result.
   ///
   /// The spool is flushed first and left untouched; further writes continue.
+  /// A failed flush is a [ResultStorageFailed], as a failed store is.
   Future<ResultWrite> snapshot() async {
     final accepted = _tally.bytes;
-    if (_sealed == null) await _file.flush();
     final dir = p.join(_store.sessionDir.path, resultsDirName);
+    if (_sealed == null) {
+      try {
+        await _file.flush();
+      } on Object catch (e) {
+        return ResultStorageFailed(accepted, p.join(dir, spoolName), e);
+      }
+    }
     var source = File(p.join(dir, spoolName));
     final sealed = _sealed;
     if (sealed != null && !source.existsSync()) {
@@ -125,12 +133,19 @@ final class LiveResult {
   /// Flushes and closes the spool and returns its descriptor.
   ///
   /// The file keeps its spool name; [ResultStore.publish] renames it. Sealing
-  /// again returns the same descriptor.
+  /// again returns the same descriptor. A failed flush still closes the spool,
+  /// so the handle never outlives it; the flush error is rethrown.
   Future<ResultDescriptor> seal() async {
     final sealed = _sealed;
     if (sealed != null) return sealed;
-    await _file.flush();
-    await _file.close();
+    try {
+      await _file.flush();
+    } finally {
+      if (!_closed) {
+        _closed = true;
+        await _file.close();
+      }
+    }
     return _sealed = _tally.finish();
   }
 }

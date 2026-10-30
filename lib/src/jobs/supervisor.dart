@@ -840,7 +840,18 @@ final class JobSupervisor {
       return 'uncertain: process group not known';
     }
     final pgid = process.pid;
-    if (_signal(pgid, _sigterm) == _esrch) return 'confirmed';
+    // No group may only mean `setsid` has not made it yet, while the direct
+    // process is alive and may still run the command. Only that process's
+    // exit proves nothing is left; until then keep trying to reach the group.
+    final clock = Stopwatch()..start();
+    while (_signal(pgid, _sigterm) == _esrch) {
+      if (await _within(process.exitCode, timings.poll)) return 'confirmed';
+      if (clock.elapsed >= timings.grace) {
+        job.forcedKill = true;
+        process.kill(ProcessSignal.sigkill);
+        return 'uncertain: process group not established';
+      }
+    }
     if (await _groupGone(pgid, timings.grace)) return 'confirmed';
     job.forcedKill = true;
     _signal(pgid, _sigkill);
