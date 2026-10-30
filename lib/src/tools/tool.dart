@@ -38,6 +38,7 @@ final class ToolOutcome {
     this.failed = false,
     this.reason,
     this.policy,
+    this.storage,
   });
 
   /// The envelope status of the call.
@@ -72,6 +73,11 @@ final class ToolOutcome {
   /// The composer policy for this answer, or `null` for the tool's default
   /// ([ResultPolicy.forTool]).
   final ResultPolicy? policy;
+
+  /// Set when the output a tool relies on could not be stored (a job's spool,
+  /// seal or publish failed). The call is then recorded `failed` with the
+  /// storage reason and the accepted bytes, and no result.
+  final JobStorageFailure? storage;
 }
 
 /// Where a tool streams its output.

@@ -11,6 +11,7 @@ import 'package:kehai/kehai.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/job_support.dart' show skipWithoutShell;
 import '../support/session_support.dart';
 import '../support/tool_support.dart';
 
@@ -19,6 +20,7 @@ void main() {
   late Directory ws;
   late Directory outside;
   late Directory home;
+  late SessionWriter writer;
 
   /// `ws/near -> ws/sub/deep` and `ws/far -> outside/deep`.
   ///
@@ -40,7 +42,7 @@ void main() {
   });
 
   Future<ToolRuntime> attach({required bool gated}) async {
-    final writer = await createWriter(ws);
+    writer = await createWriter(ws);
     final runtime = await ToolRuntime.attach(
       writer,
       ResultStore(writer.sessionDir),
@@ -61,6 +63,11 @@ void main() {
       ),
     );
     return item.output;
+  }
+
+  String jobCwd() {
+    final jobs = writer.tree.get(SessionPath.parse('jobs'))! as Map;
+    return (jobs.values.single as Map)['cwd']! as String;
   }
 
   test(
@@ -147,6 +154,37 @@ void main() {
       expect(File(p.join(ws.path, 'new', 'n.txt')).existsSync(), isFalse);
     },
   );
+
+  // `cwd: near/..` is `ws/sub` to POSIX and the gate; the workspace root
+  // lexically. The directory bash runs in must be the one the gate proved.
+  test(
+    'bash cwd follows a link then .. like the gate: builtin direct path',
+    () async {
+      final runtime = await attach(gated: true);
+
+      final out = await call(runtime, 'bash', {
+        'command': 'pwd',
+        'cwd': 'near/..',
+      });
+
+      expect(out, contains(p.join(ws.path, 'sub')));
+      expect(out, isNot(contains('${ws.path}\n')));
+      expect(jobCwd(), p.join(ws.path, 'sub'));
+    },
+    skip: skipWithoutShell(),
+  );
+
+  test('bash cwd follows a link then .. like the gate: shell path', () async {
+    final runtime = await attach(gated: false);
+
+    final out = await call(runtime, 'bash', {
+      'command': 'pwd && true',
+      'cwd': 'near/..',
+    });
+
+    expect(out, contains(p.join(ws.path, 'sub')));
+    expect(jobCwd(), p.join(ws.path, 'sub'));
+  }, skip: skipWithoutShell());
 
   test('ls, grep and find resolve path the way the gate does', () async {
     final rg = await resolveRg(configPath: 'config.json') as RgFound;

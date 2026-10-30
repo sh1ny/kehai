@@ -137,6 +137,7 @@ final class JobResult {
     this.signal,
     this.streams = const {},
     this.stale = false,
+    this.storage,
   });
 
   /// The job id.
@@ -166,6 +167,23 @@ final class JobResult {
   /// Whether the node was gone or superseded, so nothing was recorded for it
   /// and the output was listed under `meta/orphans`.
   final bool stale;
+
+  /// Why the job failed, when its output could not be stored (a spool write,
+  /// the seal or the publish failed). The state is then `failed` with the
+  /// reason `storage: <error>`, and no stream is published.
+  final JobStorageFailure? storage;
+}
+
+/// The output of a job could not be stored.
+final class JobStorageFailure {
+  /// Creates the facts of a storage failure.
+  const JobStorageFailure(this.error, this.bytesAccepted);
+
+  /// The underlying failure.
+  final Object error;
+
+  /// The bytes of combined output accepted before the failure.
+  final int bytesAccepted;
 }
 
 /// A started job.
@@ -246,6 +264,7 @@ final class JobHooks {
     this.afterIntent,
     this.afterStreamPublish,
     this.afterSpoolWrite,
+    this.beforeSeal,
     this.afterPublish,
     this.afterRegister,
     this.beforeClear,
@@ -276,6 +295,10 @@ final class JobHooks {
   /// chunk.
   final Future<void> Function(String id, String stream, List<int> chunk)?
   afterSpoolWrite;
+
+  /// Before a stream's spool is sealed at the handoff; gets the job id and the
+  /// stream. A throw is a storage failure.
+  final Future<void> Function(String id, String stream)? beforeSeal;
 
   /// After one stream's spool was renamed; gets the job id and the stream.
   final Future<void> Function(String id, String stream)? afterStreamPublish;
@@ -395,6 +418,7 @@ final class _Job {
   bool nodeCommitted = false;
   bool cancelRequested = false;
   String? cancelReason;
+  Object? storageError;
   bool forcedKill = false;
   ShellProcess? proc;
   int? exitCode;
@@ -881,6 +905,7 @@ final class JobSupervisor {
       // The disk refused the bytes: stop the producer and end the job.
       if (!pipe.done.isCompleted) pipe.done.complete();
       unawaited(pipe.sub?.cancel());
+      job.storageError ??= e;
       unawaited(_cancel(job, 'storage: $e'));
     }
   }
@@ -940,10 +965,18 @@ final class JobSupervisor {
     final cleanup = await _cleanupText(job, code);
     final cancelled = job.cancelRequested;
 
+    // A spool write that failed ends the job `failed`, not cancelled.
+    final writeError = job.storageError;
+    if (writeError != null) return _failStorage(job, writeError, code, cleanup);
     final sealed = <String, ResultDescriptor>{};
-    for (final stream in jobStreams) {
-      await job.pipes[stream]?.writing;
-      sealed[stream] = await job.gates[stream]!.run(job.live[stream]!.seal);
+    try {
+      for (final stream in jobStreams) {
+        await job.pipes[stream]?.writing;
+        await hooks.beforeSeal?.call(job.id, stream);
+        sealed[stream] = await job.gates[stream]!.run(job.live[stream]!.seal);
+      }
+    } on Object catch (e) {
+      return _failStorage(job, e, code, cleanup);
     }
     bool forced(String stream) => stream == 'output'
         ? job.pipes.values.any((p) => p.forced)
@@ -1026,7 +1059,13 @@ final class JobSupervisor {
     // 2. Publish.
     for (final s in jobStreams) {
       // Serialized with `snapshot`, which reads the spool or its published file.
-      await job.gates[s]!.run(() => store.publish(job.spools[s]!, sealed[s]!));
+      try {
+        await job.gates[s]!.run(
+          () => store.publish(job.spools[s]!, sealed[s]!),
+        );
+      } on Object catch (e) {
+        return _failStorage(job, e, code, cleanup);
+      }
       await hooks.afterStreamPublish?.call(job.id, s);
     }
     await _hook(hooks.afterPublish, job);
@@ -1056,23 +1095,70 @@ final class JobSupervisor {
     return result();
   }
 
-  Future<JobResult> _failLaunch(_Job job, String reason) async {
+  Future<JobResult> _failLaunch(_Job job, String reason) =>
+      _failJob(job, reason);
+
+  /// Ends [job] `failed` because its output could not be stored. Whatever was
+  /// spooled is discarded: no result of the job is referenced.
+  Future<JobResult> _failStorage(
+    _Job job,
+    Object error,
+    int? code,
+    String? cleanup,
+  ) {
+    final signal = job.forcedKill
+        ? 'kill'
+        : (job.cancelRequested || job.termination != null ? 'term' : null);
+    return _failJob(
+      job,
+      'storage: $error',
+      code: code,
+      cleanup: cleanup,
+      signal: signal,
+      storage: JobStorageFailure(error, job.live['output']?.bytesAccepted ?? 0),
+    );
+  }
+
+  Future<JobResult> _failJob(
+    _Job job,
+    String reason, {
+    int? code,
+    String? cleanup,
+    String? signal,
+    JobStorageFailure? storage,
+  }) async {
     for (final stream in jobStreams) {
-      await job.gates[stream]!.run(job.live[stream]!.seal);
+      final live = job.live[stream];
+      try {
+        if (live != null) await job.gates[stream]!.run(live.seal);
+      } on Object {
+        // The spool is discarded below whether or not it could be closed.
+      }
       final spool = File(
         p.join(store.sessionDir.path, resultsDirName, job.spools[stream]!),
       );
-      if (spool.existsSync()) spool.deleteSync();
+      try {
+        if (spool.existsSync()) spool.deleteSync();
+      } on FileSystemException {
+        // An unreferenced spool that cannot be removed is harmless.
+      }
     }
     job.phase = _Phase.handoff;
-    final fields = {'state': 'failed', 'reason': reason, 'ended': _now()};
+    final fields = {
+      'state': 'failed',
+      'reason': reason,
+      'ended': _now(),
+      'exit': ?code,
+      'cleanup': ?cleanup,
+      'signal': ?signal,
+    };
     final mapping = <String, Object?>{
       for (final s in jobStreams)
         s: {'spool': job.spools[s], 'disposition': 'absent'},
     };
     Future<bool> settle() async => await _guardedMerge(job, fields) is Applied;
     final stale = !await settle();
-    if (stale) await _recordOrphan(job, mapping, null);
+    if (stale) await _recordOrphan(job, mapping, cleanup);
     job.slotHeld = false;
     await _clear(
       job,
@@ -1083,8 +1169,12 @@ final class JobSupervisor {
       id: job.id,
       launch: job.launch,
       state: 'failed',
+      exit: code,
       reason: reason,
+      cleanup: cleanup,
+      signal: signal,
       stale: stale,
+      storage: storage,
     );
   }
 

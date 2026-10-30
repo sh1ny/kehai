@@ -543,12 +543,15 @@ final class ToolRuntime {
         // A tool that answers with a result the job supervisor stored has
         // nothing of its own to store.
         final answer = outcome.result;
+        final lost = outcome.storage;
         return _terminate(
           live,
           lifecycle: outcome.failed ? 'failed' : 'settled',
           envelope: outcome.status,
           summary: outcome.summary,
-          write: answer != null && written is! ResultStorageFailed
+          write: lost != null
+              ? ResultStorageFailed(lost.bytesAccepted, '', lost.error)
+              : answer != null && written is! ResultStorageFailed
               ? ResultComplete(answer)
               : written,
           complete: outcome.complete,

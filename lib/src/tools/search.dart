@@ -162,6 +162,25 @@ Future<ArgvRun> startArgv(
   );
 }
 
+/// Where a [SearchLineRewriter] is within a line.
+enum _Phase {
+  /// Reading the path, up to its NUL (or the newline of a bare path).
+  head,
+
+  /// Reading the digits after the NUL, which are a line number only when a
+  /// colon follows.
+  number,
+
+  /// Streaming the text of an accepted line.
+  text,
+
+  /// Discarding the rest of a line the filter dropped.
+  skip,
+}
+
+/// The most digits a line number has (a 64-bit count).
+const int _maxLineNumber = 20;
+
 /// Rewrites rg's `path\0line:text` lines into `path:line: text`, or bare
 /// paths into workspace-relative ones, one chunk at a time.
 final class SearchLineRewriter {
@@ -187,7 +206,9 @@ final class SearchLineRewriter {
   final GlobMatcher? filter;
 
   final List<int> _prefixBytes;
-  List<int> _carry = const [];
+  final BytesBuilder _head = BytesBuilder();
+  final List<int> _digits = [];
+  _Phase _phase = _Phase.head;
   List<int>? _lastPath;
   int _lines = 0;
   int _files = 0;
@@ -198,41 +219,109 @@ final class SearchLineRewriter {
   /// Files emitted: distinct consecutive paths.
   int get files => _files;
 
-  /// Takes [chunk]; returns the rewritten complete lines.
+  /// The bytes held back between chunks: the path of an unfinished line, or
+  /// the digits that may be its line number. The text of a line is streamed
+  /// through, so this never grows with the length of a line's text.
+  int get retainedBytes => _head.length + _digits.length;
+
+  /// Takes [chunk]; returns the rewritten bytes of every line it completes or
+  /// continues.
   List<int> add(List<int> chunk) {
-    final data = _carry.isEmpty ? chunk : [..._carry, ...chunk];
     final out = BytesBuilder(copy: false);
-    var start = 0;
-    while (true) {
-      final nl = data.indexOf(0x0a, start);
-      if (nl < 0) break;
-      _line(data, start, nl, out);
-      start = nl + 1;
+    final n = chunk.length;
+    var i = 0;
+    while (i < n) {
+      switch (_phase) {
+        case _Phase.head:
+          final from = i;
+          while (i < n && chunk[i] != 0x0a && !(grep && chunk[i] == 0)) {
+            i++;
+          }
+          if (i > from) _head.add(chunk.sublist(from, i));
+          if (i == n) break;
+          if (chunk[i++] == 0x0a) {
+            _wholeLine(out);
+          } else {
+            _phase = _accept(_takeHead(), out) ? _Phase.number : _Phase.skip;
+          }
+        case _Phase.number:
+          final b = chunk[i];
+          if (b >= 0x30 && b <= 0x39 && _digits.length < _maxLineNumber) {
+            _digits.add(b);
+            i++;
+          } else if (b == 0x3a && _digits.isNotEmpty) {
+            out
+              ..addByte(0x3a)
+              ..add(_digits)
+              ..add(const [0x3a, 0x20]);
+            _digits.clear();
+            _phase = _Phase.text;
+            i++;
+          } else {
+            _digitsAsText(out);
+          }
+        case _Phase.text || _Phase.skip:
+          final nl = chunk.indexOf(0x0a, i);
+          final end = nl < 0 ? n : nl;
+          if (_phase == _Phase.text && end > i) {
+            out.add(chunk.sublist(i, end));
+          }
+          if (nl < 0) return out.takeBytes();
+          if (_phase == _Phase.text) out.addByte(0x0a);
+          _phase = _Phase.head;
+          i = nl + 1;
+      }
     }
-    _carry = start == data.length ? const [] : data.sublist(start);
     return out.takeBytes();
   }
 
   /// Returns the rewritten rest at the end of the stream.
   List<int> finish() {
     final out = BytesBuilder(copy: false);
-    if (_carry.isNotEmpty) _line(_carry, 0, _carry.length, out);
-    _carry = const [];
+    switch (_phase) {
+      case _Phase.head:
+        if (_head.length > 0) _wholeLine(out);
+      case _Phase.number:
+        _digitsAsText(out);
+        out.addByte(0x0a);
+      case _Phase.text:
+        out.addByte(0x0a);
+      case _Phase.skip:
+        break;
+    }
+    _head.clear();
+    _digits.clear();
+    _phase = _Phase.head;
     return out.takeBytes();
   }
 
-  void _line(List<int> data, int start, int end, BytesBuilder out) {
-    if (end == start) return;
-    var split = end;
-    if (grep) {
-      final zero = data.indexOf(0, start);
-      if (zero >= 0 && zero < end) split = zero;
-    }
-    final path = _path(data, start, split);
+  /// The header ended at a newline with no NUL: the line is a bare path.
+  void _wholeLine(BytesBuilder out) {
+    final path = _takeHead();
+    if (path.isEmpty) return;
+    if (_accept(path, out)) out.addByte(0x0a);
+  }
+
+  /// A line number that is not followed by a colon is the start of the text.
+  void _digitsAsText(BytesBuilder out) {
+    out
+      ..addByte(0x3a)
+      ..addByte(0x20)
+      ..add(_digits);
+    _digits.clear();
+    _phase = _Phase.text;
+  }
+
+  List<int> _takeHead() => _head.takeBytes();
+
+  /// Counts the line of [raw] and writes its path; false when the filter
+  /// drops the line.
+  bool _accept(List<int> raw, BytesBuilder out) {
+    final path = _path(raw);
     final accept = filter;
     if (accept != null &&
         !accept.matches(utf8.decode(path, allowMalformed: true))) {
-      return;
+      return false;
     }
     _lines++;
     final last = _lastPath;
@@ -243,29 +332,12 @@ final class SearchLineRewriter {
     out
       ..add(_prefixBytes)
       ..add(path);
-    if (grep && split < end) {
-      var i = split + 1;
-      while (i < end && data[i] >= 0x30 && data[i] <= 0x39) {
-        i++;
-      }
-      out.addByte(0x3a);
-      if (i > split + 1 && i < end && data[i] == 0x3a) {
-        out
-          ..add(data.sublist(split + 1, i))
-          ..add(const [0x3a, 0x20])
-          ..add(data.sublist(i + 1, end));
-      } else {
-        out
-          ..addByte(0x20)
-          ..add(data.sublist(split + 1, end));
-      }
-    }
-    out.addByte(0x0a);
+    return true;
   }
 
   /// The path bytes in `/` form without a leading `./`.
-  List<int> _path(List<int> data, int start, int end) {
-    var path = data.sublist(start, end);
+  List<int> _path(List<int> raw) {
+    var path = raw;
     if (Platform.isWindows) {
       path = [for (final b in path) b == 0x5c ? 0x2f : b];
     }
@@ -427,6 +499,17 @@ Future<ToolOutcome> _runRg(
       return failure('cannot run rg: $e');
     }
     if (context.cancel.isCancelled) return _cancelled;
+    final lost = result.storage;
+    if (lost != null) {
+      return ToolOutcome(
+        status: ResultStatus.error,
+        summary: 'storage failure',
+        complete: false,
+        failed: true,
+        reason: result.reason,
+        storage: lost,
+      );
+    }
     if (result.state == 'failed') {
       return failure('cannot run rg: ${result.reason ?? 'launch failed'}');
     }

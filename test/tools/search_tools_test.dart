@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:kehai/kehai.dart';
 import 'package:kehai/src/tools/child_env.dart';
+import 'package:kehai/src/tools/glob_match.dart' show GlobMatcher;
 import 'package:kehai/src/tools/search.dart' show SearchLineRewriter;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -181,6 +182,77 @@ void main() {
         expect(rewriter.lines, 3);
         expect(rewriter.files, 3);
       }
+    });
+
+    test('edge lines keep their rewrite across any chunk boundary', () {
+      // No NUL, empty lines, a bare NUL, a number without a colon, a colon
+      // without a number, a 20-digit number (the longest a line number can
+      // be), and an unterminated last line.
+      final input = utf8.encode(
+        'bare\n\nx.dart\x00\nx.dart\x00123\nx.dart\x00:t\n'
+        'x.dart\x0012:\nx.dart\x0012345678901234567890:z\n'
+        'x.dart\x007:last',
+      );
+      const want =
+          'bare\nx.dart: \nx.dart: 123\nx.dart: :t\nx.dart:12: \n'
+          'x.dart:12345678901234567890: z\nx.dart:7: last\n';
+      for (var cut = 0; cut <= input.length; cut++) {
+        final rewriter = SearchLineRewriter(grep: true);
+        final out = [
+          ...rewriter.add(input.sublist(0, cut)),
+          ...rewriter.add(input.sublist(cut)),
+          ...rewriter.finish(),
+        ];
+        expect(utf8.decode(out), want, reason: 'cut at $cut');
+        expect(rewriter.lines, 7);
+        expect(rewriter.files, 2);
+      }
+    });
+
+    test('a filter drops a line and its text across any chunk boundary', () {
+      final input = utf8.encode(
+        'a.dart\x001:keep\nb.txt\x002:drop\nc.dart\x003:k\n',
+      );
+      for (var cut = 0; cut <= input.length; cut++) {
+        final rewriter = SearchLineRewriter(
+          grep: true,
+          filter: GlobMatcher('*.dart'),
+        );
+        final out = [
+          ...rewriter.add(input.sublist(0, cut)),
+          ...rewriter.add(input.sublist(cut)),
+          ...rewriter.finish(),
+        ];
+        expect(utf8.decode(out), 'a.dart:1: keep\nc.dart:3: k\n');
+        expect(rewriter.lines, 2);
+      }
+    });
+
+    test('one very long line is streamed with bounded retention', () {
+      const size = 16 * 1024 * 1024;
+      const piece = 64 * 1024;
+      final rewriter = SearchLineRewriter(grep: true, prefix: 'src');
+      final body = List<int>.filled(piece, 0x78);
+      var emitted = 0;
+      var peak = 0;
+      final head = rewriter.add(utf8.encode('long.txt\x0042:'));
+      expect(utf8.decode(head), 'src/long.txt:42: ');
+      for (var sent = 0; sent < size; sent += piece) {
+        emitted += rewriter.add(body).length;
+        peak = peak > rewriter.retainedBytes ? peak : rewriter.retainedBytes;
+      }
+      final tail = rewriter.add(const [0x0a]);
+      expect(emitted, size);
+      expect(tail, const [0x0a]);
+      expect(peak, lessThan(64), reason: 'only a header is ever retained');
+      expect(rewriter.lines, 1);
+
+      // A header split across chunks is held only until its NUL arrives.
+      final split = SearchLineRewriter(grep: true);
+      expect(split.add(utf8.encode('some/path')), isEmpty);
+      expect(split.retainedBytes, 9);
+      expect(utf8.decode(split.add(utf8.encode('\x005:x'))), 'some/path:5: x');
+      expect(split.retainedBytes, 0);
     });
 
     test('prefixes the root and passes bare paths for find', () {

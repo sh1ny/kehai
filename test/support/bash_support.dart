@@ -29,6 +29,7 @@ final class BashHarness {
     Map<String, Object?>? permission,
     UserConfig config = const UserConfig(),
     ShellDetection? shell,
+    JobHooks jobHooks = const JobHooks(),
   }) async {
     final root = await tempDir();
     final workspace = await tempDir();
@@ -41,6 +42,7 @@ final class BashHarness {
       config: config,
       shell: shell,
       gate: RecordingStage(permission),
+      jobHooks: jobHooks,
     );
     addTearDown(runtime.close);
     return BashHarness._(writer, store, runtime, workspace);

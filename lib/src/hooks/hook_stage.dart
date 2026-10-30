@@ -188,7 +188,9 @@ final class HookStage implements CallStage {
         return _failed(
           hook,
           handle.id,
-          'failed to start: ${result.reason ?? 'unknown'}',
+          result.storage != null
+              ? 'failed: ${result.reason}'
+              : 'failed to start: ${result.reason ?? 'unknown'}',
         );
     }
   }

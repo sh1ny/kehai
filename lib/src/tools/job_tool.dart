@@ -146,6 +146,12 @@ final class JobTool implements Tool {
     }
     final node = _node(jobs, id);
     final ref = node?['output'];
+    final reason = node?['reason'];
+    if (node?['state'] == 'failed' &&
+        reason is String &&
+        reason.startsWith('storage: ')) {
+      return failure('job $id output unavailable: $reason');
+    }
     if (node == null || ref is! Map<String, Object?>) {
       return ToolOutcome(summary: 'job $id has no output yet', complete: false);
     }

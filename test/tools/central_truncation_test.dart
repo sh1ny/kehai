@@ -469,28 +469,13 @@ const List<_Allowed> _allowlist = [
   ),
   _Allowed(
     'lib/src/tools/search.dart',
-    '_carry = start == data.length',
-    'the partial last line of an rg chunk, carried to the next chunk whole',
+    'if (i > from) _head.add(chunk.sublist(from, i));',
+    'rg line rewrite: the path of an unfinished line, carried to the next chunk whole',
   ),
   _Allowed(
     'lib/src/tools/search.dart',
-    '..add(data.sublist(split + 1, i))',
-    'rg line rewrite: the line number field, written out in full',
-  ),
-  _Allowed(
-    'lib/src/tools/search.dart',
-    '..add(data.sublist(i + 1, end))',
-    'rg line rewrite: the matched text, written out in full',
-  ),
-  _Allowed(
-    'lib/src/tools/search.dart',
-    '..add(data.sublist(split + 1, end))',
-    'rg line rewrite: the text of a line with no line number, in full',
-  ),
-  _Allowed(
-    'lib/src/tools/search.dart',
-    'var path = data.sublist(start, end)',
-    'rg line rewrite: the path field, written out in full',
+    'out.add(chunk.sublist(i, end));',
+    'rg line rewrite: the matched text of a line, streamed out in full',
   ),
   _Allowed(
     'lib/src/tools/search.dart',

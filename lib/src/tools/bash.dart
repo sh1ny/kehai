@@ -121,7 +121,12 @@ final class BashTool implements Tool {
 
   String _workingDirectory(ToolContext context, Object? cwd) {
     final root = realPath(context.workspace.path) ?? context.workspace.path;
-    return cwd is String ? p.normalize(p.join(root, cwd)) : root;
+    if (cwd is! String) return root;
+    // The gate and the read-only proof resolve a `..` after a link against
+    // the link's target; the directory bash runs in must be that one.
+    final joined = p.join(root, cwd);
+    return realPath(joined) ??
+        (p.style == p.Style.windows ? p.normalize(joined) : joined);
   }
 
   JobRequest _request(
@@ -143,7 +148,7 @@ final class BashTool implements Tool {
       if (by == 'builtin') {
         final rawCwd = p.relative(cwd, from: root);
         final proven = proveReadOnly(command, workspaceRoot: root, cwd: rawCwd);
-        if (proven == null) {
+        if (proven == null || !p.equals(proven.cwd, cwd)) {
           throw const _Refused('command is no longer proven read-only');
         }
         argv = proven.argv;
@@ -242,6 +247,17 @@ final class BashTool implements Tool {
     String tag,
     String note,
   ) async {
+    final lost = result.storage;
+    if (lost != null) {
+      return ToolOutcome(
+        status: ResultStatus.error,
+        summary: 'storage failure',
+        complete: false,
+        failed: true,
+        reason: result.reason,
+        storage: lost,
+      );
+    }
     final stream = result.streams['output'];
     final descriptor = stream?.descriptor;
     final whole = stream?.complete ?? false;
