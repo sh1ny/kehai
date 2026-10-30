@@ -398,6 +398,25 @@ void main() {
       ]);
       expect(outcome.summary, '1 match in 1 file (rg ${rg.version})');
 
+      // An approved directory outside the workspace is still rendered
+      // relative to the workspace root.
+      final sibling = Directory(
+        p.join(p.dirname(ws.path), '${p.basename(ws.path)}-sibling'),
+      )..createSync();
+      addTearDown(() => sibling.deleteSync(recursive: true));
+      File(p.join(sibling.path, 'o.txt')).writeAsStringSync('needle\n');
+      final up = '../${p.basename(sibling.path)}';
+      final (_, outsideGrep) = await _run(grep(), ws, {
+        'pattern': 'needle',
+        'path': up,
+      });
+      expect(outsideGrep.lines, ['$up/o.txt:1: needle']);
+      final (_, outsideFind) = await _run(find(), ws, {
+        'glob': '*.txt',
+        'path': up,
+      });
+      expect(outsideFind.lines, ['$up/o.txt']);
+
       // No path searches the workspace root.
       final (whole, wholeOut) = await _run(grep(), ws, {'pattern': 'Session'});
       expect(whole.summary, '2 matches in 2 files (rg ${rg.version})');

@@ -529,11 +529,13 @@ String _escapeGlob(String component) =>
   final workspace =
       realPath(context.workspace.path) ??
       p.normalize(context.workspace.absolute.path);
+  // Paths render relative to the workspace, outside it too (`../other`); only
+  // a directory on another Windows drive keeps its absolute path.
   final relative = p.equals(workspace, cwd)
       ? ''
-      : p.isWithin(workspace, cwd)
+      : p.equals(p.rootPrefix(workspace), p.rootPrefix(cwd))
       ? p.posix.joinAll(p.split(p.relative(cwd, from: workspace)))
-      : p.posix.joinAll(p.split(cwd)).replaceFirst(RegExp(r'^//'), '/');
+      : cwd.replaceAll(r'\', '/');
   String? exclusion;
   final home = context.kehaiHome;
   if (home != null && !isFile) {
