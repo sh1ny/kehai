@@ -1,0 +1,3 @@
+# Check out every text file with LF endings on every platform, whatever
+# core.autocrlf says: test fixtures are byte-exact and `dart format` writes LF.
+* text=auto eol=lf

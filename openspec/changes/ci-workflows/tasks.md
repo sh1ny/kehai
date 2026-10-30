@@ -20,6 +20,11 @@ The change sets `skip_specs: true` (repository tooling, no spec-level behavior),
 
 - [x] 3.1 Run `mise exec -- openspec validate --all --strict` and `mise run format:check` locally; both pass.
 
+## 4. Fixes found by the PR's own CI run
+
+- [x] 4.1 Add `.gitattributes` with `* text=auto eol=lf` and drop the workflow-level `core.autocrlf false` step from both workflows. Verify: `test/fixtures/anchors/*.txt` check out with LF on Windows, and `test/tools/read_tool_test.dart` passes locally and on `windows-latest`.
+- [x] 4.2 End `bin/kehai.dart` with an explicit `exit` after flushing output, because on the Windows runner `login openai --no-browser` printed its result but never exited (a cancelled standard-input read stayed pending). Verify: `test/cli/cli_test.dart` "login openai --no-browser signs in through a pasted redirect URL" passes locally and on `windows-latest`.
+
 ## Workflow follow-up
 
 - After the PR opens (specwright-pr ship/watch), confirm its CI run finished with both `check (ubuntu-latest)` and `check (windows-latest)` jobs green; diagnose any failure from the Actions log and fix it here only if it is workflow environment setup.

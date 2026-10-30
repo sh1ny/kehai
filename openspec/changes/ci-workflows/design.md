@@ -66,7 +66,7 @@ See proposal.md for scope. Relevant current state:
 ## Risks / Trade-offs
 
 - [A clean runner exposes a latent OS- or environment-dependent test failure] → Report it from the Actions log; fix only workflow environment setup in this change, never the tests (owned by other changes).
-- [Windows runners use `core.autocrlf=true`, so `dart format --set-exit-if-changed` sees CRLF files] → The developer machine uses the same setting (`git config core.autocrlf` is `true` in the user's system gitconfig) and `format:check` passes there; if CI disagrees, the workflow-level fix is a pre-checkout `git config --global core.autocrlf false`, recorded as a deviation.
+- [Windows runners use `core.autocrlf=true`, so `dart format --set-exit-if-changed` sees CRLF files] → The developer machine uses the same setting (`git config core.autocrlf` is `true` in the user's system gitconfig) and `format:check` passes there; if CI disagrees, the workflow-level fix is a pre-checkout `git config --global core.autocrlf false`, recorded as a deviation. **Deviation (PR #6):** CI disagreed: the CRLF checkout broke the byte-exact anchor fixtures (`read_tool_test.dart`), and the local checkout had the same CRLF fixtures. A repository `.gitattributes` (`* text=auto eol=lf`) replaced the workflow step, so every checkout gets the committed LF bytes.
 - [A pinned SHA goes stale] → Accepted; updates are a deliberate edit (Dependabot for actions can be added later).
 - [Scheduled workflows on public repos are disabled after 60 days without repository activity] → Accepted; `workflow_dispatch` re-runs it on demand.
 
