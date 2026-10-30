@@ -9,8 +9,8 @@ import 'package:path/path.dart' as p;
 ///
 /// The part of the path that does not exist yet is appended after the nearest
 /// existing ancestor, so a file about to be created resolves too. Returns null
-/// when an existing component cannot be resolved (a dangling link), which the
-/// callers treat as unproven.
+/// when an existing component cannot be resolved (a dangling link), or when a
+/// `..` follows a missing component, which the callers treat as unproven.
 ///
 /// A `..` is applied to the resolved prefix, as POSIX does. Windows resolves
 /// `..` lexically before it looks at the disk, so there the path is
@@ -30,7 +30,11 @@ String? realPath(String path) {
     final candidate = p.join(current, segment);
     if (FileSystemEntity.typeSync(candidate, followLinks: false) ==
         FileSystemEntityType.notFound) {
-      return p.normalize(p.joinAll([current, ...segments.skip(i)]));
+      final rest = segments.skip(i).toList();
+      // POSIX cannot step back out of a missing directory; collapsing the
+      // `..` lexically would skip resolving the links after it.
+      if (rest.contains('..')) return null;
+      return p.normalize(p.joinAll([current, ...rest]));
     }
     try {
       current = _resolve(candidate);

@@ -97,6 +97,25 @@ void main() {
   );
 
   test(
+    'a link after a missing component and .. is not collapsed past',
+    () async {
+      File(p.join(outside.path, 'deep', 'secret'))
+          .writeAsStringSync('SECRET-MARK\n');
+      final runtime = await attach(gated: true);
+
+      // Lexically `missing/../far/secret` is `ws/far/secret`, inside; POSIX
+      // never reaches `far`, and opening it lexically follows `far` outside.
+      final out = await call(runtime, 'read', {
+        'path': 'missing/../far/secret',
+      });
+
+      expect(out, startsWith('[read denied]'));
+      expect(out, isNot(contains('SECRET-MARK')));
+      expect(realPath(p.join(ws.path, 'missing', '..', 'far', 'secret')), null);
+    },
+  );
+
+  test(
     'write and edit through a link then .. are prompted, not applied',
     () async {
       final runtime = await attach(gated: true);
