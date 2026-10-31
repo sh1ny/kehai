@@ -141,7 +141,36 @@ void main() {
       'output:c1:ok-1',
       'call:c2:bash',
       'output:c2:[bash error] cancelled: interrupted\n',
+      'user:$interruptedNote',
       'user:second prompt',
+    ]);
+  });
+
+  test('interrupted exchange is followed by the interrupted note', () async {
+    final (writer, _) = await _session();
+    await seedExchange(writer, 1, 'write a poem', state: 'cancelled');
+    await seedStep(
+      writer,
+      1,
+      exchange: 1,
+      state: 'cancelled',
+      output: const [],
+      partial: 'You held the morning',
+    );
+    await seedExchange(writer, 2, 'hi', state: 'running');
+    await seedStep(writer, 2, exchange: 2, state: 'running', output: const []);
+
+    final built = await _builder(writer).build(writer.tree, turn: 2);
+
+    expect(
+      interruptedNote,
+      'The previous request was interrupted before it finished. '
+      'Do not continue it unless asked.',
+    );
+    expect(_describe(built.request), [
+      'user:write a poem',
+      'user:$interruptedNote',
+      'user:hi',
     ]);
   });
 

@@ -13,6 +13,12 @@ import 'sensorium.dart';
 
 const Set<String> _terminal = {'settled', 'failed', 'cancelled'};
 
+/// The user note sent after every cancelled exchange (D3), so the model does
+/// not take its unanswered prompt as still pending. Its bytes never change.
+const String interruptedNote =
+    'The previous request was interrupted before it finished. '
+    'Do not continue it unless asked.';
+
 /// A request built from the tree, with the numbers behind its budget line.
 final class BuiltRequest {
   /// Creates a built request.
@@ -201,6 +207,16 @@ final class RequestBuilder {
                 );
           }
         }
+      }
+      if (exchange['state'] == 'cancelled') {
+        final last = exchange['last'] ?? first;
+        items.add(
+          BuiltItem(
+            const UserMessage(interruptedNote),
+            last is int ? last : _turnOf(exchangeKey),
+            ItemRole.prompt,
+          ),
+        );
       }
     }
     return (items, baseline);
