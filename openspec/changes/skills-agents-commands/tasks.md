@@ -2,42 +2,42 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| workspace-context: Project root and applicable AGENTS.md files | Workspace below the project root | test/workspace/agents_md_test.dart | applicable AGENTS.md files run from the project root to the workspace | red |
-| workspace-context: Project root and applicable AGENTS.md files | No repository and no file | test/workspace/agents_md_test.dart | without .git or .jj the workspace is the root and nothing applies | red |
-| workspace-context: Project root and applicable AGENTS.md files | Unreadable file | test/workspace/agents_md_test.dart | an unreadable or non-UTF-8 AGENTS.md is left out with a problem | red |
-| workspace-context: Automatic reads stay inside the project | File inside the project | test/workspace/containment_test.dart | a regular file inside the root is read | red |
-| workspace-context: Automatic reads stay inside the project | Link to a file outside the project | test/workspace/containment_test.dart | a link or junction outside the root is not read and records outside the project root | red |
-| workspace-context: Automatic reads stay inside the project | Link to credentials | test/workspace/containment_test.dart | a link to a Kehai credential file is refused as credential file | red |
-| workspace-context: Budget follows the instructions | Same instructions | test/loop/request_builder_test.dart | baseline is reused when the instructions identity matches | red |
-| workspace-context: Budget follows the instructions | Larger instructions push over the window | test/loop/context_test.dart | grown AGENTS.md stops the next exchange on overflow before sending | red |
-| workspace-context: Bounded instruction files | Oversized file | test/workspace/agents_md_test.dart | a 50 KiB AGENTS.md is cut at a line within 32 KiB with the note | red |
-| workspace-context: Bounded instruction files | Deep workspace | test/workspace/agents_md_test.dart | only the 8 files nearest the workspace apply and the rest are named | red |
-| workspace-context: Context captured once per content | Unchanged context | test/loop/context_test.dart | two exchanges with unchanged files share one stored context | red |
-| workspace-context: Context captured once per content | File edited between exchanges | test/loop/context_test.dart | an edit during exchange 1 gives exchange 2 a new key and keeps exchange 1's | red |
-| workspace-context: Context captured once per content | Rewind keeps referenced context | test/loop/context_test.dart | rewind before exchange 2 keeps exchange 1's context and instructions | red |
-| workspace-context: Context captured once per content | Rewind past the first use | test/loop/context_test.dart | rewind before the first use removes the context and the next exchange stores it again | red |
-| workspace-context: Instructions built from the captured context | Cache-stable instructions | test/loop/context_test.dart | requests with one context key carry byte-identical instructions | red |
-| workspace-context: Instructions built from the captured context | Catalog over its bound | test/workspace/context_text_test.dart | 80 skills list 64 with descriptions and 16 by name | red |
-| skills: Skill discovery | Installed skills found | test/workspace/skills_test.dart | a valid SKILL.md becomes a skill with its directory as base | red |
-| skills: Skill discovery | Invalid frontmatter | test/workspace/skills_test.dart | missing frontmatter, mismatched name or empty description is a problem | red |
-| skills: Skill discovery | Directory without SKILL.md | test/workspace/skills_test.dart | files and folders without SKILL.md are skipped silently | red |
-| skills: Skill precedence | Same skill in both roots | test/workspace/skills_test.dart | the .claude copy wins and the .agents copy is shadowed | red |
+| workspace-context: Project root and applicable AGENTS.md files | Workspace below the project root | test/workspace/agents_md_test.dart | applicable AGENTS.md files run from the project root to the workspace | green |
+| workspace-context: Project root and applicable AGENTS.md files | No repository and no file | test/workspace/agents_md_test.dart | without .git or .jj the workspace is the root and nothing applies | green |
+| workspace-context: Project root and applicable AGENTS.md files | Unreadable file | test/workspace/agents_md_test.dart | an unreadable or non-UTF-8 AGENTS.md is left out with a problem | green |
+| workspace-context: Automatic reads stay inside the project | File inside the project | test/workspace/containment_test.dart | a regular file inside the root is read | green |
+| workspace-context: Automatic reads stay inside the project | Link to a file outside the project | test/workspace/containment_test.dart | a link or junction outside the root is not read and records outside the project root | green |
+| workspace-context: Automatic reads stay inside the project | Link to credentials | test/workspace/containment_test.dart | a link to a Kehai credential file is refused as credential file | green |
+| workspace-context: Budget follows the instructions | Same instructions | test/loop/request_builder_test.dart | baseline is reused when the instructions identity matches | green |
+| workspace-context: Budget follows the instructions | Larger instructions push over the window | test/loop/context_test.dart | grown AGENTS.md stops the next exchange on overflow before sending | green |
+| workspace-context: Bounded instruction files | Oversized file | test/workspace/agents_md_test.dart | a 50 KiB AGENTS.md is cut at a line within 32 KiB with the note | green |
+| workspace-context: Bounded instruction files | Deep workspace | test/workspace/agents_md_test.dart | only the 8 files nearest the workspace apply and the rest are named | green |
+| workspace-context: Context captured once per content | Unchanged context | test/loop/context_test.dart | two exchanges with unchanged files share one stored context | green |
+| workspace-context: Context captured once per content | File edited between exchanges | test/loop/context_test.dart | an edit during exchange 1 gives exchange 2 a new key and keeps exchange 1's | green |
+| workspace-context: Context captured once per content | Rewind keeps referenced context | test/loop/context_test.dart | rewind before exchange 2 keeps exchange 1's context and instructions | green |
+| workspace-context: Context captured once per content | Rewind past the first use | test/loop/context_test.dart | rewind before the first use removes the context and the next exchange stores it again | green |
+| workspace-context: Instructions built from the captured context | Cache-stable instructions | test/loop/context_test.dart | requests with one context key carry byte-identical instructions | green |
+| workspace-context: Instructions built from the captured context | Catalog over its bound | test/workspace/context_text_test.dart | 80 skills list 64 with descriptions and 16 by name | green |
+| skills: Skill discovery | Installed skills found | test/workspace/skills_test.dart | a valid SKILL.md becomes a skill with its directory as base | green |
+| skills: Skill discovery | Invalid frontmatter | test/workspace/skills_test.dart | missing frontmatter, mismatched name or empty description is a problem | green |
+| skills: Skill discovery | Directory without SKILL.md | test/workspace/skills_test.dart | files and folders without SKILL.md are skipped silently | green |
+| skills: Skill precedence | Same skill in both roots | test/workspace/skills_test.dart | the .claude copy wins and the .agents copy is shadowed | green |
 | skills: Skill precedence | Model invocation disabled | test/tools/skill_tool_test.dart | disable-model-invocation refuses the model's load | red |
 | skills: Skill tool | Skill loaded with arguments | test/tools/skill_tool_test.dart | skill result has the base directory line, body and ARGUMENTS line | red |
 | skills: Skill tool | Command loaded by the model | test/tools/skill_tool_test.dart | skill resolves opsx:propose as a command | red |
 | skills: Skill tool | Unknown name | test/tools/skill_tool_test.dart | an unknown name lists up to five close names | red |
-| skills: Path and argument substitution | Skill directory substituted | test/workspace/substitution_test.dart | CLAUDE_SKILL_DIR becomes the forward-slash base and shell variables stay | red |
-| skills: Path and argument substitution | Empty arguments | test/workspace/substitution_test.dart | $ARGUMENTS with no args becomes empty and no ARGUMENTS line is added | red |
+| skills: Path and argument substitution | Skill directory substituted | test/workspace/substitution_test.dart | CLAUDE_SKILL_DIR becomes the forward-slash base and shell variables stay | green |
+| skills: Path and argument substitution | Empty arguments | test/workspace/substitution_test.dart | $ARGUMENTS with no args becomes empty and no ARGUMENTS line is added | green |
 | skills: Skills delivered whole | Large skill loaded whole | test/tools/skill_tool_test.dart | a 55 KiB skill is delivered with no truncation line | red |
 | skills: Skills delivered whole | Over the file bound | test/tools/skill_tool_test.dart | a 300 KiB SKILL.md is refused with the read hint | red |
 | skills: Skills delivered whole | Over the context capacity | test/tools/skill_tool_test.dart | a skill over the remaining capacity settles error uncut | red |
 | skills: Skills delivered whole | Whole skill plus parallel results over a known window | test/loop/context_test.dart | parallel results after a whole skill stop the next step before sending | red |
 | skills: Skills delivered whole | Unknown window | test/tools/skill_tool_test.dart | with an unknown window a skill is delivered whole and the request is sent | red |
-| skills: Skills delivered whole | Skill directory outside the project | test/workspace/containment_test.dart | a junctioned skill folder outside the root is not a skill | red |
+| skills: Skills delivered whole | Skill directory outside the project | test/workspace/containment_test.dart | a junctioned skill folder outside the root is not a skill | green |
 | skills: Inventory in doctor | Healthy workspace | test/qualification/installed_workflow_test.dart | doctor lists every installed command, skill and role with only shadowed problems | red |
 | skills: Inventory in doctor | Broken skill reported | test/cli/doctor_inventory_test.dart | a broken SKILL.md is listed under problems and doctor's exit code is unchanged | red |
-| slash-commands: Command definitions | Namespaced command | test/workspace/commands_test.dart | opsx/propose.md is the command opsx:propose without its frontmatter | red |
-| slash-commands: Command definitions | Broken frontmatter | test/workspace/commands_test.dart | an unclosed frontmatter is not a command and is a problem | red |
+| slash-commands: Command definitions | Namespaced command | test/workspace/commands_test.dart | opsx/propose.md is the command opsx:propose without its frontmatter | green |
+| slash-commands: Command definitions | Broken frontmatter | test/workspace/commands_test.dart | an unclosed frontmatter is not a command and is a problem | green |
 | slash-commands: Skills as commands | User-invocable skill | test/loop/commands_test.dart | /specwright-roadmap next expands to the skill load text | red |
 | slash-commands: Skills as commands | Skill not user-invocable | test/loop/commands_test.dart | user-invocable false refuses the submit with nothing admitted | red |
 | slash-commands: Expansion at submit | Command expanded | test/loop/commands_test.dart | /opsx:propose add-dark-mode becomes the body plus ARGUMENTS | red |
@@ -46,10 +46,10 @@
 | slash-commands: Command recorded on the exchange | Recorded expansion | test/loop/commands_test.dart | the exchange records command name, args, source and digest | red |
 | slash-commands: Command recorded on the exchange | Definition changed before a duplicate | test/loop/commands_test.dart | a duplicate submit after the file changed reports the first expansion | red |
 | slash-commands: Repository commands carry no permission | allowed-tools ignored for approval | test/permissions/repository_frontmatter_test.dart | allowed-tools does not autoapprove a bash call | red |
-| subagents: Agent roles | Installed roles | test/workspace/roles_test.dart | a role file gives name, model, tools and body | red |
-| subagents: Agent roles | Invalid role file | test/workspace/roles_test.dart | a role without description is a problem | red |
-| subagents: Role tools narrowed and mapped | Reviewer tools | test/workspace/roles_test.dart | reviewer tools map to the ten Kehai tools | red |
-| subagents: Role tools narrowed and mapped | Unknown tool name | test/workspace/roles_test.dart | WebFetch is ignored and recorded as unmapped | red |
+| subagents: Agent roles | Installed roles | test/workspace/roles_test.dart | a role file gives name, model, tools and body | green |
+| subagents: Agent roles | Invalid role file | test/workspace/roles_test.dart | a role without description is a problem | green |
+| subagents: Role tools narrowed and mapped | Reviewer tools | test/workspace/roles_test.dart | reviewer tools map to the ten Kehai tools | green |
+| subagents: Role tools narrowed and mapped | Unknown tool name | test/workspace/roles_test.dart | WebFetch is ignored and recorded as unmapped | green |
 | subagents: Role tools narrowed and mapped | Out-of-roster call in the child | test/rpc/child_mode_test.dart | a reviewer child's edit call fails as unknown tool | red |
 | subagents: Role model selection | Inherited model | test/jobs/agent_job_test.dart | inherit runs the child on the parent's model | red |
 | subagents: Role model selection | Configured alias | test/jobs/agent_job_test.dart | a configured alias picks its slug | red |
@@ -87,8 +87,8 @@
 | job-supervisor: One job node shape | Agent job read with job | test/tools/job_tool_test.dart | job wait and output on an agent job return the typed result | red |
 | agent-loop: Requests rebuilt from the tree | Tool output is the composed envelope | test/loop/request_builder_test.dart | tool output is the stored model text byte for byte | green |
 | agent-loop: Requests rebuilt from the tree | Resumed session | test/loop/request_builder_test.dart | resumed session request holds earlier items and cancelled calls' | green |
-| agent-loop: Requests rebuilt from the tree | Instructions from the exchange's context | test/loop/context_test.dart | a step uses the context captured at its exchange start | red |
-| agent-loop: Requests rebuilt from the tree | Session from before this change | test/loop/context_test.dart | a pre-change session captures context for its next exchange | red |
+| agent-loop: Requests rebuilt from the tree | Instructions from the exchange's context | test/loop/context_test.dart | a step uses the context captured at its exchange start | green |
+| agent-loop: Requests rebuilt from the tree | Session from before this change | test/loop/context_test.dart | a pre-change session captures context for its next exchange | green |
 | engine-rpc: Prompts reach the client | Permission prompt | test/rpc/server_test.dart | non-autoapproved bash sends a permission prompt and allow runs it | green |
 | engine-rpc: Prompts reach the client | Prompt withdrawn by interrupt | test/rpc/server_test.dart | interrupt withdraws the open question and a late answer is refused | green |
 | engine-rpc: Prompts reach the client | Relayed child prompt | test/rpc/relay_test.dart | a relayed prompt names its agent with a session-unique key | red |
@@ -120,8 +120,8 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 3. Context capture, instructions and budget
 
-- [ ] 3.1 Write the failing tests in `test/loop/context_test.dart`, then capture at exchange start in `driver.dart` (D4: `body/contexts/<key>` once per content, exchange `context`), and build instructions in `request_builder.dart` from the exchange's context (D5). Bump `instructionsVersion` to `kehai-2` and extend `builtInInstructions` with the skills, agents, tool-name mapping and authority text of D5. Turns green: *Unchanged context*, *File edited between exchanges*, *Rewind keeps referenced context*, *Rewind past the first use*, *Cache-stable instructions*, *Instructions from the exchange's context*, *Session from before this change*.
-- [ ] 3.2 Write the failing tests, then record `instructions: {version, context, role}` on each step and use a baseline only when it matches (D16). Turns green: *Same instructions*, *Larger instructions push over the window*. Re-run the unchanged *Tool output is the composed envelope* and *Resumed session* tests (green rows) to confirm they still pass.
+- [x] 3.1 Write the failing tests in `test/loop/context_test.dart`, then capture at exchange start in `driver.dart` (D4: `body/contexts/<key>` once per content, exchange `context`), and build instructions in `request_builder.dart` from the exchange's context (D5). Bump `instructionsVersion` to `kehai-2` and extend `builtInInstructions` with the skills, agents, tool-name mapping and authority text of D5. Turns green: *Unchanged context*, *File edited between exchanges*, *Rewind keeps referenced context*, *Rewind past the first use*, *Cache-stable instructions*, *Instructions from the exchange's context*, *Session from before this change*.
+- [x] 3.2 Write the failing tests, then record `instructions: {version, context, role}` on each step and use a baseline only when it matches (D16). Turns green: *Same instructions*, *Larger instructions push over the window*. Re-run the unchanged *Tool output is the composed envelope* and *Resumed session* tests (green rows) to confirm they still pass.
 
 ## 4. Skill tool and commands
 

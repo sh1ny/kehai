@@ -276,4 +276,57 @@ void main() {
       expect(output.output, composeStorageFailure('bash', 'disk full', 12));
     });
   });
+
+  group('budget baseline follows the instructions identity', () {
+    Future<SessionWriter> seeded({required String secondContext}) async {
+      final (writer, _) = await _session();
+      for (final key in ['k1', 'k2']) {
+        await writer.apply(
+          rec(1, 'body/contexts/$key', Op.set, {'text': 'ctx $key'}),
+        );
+      }
+      await seedExchange(writer, 1, 'first', context: 'k1');
+      await seedStep(
+        writer,
+        1,
+        exchange: 1,
+        output: [textEntry('answer')],
+        usage: {'input': 1000, 'output': 100},
+        context: {'block': 10},
+        instructions: {
+          'version': instructionsVersion,
+          'context': 'k1',
+          'role': null,
+        },
+      );
+      await seedExchange(writer, 2, 'second', context: secondContext);
+      return writer;
+    }
+
+    RequestBuilder huge(SessionWriter writer) => RequestBuilder(
+      sessionDir: writer.sessionDir,
+      model: 'gpt-5.5',
+      workspaceName: 'proj',
+      tools: const [],
+      estimateRequest: (_) => 1000000,
+      clock: () => DateTime(2026, 10, 30, 9, 5),
+    );
+
+    test('baseline is reused when the instructions identity matches', () async {
+      final writer = await seeded(secondContext: 'k1');
+
+      final built = await huge(writer).build(writer.tree, turn: 2);
+
+      expect(built.used, lessThan(5000));
+      expect(built.used, greaterThan(1000));
+    });
+
+    test('baseline is dropped when the context key differs', () async {
+      final writer = await seeded(secondContext: 'k2');
+
+      final built = await huge(writer).build(writer.tree, turn: 2);
+
+      expect(built.used, greaterThan(900000));
+    });
+  });
 }

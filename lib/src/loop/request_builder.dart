@@ -1,7 +1,10 @@
 /// Builds each model request from the session tree (design D3, D4, D7).
 library;
 
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 
 import '../provider/provider.dart';
 import '../results/composer.dart';
@@ -18,6 +21,56 @@ const Set<String> _terminal = {'settled', 'failed', 'cancelled'};
 const String interruptedNote =
     'The previous request was interrupted before it finished. '
     'Do not continue it unless asked.';
+
+/// What a request's instructions were made of (design D16): the built-in
+/// version, the captured context key and the digest of the role section.
+///
+/// A step's reported usage describes the context in use only for a request
+/// with the same identity.
+final class InstructionsIdentity {
+  /// Creates an identity; [context] and [role] are null when absent.
+  const InstructionsIdentity(this.version, this.context, this.role);
+
+  /// Reads the `instructions` field of a step: the record map, or the plain
+  /// version string of a step written before contexts existed.
+  factory InstructionsIdentity.fromRecorded(Object? recorded) =>
+      switch (recorded) {
+        String version => InstructionsIdentity(version, null, null),
+        {'version': final String version} && final Map<String, Object?> map =>
+          InstructionsIdentity(
+            version,
+            map['context'] is String ? map['context']! as String : null,
+            map['role'] is String ? map['role']! as String : null,
+          ),
+        _ => const InstructionsIdentity('', null, null),
+      };
+
+  /// The built-in instructions version.
+  final String version;
+
+  /// The context key, or null for an exchange without one.
+  final String? context;
+
+  /// The role digest, or null outside a child engine.
+  final String? role;
+
+  /// The record a step stores.
+  Map<String, Object?> toJson() => {
+    'version': version,
+    'context': context,
+    'role': role,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is InstructionsIdentity &&
+      other.version == version &&
+      other.context == context &&
+      other.role == role;
+
+  @override
+  int get hashCode => Object.hash(version, context, role);
+}
 
 /// A request built from the tree, with the numbers behind its budget line.
 final class BuiltRequest {
@@ -64,7 +117,18 @@ final class RequestBuilder {
     this.window,
     this.estimate = estimateItem,
     this.clock = DateTime.now,
+    this.roleInstructions,
   });
+
+  /// The role section of a child engine's instructions, or null.
+  final String? roleInstructions;
+
+  /// The digest recorded for [roleInstructions], or null.
+  String? get roleDigest => switch (roleInstructions) {
+    final text? =>
+      sha256.convert(utf8.encode(text)).toString().substring(0, 16),
+    null => null,
+  };
 
   /// The session directory holding the result files.
   final Directory sessionDir;
@@ -92,12 +156,22 @@ final class RequestBuilder {
 
   /// Builds the request for the step at journal [turn] from [tree].
   Future<BuiltRequest> build(SessionTree tree, {required int turn}) async {
-    final (items, baseline) = await _conversation(tree);
+    final contextKey = _currentContext(tree);
+    final identity = InstructionsIdentity(
+      instructionsVersion,
+      contextKey,
+      roleDigest,
+    );
+    final (items, baseline) = await _conversation(tree, identity);
     final session = tree.get(SessionPath.parse('meta/session'));
+    final instructions = composeInstructions(
+      role: roleInstructions,
+      context: _contextText(tree, contextKey),
+    );
 
     ModelRequest requestWith(String block) => ModelRequest(
       model: model,
-      instructions: builtInInstructions,
+      instructions: instructions,
       items: [for (final b in items) b.item, UserMessage(block)],
       tools: tools,
       sessionId: session is String ? session : '',
@@ -135,8 +209,25 @@ final class RequestBuilder {
     );
   }
 
+  /// The context key of the last exchange, which the step being built
+  /// belongs to, or null when it records none.
+  String? _currentContext(SessionTree tree) {
+    final last = _children(tree, 'body/exchanges').lastOrNull?.value;
+    final key = last?['context'];
+    return key is String ? key : null;
+  }
+
+  /// The stored text of context [key]; empty when none is stored.
+  String _contextText(SessionTree tree, String? key) {
+    if (key == null) return '';
+    final stored = tree.get(SessionPath.parse('body/contexts/$key'));
+    final text = stored is Map<String, Object?> ? stored['text'] : null;
+    return text is String ? text : '';
+  }
+
   Future<(List<BuiltItem>, UsageBaseline?)> _conversation(
     SessionTree tree,
+    InstructionsIdentity identity,
   ) async {
     final exchanges = _children(tree, 'body/exchanges');
     final steps = _children(tree, 'body/steps');
@@ -158,7 +249,16 @@ final class RequestBuilder {
           continue;
         }
         final turn = _turnOf(stepKey);
-        baseline = _baselineOf(step, turn) ?? baseline;
+        final measured = _baselineOf(step, turn);
+        if (measured != null) {
+          // Usage counts the instructions it was sent with, so it is the
+          // baseline only for a request with the same identity (D16).
+          baseline =
+              InstructionsIdentity.fromRecorded(step['instructions']) ==
+                  identity
+              ? measured
+              : null;
+        }
         final output = step['output'];
         if (output is! List<Object?>) continue;
         for (final entry in output) {

@@ -4,6 +4,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -15,6 +16,7 @@ import '../session/record.dart';
 import '../session/requests.dart';
 import '../session/writer.dart';
 import '../tools/runtime.dart';
+import '../workspace/inventory.dart';
 import 'instructions.dart';
 import 'request_builder.dart';
 import 'retry.dart';
@@ -198,6 +200,9 @@ final class ExchangeDriver {
   );
   bool _busy = false;
 
+  /// The context key of the running exchange, or null when idle.
+  String? _contextKey;
+
   /// The running exchange's cancel token, or null when idle.
   CancelToken? _token;
 
@@ -348,6 +353,7 @@ final class ExchangeDriver {
         },
       ),
     );
+    await _captureContext(key, first);
     var turn = first;
     _End end;
     for (var steps = 1; ; steps++) {
@@ -384,6 +390,54 @@ final class ExchangeDriver {
     return ExchangeResult(key, end.state, end.reason);
   }
 
+  /// Loads the workspace, stores its context text under a key of its content
+  /// unless already stored, and records the key on exchange [exchange]
+  /// (design D4). Both records carry the exchange's turn [first].
+  Future<void> _captureContext(String exchange, int first) async {
+    final loaded = loadWorkspace(
+      workspace: runtime.workspace.path,
+      kehaiHome: runtime.kehaiHome ?? _noHome,
+    );
+    final text = loaded.contextText;
+    final contextKey = sha256
+        .convert(utf8.encode(text))
+        .toString()
+        .substring(0, 16);
+    final stored = writer.tree.get(
+      SessionPath.parse('body/contexts/$contextKey'),
+    );
+    if (stored == null) {
+      await _apply(
+        JournalRecord(
+          turn: first,
+          path: 'body/contexts/$contextKey',
+          op: Op.set,
+          value: {
+            'text': text,
+            'files': [
+              for (final f in loaded.files)
+                {'path': f.path, 'bytes': f.size, 'truncated': f.truncated},
+            ],
+            'skills': loaded.skills.length,
+            'problems': [
+              for (final problem in loaded.problems)
+                {'path': problem.path, 'reason': problem.reason},
+            ],
+          },
+        ),
+      );
+    }
+    await _apply(
+      JournalRecord(
+        turn: first,
+        path: 'body/exchanges/$exchange',
+        op: Op.merge,
+        value: {'context': contextKey},
+      ),
+    );
+    _contextKey = contextKey;
+  }
+
   /// Runs one step; returns [_End] when the exchange ends with it, else
   /// [_Continue] after its calls are all terminal.
   Future<_StepOutcome> _step(
@@ -399,7 +453,11 @@ final class ExchangeDriver {
         value: {
           'exchange': exchange,
           'model': model,
-          'instructions': instructionsVersion,
+          'instructions': InstructionsIdentity(
+            instructionsVersion,
+            _contextKey,
+            _builder.roleDigest,
+          ).toJson(),
           'state': 'running',
           'attempts': 0,
         },
@@ -628,6 +686,11 @@ final class ExchangeDriver {
   Future<T> _gated<T>(Future<T> Function() operation) =>
       runtime.writeGate.run(operation);
 }
+
+/// A Kehai home that does not exist, for a runtime attached without one.
+final Directory _noHome = Directory(
+  p.join(Directory.systemTemp.path, 'kehai-no-home'),
+);
 
 const Map<String, Object?> _interrupted = {
   'state': 'cancelled',
