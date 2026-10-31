@@ -63,6 +63,9 @@ enum ItemRole {
 
   /// A tool output answering a call of a step.
   output,
+
+  /// A derived message added after a step, such as the interrupted note.
+  note,
 }
 
 /// A conversation item with its provenance.
@@ -118,7 +121,8 @@ int uncoveredTokens(
   for (final BuiltItem(:item, :turn, :role) in items) {
     final covered = switch (role) {
       ItemRole.prompt || ItemRole.response => turn <= baseline.turn,
-      ItemRole.output => turn < baseline.turn,
+      // Sent only by requests after the step at [turn].
+      ItemRole.output || ItemRole.note => turn < baseline.turn,
     };
     if (!covered) sum += estimate(item);
   }

@@ -224,10 +224,32 @@ void main() {
 
         final built = await _builder(writer).build(writer.tree, turn: 3);
 
-        // 21,000 - 40 + the 300-character prompt + the block (40).
-        expect(built.used, 21300);
+        // 21,000 - 40 + the interrupted note + the 300-character prompt +
+        // the block (40).
+        expect(built.used, 21300 + interruptedNote.length);
       },
     );
+
+    test('the interrupted note after the baseline step is counted', () async {
+      final (writer, store) = await _session();
+      // Cancelled during the tools of its only, completed step.
+      await seedExchange(writer, 1, 'go', state: 'cancelled');
+      await seedStep(
+        writer,
+        1,
+        exchange: 1,
+        output: [textEntry('ok'), callEntry('A', 'read')],
+        usage: _usage(20000, 1000),
+        context: _context(40),
+      );
+      await seedCall(writer, store, callId: 'A', modelText: 'a' * 600);
+      await seedExchange(writer, 2, 'n' * 300, state: 'running');
+
+      final built = await _builder(writer).build(writer.tree, turn: 2);
+
+      // 21,000 - 40 + output A + the note + the prompt + the block (40).
+      expect(built.used, 21000 + 600 + interruptedNote.length + 300);
+    });
 
     test('with no completed step that reported usage the whole request is '
         'estimated', () async {

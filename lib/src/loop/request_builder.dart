@@ -214,7 +214,7 @@ final class RequestBuilder {
           BuiltItem(
             const UserMessage(interruptedNote),
             last is int ? last : _turnOf(exchangeKey),
-            ItemRole.prompt,
+            ItemRole.note,
           ),
         );
       }
