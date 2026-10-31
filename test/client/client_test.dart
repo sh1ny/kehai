@@ -403,6 +403,28 @@ void main() {
       );
     });
 
+    test('tag, variation selector and odd space characters are shown '
+        'escaped', () async {
+      final tag = String.fromCharCode(0xe007f);
+      final selector = String.fromCharCode(0xfe0f);
+      final space = String.fromCharCode(0xa0);
+      final rig = await promptFor('./build.sh$tag x$selector y$space');
+
+      expect(
+        rig.out.lines,
+        contains(r'permission: bash ./build.sh\u{E007F} x\u{FE0F} y\u{A0}'),
+      );
+    });
+
+    test('a backslash that looks like an escape is escaped itself', () async {
+      final rig = await promptFor(r'./build.sh\u{E007F} C:\dir\file');
+
+      expect(
+        rig.out.lines,
+        contains(r'permission: bash ./build.sh\u{5C}u{E007F} C:\dir\file'),
+      );
+    });
+
     test('a long command is shown whole', () async {
       final rig = await promptFor('${'x' * 300} && rm -rf /tmp/z');
 
