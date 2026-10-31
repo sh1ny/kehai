@@ -37,7 +37,7 @@
 
 ## 3. Integration checks
 
-- [ ] 3.1 Run `mise exec -- dart analyze` and `mise exec -- dart format --output=none --set-exit-if-changed lib test`; both exit 0.
+- [x] 3.1 Run `mise exec -- dart analyze` and `mise exec -- dart format --output=none --set-exit-if-changed lib test`; both exit 0.
 
 ## Workflow follow-up
 
