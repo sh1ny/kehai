@@ -62,6 +62,9 @@ final class LineClient {
   final Completer<int> _result = Completer<int>();
   final Map<int, String> _shown = {};
 
+  /// Exchanges whose failure or stop was already printed.
+  final Set<String> _notedExchanges = {};
+
   /// Text deltas may have been lost for every step up to this turn: their
   /// live text stops and the commit prints what was not shown.
   int _gapThrough = -1;
@@ -411,6 +414,16 @@ final class LineClient {
         }
       }
     }
+    final exchanges = _mirror.get('body/exchanges');
+    if (exchanges is Map<String, Object?>) {
+      for (final key in exchanges.keys.toList()..sort()) {
+        if (first) {
+          _notedExchanges.add(key);
+        } else {
+          _noteExchange(key);
+        }
+      }
+    }
     // The update that ended the running request may have been dropped with
     // the overflow; the snapshot still holds its state.
     final id = _requestId;
@@ -470,10 +483,12 @@ final class LineClient {
   }
 
   void _noteExchange(String key) {
+    if (_notedExchanges.contains(key)) return;
     final node = _mirror.get('body/exchanges/$key');
     if (node is! Map<String, Object?>) return;
     final state = node['state'];
     if (state == 'failed' || state == 'stopped') {
+      _notedExchanges.add(key);
       final reason = node['reason'];
       _line(
         '[exchange $state]${reason is String ? ' ${oneLine(reason)}' : ''}',

@@ -64,6 +64,8 @@ Future<int> runRpc({
   // ignores it (on Windows it also consumes the console event), so only the
   // `interrupt` command cancels (design D14).
   final sigint = ProcessSignal.sigint.watch().listen((_) {});
+  // Once serving, a filesystem error is not a startup failure.
+  var serving = false;
   try {
     final real = realPath(workspace.path) ?? p.absolute(workspace.path);
     final canonical = canonicalWorkspace(workspace.path);
@@ -143,6 +145,7 @@ Future<int> runRpc({
         exchanges: exchanges,
       ),
     );
+    serving = true;
     return await server.run();
   } on _StartupFailure catch (e) {
     return _fatal(output, e.message);
@@ -154,6 +157,9 @@ Future<int> runRpc({
     return _fatal(output, 'storage failure: ${e.message}');
   } on CredentialStoreError catch (e) {
     return _fatal(output, 'credentials unavailable: ${printable(e.message)}');
+  } on FileSystemException catch (e) {
+    if (serving) rethrow;
+    return _fatal(output, 'storage failure: ${_describeFs(e)}');
   } finally {
     await sigint.cancel();
     await runtime?.close();
@@ -161,6 +167,15 @@ Future<int> runRpc({
     await writer?.close();
   }
 }
+
+/// [e]'s message, path and OS error, on one line.
+String _describeFs(FileSystemException e) => printable(
+  [
+    e.message,
+    ?e.path,
+    if (e.osError case final os?) os.message,
+  ].where((part) => part.isNotEmpty).join(': '),
+);
 
 Future<int> _fatal(IOSink output, String message) async {
   final pump = OutputPump(output)..send(fatalEvent(message));

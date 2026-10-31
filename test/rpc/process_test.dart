@@ -200,6 +200,29 @@ void main() {
       expect(journal.readAsBytesSync(), before);
     });
 
+    test('a sessions location that cannot be created writes fatal and '
+        'exits 1', () async {
+      final fake = await FakeOpenAi.start();
+      home.store.replace(loggedInRecord());
+      File(p.join(home.path, 'config.json'))
+          .writeAsStringSync(jsonEncode({'model': 'gpt-fake'}));
+      // A file where the sessions directory belongs.
+      File(p.join(home.path, 'sessions')).writeAsStringSync('');
+
+      final engine = await startEngine(
+        const [],
+        home: home,
+        workspace: workspace,
+        fake: fake,
+      );
+      final fatal = await engine.nextLine();
+
+      expect(fatal['type'], 'fatal');
+      expect(fatal['message'], startsWith('storage failure: '));
+      expect(fatal['message'], contains('sessions'));
+      expect(await engine.exitCode(), 1);
+    });
+
     test('resume with no session writes fatal and exits 1', () async {
       final engine = await startEngine(
         const ['--resume'],

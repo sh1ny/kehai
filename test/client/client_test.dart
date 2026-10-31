@@ -71,6 +71,34 @@ void main() {
     },
   );
 
+  test('a failure seen only in a resync snapshot is printed once', () async {
+    final rig = clientRig();
+    await rig.start();
+    rig.type('first');
+    await rig.settle();
+    final id = rig.engine.sentOfType('submit').single['id']! as String;
+
+    // The updates that failed the exchange were dropped with the overflow.
+    final tree = {
+      'body': {
+        'exchanges': {
+          'x-00000001': {'state': 'failed', 'reason': 'http 500'},
+        },
+      },
+      'meta': {
+        'requests': {
+          id: {'state': 'completed'},
+        },
+      },
+    };
+    await rig.emit({'type': 'resync'});
+    await rig.resnapshot(tree, turn: 3);
+    await rig.emit({'type': 'resync'});
+    await rig.resnapshot(tree, turn: 3);
+
+    expect(_count(rig.out.text, '[exchange failed] http 500'), 1);
+  });
+
   group('Non-terminal input', () {
     test('end of piped input waits for the running exchange after an '
         'answer', () async {
