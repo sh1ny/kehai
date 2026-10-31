@@ -22,30 +22,30 @@
 | skills: Skill discovery | Invalid frontmatter | test/workspace/skills_test.dart | missing frontmatter, mismatched name or empty description is a problem | green |
 | skills: Skill discovery | Directory without SKILL.md | test/workspace/skills_test.dart | files and folders without SKILL.md are skipped silently | green |
 | skills: Skill precedence | Same skill in both roots | test/workspace/skills_test.dart | the .claude copy wins and the .agents copy is shadowed | green |
-| skills: Skill precedence | Model invocation disabled | test/tools/skill_tool_test.dart | disable-model-invocation refuses the model's load | red |
-| skills: Skill tool | Skill loaded with arguments | test/tools/skill_tool_test.dart | skill result has the base directory line, body and ARGUMENTS line | red |
-| skills: Skill tool | Command loaded by the model | test/tools/skill_tool_test.dart | skill resolves opsx:propose as a command | red |
-| skills: Skill tool | Unknown name | test/tools/skill_tool_test.dart | an unknown name lists up to five close names | red |
+| skills: Skill precedence | Model invocation disabled | test/tools/skill_tool_test.dart | disable-model-invocation refuses the model's load | green |
+| skills: Skill tool | Skill loaded with arguments | test/tools/skill_tool_test.dart | skill result has the base directory line, body and ARGUMENTS line | green |
+| skills: Skill tool | Command loaded by the model | test/tools/skill_tool_test.dart | skill resolves opsx:propose as a command | green |
+| skills: Skill tool | Unknown name | test/tools/skill_tool_test.dart | an unknown name lists up to five close names | green |
 | skills: Path and argument substitution | Skill directory substituted | test/workspace/substitution_test.dart | CLAUDE_SKILL_DIR becomes the forward-slash base and shell variables stay | green |
 | skills: Path and argument substitution | Empty arguments | test/workspace/substitution_test.dart | $ARGUMENTS with no args becomes empty and no ARGUMENTS line is added | green |
-| skills: Skills delivered whole | Large skill loaded whole | test/tools/skill_tool_test.dart | a 55 KiB skill is delivered with no truncation line | red |
-| skills: Skills delivered whole | Over the file bound | test/tools/skill_tool_test.dart | a 300 KiB SKILL.md is refused with the read hint | red |
-| skills: Skills delivered whole | Over the context capacity | test/tools/skill_tool_test.dart | a skill over the remaining capacity settles error uncut | red |
-| skills: Skills delivered whole | Whole skill plus parallel results over a known window | test/loop/context_test.dart | parallel results after a whole skill stop the next step before sending | red |
-| skills: Skills delivered whole | Unknown window | test/tools/skill_tool_test.dart | with an unknown window a skill is delivered whole and the request is sent | red |
+| skills: Skills delivered whole | Large skill loaded whole | test/tools/skill_tool_test.dart | a 55 KiB skill is delivered with no truncation line | green |
+| skills: Skills delivered whole | Over the file bound | test/tools/skill_tool_test.dart | a 300 KiB SKILL.md is refused with the read hint | green |
+| skills: Skills delivered whole | Over the context capacity | test/tools/skill_tool_test.dart | a skill over the remaining capacity settles error uncut | green |
+| skills: Skills delivered whole | Whole skill plus parallel results over a known window | test/loop/context_test.dart | parallel results after a whole skill stop the next step before sending | green |
+| skills: Skills delivered whole | Unknown window | test/tools/skill_tool_test.dart | with an unknown window a skill is delivered whole and the request is sent | green |
 | skills: Skills delivered whole | Skill directory outside the project | test/workspace/containment_test.dart | a junctioned skill folder outside the root is not a skill | green |
 | skills: Inventory in doctor | Healthy workspace | test/qualification/installed_workflow_test.dart | doctor lists every installed command, skill and role with only shadowed problems | red |
 | skills: Inventory in doctor | Broken skill reported | test/cli/doctor_inventory_test.dart | a broken SKILL.md is listed under problems and doctor's exit code is unchanged | red |
 | slash-commands: Command definitions | Namespaced command | test/workspace/commands_test.dart | opsx/propose.md is the command opsx:propose without its frontmatter | green |
 | slash-commands: Command definitions | Broken frontmatter | test/workspace/commands_test.dart | an unclosed frontmatter is not a command and is a problem | green |
-| slash-commands: Skills as commands | User-invocable skill | test/loop/commands_test.dart | /specwright-roadmap next expands to the skill load text | red |
-| slash-commands: Skills as commands | Skill not user-invocable | test/loop/commands_test.dart | user-invocable false refuses the submit with nothing admitted | red |
-| slash-commands: Expansion at submit | Command expanded | test/loop/commands_test.dart | /opsx:propose add-dark-mode becomes the body plus ARGUMENTS | red |
-| slash-commands: Expansion at submit | Unknown command | test/rpc/server_test.dart | an unknown /command is refused with the // hint and no exchange | red |
-| slash-commands: Expansion at submit | Escaped slash | test/loop/commands_test.dart | a leading // sends the text with one slash removed | red |
-| slash-commands: Command recorded on the exchange | Recorded expansion | test/loop/commands_test.dart | the exchange records command name, args, source and digest | red |
-| slash-commands: Command recorded on the exchange | Definition changed before a duplicate | test/loop/commands_test.dart | a duplicate submit after the file changed reports the first expansion | red |
-| slash-commands: Repository commands carry no permission | allowed-tools ignored for approval | test/permissions/repository_frontmatter_test.dart | allowed-tools does not autoapprove a bash call | red |
+| slash-commands: Skills as commands | User-invocable skill | test/loop/commands_test.dart | /specwright-roadmap next expands to the skill load text | green |
+| slash-commands: Skills as commands | Skill not user-invocable | test/loop/commands_test.dart | user-invocable false refuses the submit with nothing admitted | green |
+| slash-commands: Expansion at submit | Command expanded | test/loop/commands_test.dart | /opsx:propose add-dark-mode becomes the body plus ARGUMENTS | green |
+| slash-commands: Expansion at submit | Unknown command | test/rpc/server_test.dart | an unknown /command is refused with the // hint and no exchange | green |
+| slash-commands: Expansion at submit | Escaped slash | test/loop/commands_test.dart | a leading // sends the text with one slash removed | green |
+| slash-commands: Command recorded on the exchange | Recorded expansion | test/loop/commands_test.dart | the exchange records command name, args, source and digest | green |
+| slash-commands: Command recorded on the exchange | Definition changed before a duplicate | test/loop/commands_test.dart | a duplicate submit after the file changed reports the first expansion | green |
+| slash-commands: Repository commands carry no permission | allowed-tools ignored for approval | test/permissions/repository_frontmatter_test.dart | allowed-tools does not autoapprove a bash call | green |
 | subagents: Agent roles | Installed roles | test/workspace/roles_test.dart | a role file gives name, model, tools and body | green |
 | subagents: Agent roles | Invalid role file | test/workspace/roles_test.dart | a role without description is a problem | green |
 | subagents: Role tools narrowed and mapped | Reviewer tools | test/workspace/roles_test.dart | reviewer tools map to the ten Kehai tools | green |
@@ -125,9 +125,9 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 4. Skill tool and commands
 
-- [ ] 4.1 Write the failing tests, then let `composeResult` accept `notrunc` with a null `capacityTokens` (D6), and add `lib/src/tools/skill.dart` (schema, resolution, size bound, substitution, `notrunc` composition with the calling step's capacity, close-name suggestions, autoapproval through containment). Turns green: *Model invocation disabled*, *Skill loaded with arguments*, *Command loaded by the model*, *Unknown name*, *Large skill loaded whole*, *Over the file bound*, *Over the context capacity*, *Unknown window*, *Whole skill plus parallel results over a known window*.
-- [ ] 4.2 Write the failing tests, then expand commands in `Driver.submit` after the known-id check (D7), record `command` on the exchange and refuse unknown or non-user-invocable names before admission; the line client shows the typed command line. Turns green: *User-invocable skill*, *Skill not user-invocable*, *Command expanded*, *Unknown command*, *Escaped slash*, *Recorded expansion*, *Definition changed before a duplicate*.
-- [ ] 4.3 Write the failing test, then confirm the gate ignores repository frontmatter. Turns green: *allowed-tools ignored for approval*.
+- [x] 4.1 Write the failing tests, then let `composeResult` accept `notrunc` with a null `capacityTokens` (D6), and add `lib/src/tools/skill.dart` (schema, resolution, size bound, substitution, `notrunc` composition with the calling step's capacity, close-name suggestions, autoapproval through containment). Turns green: *Model invocation disabled*, *Skill loaded with arguments*, *Command loaded by the model*, *Unknown name*, *Large skill loaded whole*, *Over the file bound*, *Over the context capacity*, *Unknown window*, *Whole skill plus parallel results over a known window*.
+- [x] 4.2 Write the failing tests, then expand commands in `Driver.submit` after the known-id check (D7), record `command` on the exchange and refuse unknown or non-user-invocable names before admission; the line client shows the typed command line. Turns green: *User-invocable skill*, *Skill not user-invocable*, *Command expanded*, *Unknown command*, *Escaped slash*, *Recorded expansion*, *Definition changed before a duplicate*.
+- [x] 4.3 Write the failing test, then confirm the gate ignores repository frontmatter. Turns green: *allowed-tools ignored for approval*.
 
 ## 5. Configuration and doctor
 

@@ -324,6 +324,26 @@ void main() {
         ),
       );
     });
+    test(
+      'notrunc with no capacity shows everything, skipping the check',
+      () async {
+        final r = storeLines(dir, [for (var i = 1; i <= 3000; i++) 'line $i']);
+
+        final out = await composeResult(
+          'skill',
+          ResultStatus.ok,
+          'all.txt',
+          r.descriptor,
+          r.file,
+          notrunc: true,
+        );
+
+        final lines = out.split('\n');
+        expect(lines, hasLength(3001));
+        expect(lines.last, 'line 3000');
+        expect(out, isNot(contains('[truncated:')));
+      },
+    );
   });
 
   group('line scanner', () {

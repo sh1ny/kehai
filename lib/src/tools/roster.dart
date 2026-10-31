@@ -56,7 +56,7 @@ const Map<String, Object?> _path = {'type': 'string', 'minLength': 1};
 const Map<String, Object?> _bool = {'type': 'boolean'};
 const Map<String, Object?> _line = {'type': 'integer', 'minimum': 1};
 
-/// The eleven tools, in the order the model sees them.
+/// The tools, in the order the model sees them.
 final List<ToolDefinition> toolDefinitions = List.unmodifiable([
   ToolDefinition(
     name: 'read',
@@ -224,5 +224,13 @@ final List<ToolDefinition> toolDefinitions = List.unmodifiable([
       {'handle': _path, 'pattern': _path},
       required: ['handle', 'pattern'],
     ),
+  ),
+  ToolDefinition(
+    name: 'skill',
+    version: 1,
+    description:
+        'Load an installed skill or command by name, with optional args. '
+        'Returns its instructions whole, with paths resolved.',
+    schema: _object({'name': _path, 'args': _string}, required: ['name']),
   ),
 ]);

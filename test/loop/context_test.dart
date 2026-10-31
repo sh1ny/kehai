@@ -286,4 +286,86 @@ void main() {
       },
     );
   });
+
+  group('Skills delivered whole', () {
+    /// A step that loads the `big` skill and reads two 400-line files at once.
+    List<List<ProviderEvent>> script() => [
+      [
+        const ToolCall(
+          callId: 'k1',
+          name: 'skill',
+          argumentsJson: '{"name":"big"}',
+        ),
+        const ToolCall(
+          callId: 'k2',
+          name: 'read',
+          argumentsJson: '{"path":"a.txt"}',
+        ),
+        const ToolCall(
+          callId: 'k3',
+          name: 'read',
+          argumentsJson: '{"path":"b.txt"}',
+        ),
+        _toolUse,
+      ],
+      [const TextDelta('after'), _endTurn],
+    ];
+
+    Future<_Rig> rigWithFiles(FakeProvider provider, {int? window}) async {
+      final rig = await _rig(provider, window: window);
+      final skill = File(p.join(rig.ws.path, '.claude', 'skills', 'big'));
+      Directory(skill.path).createSync(recursive: true);
+      File(p.join(skill.path, 'SKILL.md')).writeAsStringSync(
+        '---\nname: big\ndescription: Big\n---\n'
+                '${'s' * 79}\n' *
+            300,
+      );
+      for (final name in ['a.txt', 'b.txt']) {
+        File(p.join(rig.ws.path, name))
+            .writeAsStringSync('${'r' * 59}\n' * 400);
+      }
+      return rig;
+    }
+
+    test('parallel results after a whole skill stop the next step before '
+        'sending', () async {
+      final provider = FakeProvider.steps(script());
+      final rig = await rigWithFiles(provider, window: 20000);
+
+      final result = await rig.run('go', 'r1');
+
+      expect(result.state, 'stopped');
+      expect(result.reason, contains('context overflow'));
+      expect(provider.requests, hasLength(1));
+      final node =
+          rig.at('body/calls/${callKey('k1')}')! as Map<String, Object?>;
+      expect(node['envelope'], 'ok');
+      final handle =
+          (node['model']! as Map<String, Object?>)['handle']! as String;
+      final text = File(
+        resolveHandle(rig.writer.tree, rig.writer.sessionDir, handle).file.path,
+      ).readAsStringSync();
+      expect(text, contains('Base directory for this skill:'));
+      expect(text, isNot(contains('truncated')));
+      expect(RegExp('s{79}').allMatches(text), hasLength(300));
+    });
+
+    test(
+      'with an unknown window the same step is followed by a request',
+      () async {
+        final provider = FakeProvider.steps(script());
+        final rig = await rigWithFiles(provider);
+
+        final result = await rig.run('go', 'r1');
+
+        expect(result.state, 'done');
+        expect(provider.requests, hasLength(2));
+        final output = provider.requests.last.items
+            .whereType<ToolOutputItem>()
+            .firstWhere((i) => i.callId == 'k1')
+            .output;
+        expect(RegExp('s{79}').allMatches(output), hasLength(300));
+      },
+    );
+  });
 }

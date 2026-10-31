@@ -261,6 +261,37 @@ void main() {
       expect(rig.provider.requests, hasLength(1));
     });
 
+    test(
+      'an unknown /command is refused with the // hint and no exchange',
+      () async {
+        final rig = await rpcRig(FakeProvider.steps(const []));
+        await rig.nextOfType('snapshot');
+
+        rig.send({
+          'type': 'submit',
+          'id': 'r1',
+          'text': '/usr/bin/env',
+          'turn': 0,
+        });
+
+        final reply = await rig.answerTo('r1');
+        expect(reply['type'], 'error');
+        expect(
+          reply['message'],
+          'unknown command /usr/bin/env; start with // to send it as text',
+        );
+        expect(
+          rig.writer.tree.get(SessionPath.parse('meta/requests/r1')),
+          isNull,
+        );
+        expect(
+          rig.writer.tree.get(SessionPath.parse('body/exchanges')),
+          isNull,
+        );
+        expect(rig.provider.requests, isEmpty);
+      },
+    );
+
     test('submit at an older turn is stale and not admitted', () async {
       final rig = await rpcRig(FakeProvider.steps(const []), seedTurn: 6);
       await rig.nextOfType('snapshot');

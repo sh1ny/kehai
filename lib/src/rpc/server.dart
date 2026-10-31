@@ -322,6 +322,8 @@ final class RpcServer {
         _pump.send(errorEvent('stale: session is at turn $turn', to: id));
       case SubmitBusy():
         _pump.send(errorEvent('busy: an exchange is running', to: id));
+      case SubmitRefused(:final message):
+        _pump.send(errorEvent(message, to: id));
     }
   }
 

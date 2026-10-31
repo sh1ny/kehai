@@ -135,7 +135,7 @@ final class PermissionGate implements CallStage {
           if (real == null || !isInside(root, real)) return null;
         }
         return allow;
-      case 'read_more' || 'search_result' || 'ask':
+      case 'read_more' || 'search_result' || 'ask' || 'skill':
         return allow;
       case 'job':
         final action = call.input['action'];

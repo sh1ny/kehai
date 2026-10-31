@@ -46,6 +46,7 @@ import 'read.dart';
 import 'roster.dart';
 import 'schema.dart';
 import 'search.dart';
+import 'skill.dart';
 import 'tool.dart';
 import 'write.dart';
 
@@ -75,6 +76,7 @@ Map<String, Tool> _builtinTools(LazyRg rg) => {
   'search_result': SearchResultTool(ResultSearcher()),
   'bash': const BashTool(),
   'job': const JobTool(),
+  'skill': const SkillTool(),
 };
 
 /// The node key `c-<12 hex>` of the provider call id [callId].
@@ -327,7 +329,7 @@ final class ToolRuntime {
   StorageError? _fatal;
   bool _closed = false;
 
-  /// The eleven tools the model may call, with their argument schemas.
+  /// The tools the model may call, with their argument schemas.
   late final List<ToolSpec> specs = List.unmodifiable([
     for (final d in toolDefinitions)
       if (d.name == 'bash')
@@ -595,6 +597,7 @@ final class ToolRuntime {
       shell: shell,
       jobs: jobs,
       permission: permission,
+      capacity: () => _capacityOf(live),
     );
     final tool = _invoke(_tools[live.tool]!, context, input);
     var first = await Future.any<_Step>([
@@ -629,6 +632,8 @@ final class ToolRuntime {
           composed: outcome.composed && answer == null,
           reason: outcome.failed ? outcome.reason ?? outcome.summary : null,
           policy: outcome.policy,
+          notrunc: outcome.notrunc,
+          capacityTokens: outcome.capacityTokens,
         );
       case _Cancelled():
         pipe.close();
@@ -767,6 +772,8 @@ final class ToolRuntime {
     String? reason,
     bool composed = false,
     ResultPolicy? policy,
+    bool notrunc = false,
+    int? capacityTokens,
   }) async {
     final ResultDescriptor descriptor;
     var whole = complete;
@@ -784,18 +791,27 @@ final class ToolRuntime {
     );
     // Composed before the terminal record, so the record can carry the text
     // (design D4).
-    final text =
-        (composed && whole
-            ? await file.readAsString()
-            : await composeResult(
-                live.tool,
-                envelope,
-                summary,
-                descriptor,
-                file,
-                policy: policy,
-              )) +
-        _diagLines(live);
+    final String composedText;
+    try {
+      composedText = composed && whole
+          ? await file.readAsString()
+          : await composeResult(
+              live.tool,
+              envelope,
+              summary,
+              descriptor,
+              file,
+              policy: policy,
+              notrunc: notrunc,
+              capacityTokens: capacityTokens,
+            );
+    } on ComposeError catch (e) {
+      // A whole answer that does not fit settles as an error; nothing is cut
+      // and the source it came from stays readable.
+      if (!notrunc) rethrow;
+      return _finishText(live, 'settled', ResultStatus.error, e.message, '');
+    }
+    final text = composedText + _diagLines(live);
     final model = await _storeModel(text);
     await _settle(
       live,
@@ -812,6 +828,29 @@ final class ToolRuntime {
     );
     live.terminal.complete(lifecycle);
     return text;
+  }
+
+  /// The tokens left in the window after the step that made [live]'s call:
+  /// the window minus the `context.used` recorded on that step; null when the
+  /// step or its window is not recorded (design D6).
+  int? _capacityOf(_Live live) {
+    final steps = writer.tree.get(SessionPath.parse('body/steps'));
+    if (steps is! Map<String, Object?>) return null;
+    for (final key in (steps.keys.toList()..sort()).reversed) {
+      final step = steps[key];
+      if (step is! Map<String, Object?>) continue;
+      final output = step['output'];
+      if (output is! List<Object?>) continue;
+      final calling = output.any(
+        (entry) => entry is Map<String, Object?> && entry['call'] == live.key,
+      );
+      if (!calling) continue;
+      return switch (step['context']) {
+        {'used': final int used, 'window': final int window} => window - used,
+        _ => null,
+      };
+    }
+    return null;
   }
 
   /// Stores the model [text]; null when it could not be stored, in which case
