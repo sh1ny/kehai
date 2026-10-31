@@ -107,7 +107,7 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 1. ADR and architecture index
 
-- [ ] 1.1 Write `docs/adr/0012-workspace-context-skills-commands-and-subagents.md` (`Status: accepted`, today's date, `Supersedes: none`). Per design D3, D4, D7, D8, D9, D11 and D15 it records: context keyed by content under `body/contexts` and the exchange `context` field; `.claude` over `.agents` precedence; command expansion at submit with the exchange `command` field; subagents as child engines over RPC v1 (`rpc --child`, lineage `{parent, job}`, role digest, prompt relay, the `result` stream and its handoff); resolved-path containment of automatic reads; repository frontmatter never widens approval. Add its row to the in-force index in `openspec/architecture.md`. Verify with `mise run openspec:validate` and that the index lists 0012.
+- [x] 1.1 Write `docs/adr/0012-workspace-context-skills-commands-and-subagents.md` (`Status: accepted`, today's date, `Supersedes: none`). Per design D3, D4, D7, D8, D9, D11 and D15 it records: context keyed by content under `body/contexts` and the exchange `context` field; `.claude` over `.agents` precedence; command expansion at submit with the exchange `command` field; subagents as child engines over RPC v1 (`rpc --child`, lineage `{parent, job}`, role digest, prompt relay, the `result` stream and its handoff); resolved-path containment of automatic reads; repository frontmatter never widens approval. Add its row to the in-force index in `openspec/architecture.md`. Verify with `mise run openspec:validate` and that the index lists 0012.
 
 ## 2. Workspace loaders
 
