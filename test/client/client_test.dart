@@ -154,6 +154,48 @@ void main() {
       expect(_count(rig.out.text, 'Hel'), 1);
       expect(rig.out.text, isNot(contains('Hello worldHello')));
     });
+
+    test('deltas after a resync gap are not shown live', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('hi');
+      await rig.settle();
+
+      await rig.stream(3, 'Hel');
+      // 'lo ' was dropped with the overflow.
+      await rig.emit({'type': 'resync'});
+      await rig.resnapshot({
+        'body': {
+          'steps': {
+            stepPath(3).split('/').last: {'state': 'running'},
+          },
+        },
+      }, turn: 3);
+      await rig.stream(3, 'world');
+      await rig.update(
+        stepPath(3),
+        'merge',
+        committedText('Hello world'),
+        turn: 3,
+      );
+
+      expect(rig.out.text, contains('Hello world'));
+      expect(rig.out.text, isNot(contains('Helworld')));
+      expect(_count(rig.out.text, 'Hel'), 1);
+    });
+
+    test('a step started after the resync streams live again', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('hi');
+      await rig.settle();
+
+      await rig.emit({'type': 'resync'});
+      await rig.resnapshot(const {}, turn: 3);
+      await rig.stream(4, 'Fresh');
+
+      expect(rig.out.text, endsWith('Fresh'));
+    });
   });
 
   group('One line per tool call', () {
@@ -387,6 +429,38 @@ void main() {
 
       expect(rig.engine.sentOfType('interrupt'), hasLength(1));
       expect(rig.engine.inputClosed, isFalse);
+    });
+
+    test('a fatal after input closes exits 1', () async {
+      final rig = clientRig();
+      await rig.start();
+
+      await rig.endInput();
+      rig.engine.emit({'type': 'fatal', 'message': 'journal write failed'});
+      await rig.engine.exit(1);
+
+      expect(await rig.exit.timeout(const Duration(seconds: 5)), 1);
+      expect(rig.err.text, contains('journal write failed'));
+    });
+
+    test('an engine that exits non-zero after input closes exits 1', () async {
+      final rig = clientRig();
+      await rig.start();
+
+      await rig.endInput();
+      await rig.engine.exit(3);
+
+      expect(await rig.exit.timeout(const Duration(seconds: 5)), 1);
+    });
+
+    test('a clean exit after input closes exits 0', () async {
+      final rig = clientRig();
+      await rig.start();
+
+      await rig.endInput();
+      await rig.engine.exit(0);
+
+      expect(await rig.exit.timeout(const Duration(seconds: 5)), 0);
     });
 
     test('engine still alive 5 s after stdin closes is killed', () async {

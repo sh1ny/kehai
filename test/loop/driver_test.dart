@@ -493,6 +493,25 @@ void main() {
     );
   });
 
+  test('a failed step keeps the usage the provider reported', () async {
+    final provider = FakeProvider.steps([
+      [
+        const TextDelta('par'),
+        const Usage(input: 120, output: 7),
+        Failed(
+          _failure(ProviderFailureKind.protocol, code: 'response_output_limit'),
+        ),
+      ],
+    ]);
+    final rig = await _rig(provider);
+
+    final result = await rig.run('cut short');
+
+    expect(result.state, 'failed');
+    expect(rig.step(1)['state'], 'failed');
+    expect(rig.step(1)['usage'], {'input': 120, 'output': 7});
+  });
+
   group('Step output limit', () {
     test(
       'response_output_limit fails the step with its partial text',

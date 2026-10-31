@@ -479,6 +479,7 @@ final class ExchangeDriver {
             'sent': failure.sent,
           },
         if (partial.isNotEmpty) 'partial': partial,
+        if (streamed.usage case final usage?) 'usage': _usageJson(usage),
         'context': context,
       });
       return end;

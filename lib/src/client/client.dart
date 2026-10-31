@@ -61,6 +61,13 @@ final class LineClient {
   final PromptState _prompts = PromptState();
   final Completer<int> _result = Completer<int>();
   final Map<int, String> _shown = {};
+
+  /// Text deltas may have been lost for every step up to this turn: their
+  /// live text stops and the commit prints what was not shown.
+  int _gapThrough = -1;
+
+  /// A resync arrived and its snapshot has not, so any delta may follow a gap.
+  bool _gapOpen = false;
   final Set<String> _finishedSteps = {};
   final Set<String> _printedCalls = {};
   final List<String> _continued = [];
@@ -78,6 +85,9 @@ final class LineClient {
   bool _inputEnded = false;
   bool _exiting = false;
   bool _fatalSeen = false;
+
+  /// Whether the client killed the engine after the exit grace.
+  bool _killed = false;
   bool _interruptSent = false;
   String? _requestId;
   int _requests = 0;
@@ -243,6 +253,7 @@ final class LineClient {
         _onSnapshot(event);
       case 'resync':
         _mirror.invalidate();
+        _gapOpen = true;
         err.writeln('resynced');
       case 'update':
         _onUpdate(event);
@@ -281,6 +292,10 @@ final class LineClient {
     final tree = event['tree'];
     if (offset is! int || turn is! int || tree is! Map<String, Object?>) return;
     _mirror.applySnapshot(offset, turn, tree);
+    if (_gapOpen) {
+      _gapOpen = false;
+      if (turn > _gapThrough) _gapThrough = turn;
+    }
     _reconcile(first: !_ready);
     if (!_ready) {
       _ready = true;
@@ -338,6 +353,7 @@ final class LineClient {
     final delta = event['delta'];
     if (turn is! int || delta is! String) return;
     if (_finishedSteps.contains(_stepKey(turn))) return;
+    if (_gapOpen || turn <= _gapThrough) return;
     _shown[turn] = '${_shown[turn] ?? ''}$delta';
     _write(delta);
   }
@@ -534,7 +550,10 @@ final class LineClient {
     _exiting = true;
     unawaited(_lines?.cancel());
     unawaited(engine.closeInput());
-    _killTimer = Timer(exitGrace, engine.kill);
+    _killTimer = Timer(exitGrace, () {
+      _killed = true;
+      engine.kill();
+    });
   }
 
   Future<void> _onEngineDone() async {
@@ -546,7 +565,10 @@ final class LineClient {
     unawaited(_lines?.cancel());
     unawaited(_events?.cancel());
     unawaited(_interruptEvents?.cancel());
-    if (!_result.isCompleted) _result.complete(_exiting ? 0 : 1);
+    // A fatal or a failed engine exit is a failure even during shutdown;
+    // only an engine this client killed may exit non-zero.
+    final failed = _fatalSeen || !_exiting || (code != 0 && !_killed);
+    if (!_result.isCompleted) _result.complete(failed ? 1 : 0);
   }
 }
 
