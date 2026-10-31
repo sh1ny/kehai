@@ -513,6 +513,11 @@ const List<_Allowed> _allowlist = [
     'the byte order mark of the file being edited, kept on write',
   ),
   _Allowed(
+    'lib/src/tools/edit.dart',
+    'utf8.decode([0x20, ...line]).substring(1)',
+    'drops the space put before a line so a leading U+FEFF is kept',
+  ),
+  _Allowed(
     'lib/src/tools/read.dart',
     'Uint8List.sublistView(_out, 0, _length)',
     'the filled part of the read buffer, flushed whole to the output',

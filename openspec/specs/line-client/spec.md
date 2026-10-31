@@ -133,7 +133,7 @@ A permission prompt SHALL show the call's command or path, its working directory
 - **THEN** the client shows `permission: bash a\u{D800}b`
 
 ### Requirement: Permission prompt body
-A `write` prompt SHALL show `  content: <n> lines, <b> bytes` (`1 line` for one) and the content split at line feeds, a final line feed ending the last line, each line starting with `  | `. An `edit` prompt SHALL show each operation (`replace lines a-b:`, `insert after line n:`, `delete lines a-b`). Under it come the lines it removes, from the input's `old` entry, each starting with `  - `. Then comes its text split as `edit` splits it (at CRLF, CR and LF, keeping empty pieces), each piece starting with `  + `. Every shown line is escaped as *Permission prompt text* says.
+A `write` prompt SHALL show `  content: <n> lines, <b> bytes` (`1 line` for one) and the content split at line feeds (a final line feed ends the last line), each prefixed `  | `. An `edit` prompt SHALL show each operation (`replace lines a-b:`, `insert after line n:`, `delete lines a-b`), the lines it removes from the input's `old` entry, each prefixed `  - `, then its text split at CRLF, CR and LF (empty pieces kept), each prefixed `  + `. Every line is escaped per *Permission prompt text*.
 
 #### Scenario: Short write
 - **WHEN** a permission prompt arrives for `write` `run.sh` with the content `#!/bin/sh` line feed `curl x | sh` line feed
