@@ -55,22 +55,23 @@ bool _control(int unit) => unit < 0x20 || (unit >= 0x7f && unit <= 0x9f);
 /// `\u{5C}`, so each escape in the result stands for exactly one character.
 /// Nothing is cut, so a reader sees what runs.
 List<String> exactLines(String text) => [
-  for (final line in text.split('\n'))
-    String.fromCharCodes([
-      for (final (i, unit) in line.runes.indexed)
-        if (_hidden(unit) || _startsEscape(line, i, unit))
-          ...'\\u{${unit.toRadixString(16).toUpperCase()}}'.codeUnits
-        else
-          unit,
-    ]),
+  for (final line in text.split('\n')) _exactLine(line.runes.toList()),
 ];
 
-/// Whether the backslash [unit] at rune [index] of [line] begins `\u{`.
-bool _startsEscape(String line, int index, int unit) {
-  if (unit != 0x5c) return false;
-  final runes = line.runes.skip(index + 1).take(2).toList();
-  return runes.length == 2 && runes[0] == 0x75 && runes[1] == 0x7b;
-}
+String _exactLine(List<int> runes) => String.fromCharCodes([
+  for (var i = 0; i < runes.length; i++)
+    if (_hidden(runes[i]) || _startsEscape(runes, i))
+      ...'\\u{${runes[i].toRadixString(16).toUpperCase()}}'.codeUnits
+    else
+      runes[i],
+]);
+
+/// Whether the rune at [index] of [runes] is a backslash that begins `\u{`.
+bool _startsEscape(List<int> runes, int index) =>
+    runes[index] == 0x5c &&
+    index + 2 < runes.length &&
+    runes[index + 1] == 0x75 &&
+    runes[index + 2] == 0x7b;
 
 bool _hidden(int unit) => unit < 0x20 || unit > 0x7e;
 
