@@ -16,6 +16,7 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | agent-loop → Conversation recorded in the tree | Rewind removes the later steps | test/loop/request_builder_test.dart | rewind to an exchange's first turn drops later steps from the request | green |
 | agent-loop → Requests rebuilt from the tree | Tool output is the composed envelope | test/loop/request_builder_test.dart | tool output is the stored model text byte for byte | green |
 | agent-loop → Requests rebuilt from the tree | Resumed session | test/loop/request_builder_test.dart | resumed session request holds earlier items and cancelled calls' outputs | green |
+| agent-loop → Interrupted exchanges are marked in later requests | Prompt after an interrupt | test/loop/request_builder_test.dart | interrupted exchange is followed by the interrupted note | red |
 | agent-loop → Tool calls of a step | Parallel calls | test/loop/driver_test.dart | three read calls overlap and the next step waits for all | green |
 | agent-loop → Tool calls of a step | Many calls in one step | test/loop/driver_test.dart | 128 calls under slowed flushes all get terminal nodes and no writer busy | green |
 | agent-loop → Tool calls of a step | Denied call | test/loop/driver_test.dart | denied bash call sends its envelope and the exchange continues | green |
@@ -157,8 +158,9 @@ The *Missing configuration* row is red because its expectation grows (no default
 ## 8. Hung hooks and acceptance
 
 - [ ] 8.1 Write the failing `test/loop/hung_hook_test.dart` rows, with user config hooks running `test/fixtures/hang_forever.dart` at a 2 s deadline, driven through the real driver and runtime. Verify that both rows pass (the next step starts within 5 s) and flip them green. This serves the exit criterion "A hung hook process (test fixture) cannot block turn progress".
-- [ ] 8.2 Run `mise run check` and `mise run openspec:validate` on Windows, and `dart test` through the WSL runner. Verify that every test map row reads `green`.
-- [ ] 8.3 Complete design.md's **Dogfood record** with every gap Kehai hit from task group 4 on, including the expected unsupported Specwright commands and subagents.
+- [ ] 8.2 Write the failing `test/loop/request_builder_test.dart` row *Prompt after an interrupt*. Add the interrupted note after every `cancelled` exchange in the request builder (D3). Verify that the file passes and flip the row green.
+- [ ] 8.3 Run `mise run check` and `mise run openspec:validate` on Windows, and `dart test` through the WSL runner. Verify that every test map row reads `green`.
+- [ ] 8.4 Complete design.md's **Dogfood record** with every gap Kehai hit from task group 4 on, including the expected unsupported Specwright commands and subagents.
 
 ## Workflow follow-up
 

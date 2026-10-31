@@ -72,6 +72,7 @@ The proposal gives the why and the scope; this section covers what the design bu
 - **Choice:** before each step, a pure function of the tree builds the `ModelRequest`:
   - the fixed instructions (D6);
   - for each exchange in key order, `UserMessage(prompt)`, then for each of its steps in turn order (completed ones only) the step's output. Text becomes `AssistantMessage`, reasoning becomes `OpaqueReasoningItem`, and each call becomes a `ToolCallItem` followed by a `ToolOutputItem` holding that call's stored model text (D4);
+  - after an exchange whose `state` is `cancelled` (any reason: `user`, `shutdown`, `interrupted`), a fixed `UserMessage`: `The previous request was interrupted before it finished. Do not continue it unless asked.` Without it the model sees the prompt unanswered and answers it again before the next prompt, as the 7.3 manual check showed. The note is derived from the exchange state, never stored, and its bytes never change, so the prompt cache stays warm;
   - the sensorium block as a final `UserMessage` (D7).
 
   A call item whose node is absent or not terminal is left out together with its output, because the backend rejects an unpaired call. That happens only after a crash between the step's commit and the call node's creation. A cancelled or failed step contributes nothing; its `partial` text is display-only.

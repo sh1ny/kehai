@@ -39,6 +39,13 @@ Each model request SHALL be built from the current tree: the fixed instructions,
 - **WHEN** a session whose last exchange was interrupted is reopened and the user submits a new prompt
 - **THEN** the request holds every earlier item and the composed output of every finalized call, including those finalized as `cancelled`
 
+### Requirement: Interrupted exchanges are marked in later requests
+Every request SHALL hold, right after the items of each exchange recorded `cancelled`, the fixed user note `The previous request was interrupted before it finished. Do not continue it unless asked.`, so the model does not take that exchange's unanswered prompt as still pending.
+
+#### Scenario: Prompt after an interrupt
+- **WHEN** the user interrupts an exchange while its reply streams, then submits `hi`
+- **THEN** the next request holds the interrupted prompt, then the note `The previous request was interrupted before it finished. Do not continue it unless asked.`, then `hi`, and no partial text of the interrupted step
+
 ### Requirement: Tool calls of a step
 The tool calls of a completed step SHALL be submitted to the tool runtime together, so independent calls run in parallel within its bounds. The next step starts only when every call of the step is terminal. A call that settles `error`, `denied` or `timeout` is fed back to the model; it does not end the exchange.
 
