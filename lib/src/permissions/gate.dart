@@ -183,6 +183,28 @@ final class PermissionGate implements CallStage {
     return null;
   }
 
+  /// The input the prompt shows for [call]: its own input, plus, for a file
+  /// tool whose path resolves somewhere other than it reads (through a link,
+  /// or out of the workspace), the resolved `target` and whether it is
+  /// `outside` the workspace. The tool opens that target, so the user judges
+  /// it rather than the name.
+  Map<String, Object?> _promptInput(StageCall call) {
+    final path = call.input['path'];
+    if (!_fileTools.contains(call.tool) || path is! String) return call.input;
+    final root = realPath(workspace.path);
+    final real = realPath(_resolve(path));
+    if (root == null || real == null) return call.input;
+    final inside = isInside(root, real);
+    if (inside && p.equals(p.relative(real, from: root), p.normalize(path))) {
+      return call.input;
+    }
+    return {
+      ...call.input,
+      'target': inside ? p.relative(real, from: root) : real,
+      'outside': !inside,
+    };
+  }
+
   Future<StageOutcome> _ask(StageCall call, CancelToken cancel) async {
     if (!prompts.hasAnswerer) {
       return const StageOutcome.deny(
@@ -195,7 +217,7 @@ final class PermissionGate implements CallStage {
         key: call.callKey,
         kind: PromptKind.permission,
         tool: call.tool,
-        input: call.input,
+        input: _promptInput(call),
       ),
       cancel,
       choices: const ['allow', 'deny'],

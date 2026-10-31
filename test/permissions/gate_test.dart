@@ -76,7 +76,10 @@ void main() {
       final item = await env.answerer.item(0);
       expect(item.kind, PromptKind.permission);
       expect(item.tool, 'read');
-      expect(item.input, {'path': '../other/secret.txt'});
+      expect(item.input['path'], '../other/secret.txt');
+      expect(item.input['target'], endsWith(p.join('other', 'secret.txt')));
+      expect(p.isAbsolute(item.input['target']! as String), isTrue);
+      expect(item.input['outside'], isTrue);
       expect(env.channel.reply(item.key, 'deny'), isNull);
       expect((await escape).denyReason, isNotNull);
     });
@@ -99,6 +102,40 @@ void main() {
       final item = await env.answerer.item(0);
       expect(env.channel.reply(item.key, 'allow'), isNull);
       expect((await pending).record, {'decision': 'allow', 'by': 'answer'});
+    });
+
+    test('a write through a link shows where it lands', () async {
+      final outside = Directory(p.join(env.workspace.parent.path, 'outside'))
+        ..createSync();
+      final rc = File(p.join(outside.path, '.bashrc'))..writeAsStringSync('');
+      try {
+        Link(p.join(env.workspace.path, 'innocent.txt')).createSync(rc.path);
+      } on FileSystemException {
+        markTestSkipped('symbolic links need privileges here');
+        return;
+      }
+
+      final pending = env.gate().check(
+        _call('write', {'path': 'innocent.txt', 'content': 'x'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input['path'], 'innocent.txt');
+      expect(item.input['target'], endsWith(p.join('outside', '.bashrc')));
+      expect(item.input['outside'], isTrue);
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
+    });
+
+    test('a write to a plain workspace path adds no target', () async {
+      final pending = env.gate().check(
+        _call('write', {'path': 'lib/new.dart', 'content': 'x'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input, {'path': 'lib/new.dart', 'content': 'x'});
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
     });
 
     test('status tools, job status and ask need no prompt', () async {

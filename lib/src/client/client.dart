@@ -568,6 +568,15 @@ final class LineClient {
       if (cwd is String && cwd.isNotEmpty) {
         _line('  in ${exactLines(cwd).join(r'\u{A}')}');
       }
+      // A file tool opens where its path resolves, through any link.
+      final target = prompt.input['target'];
+      if (target is String && target.isNotEmpty) {
+        final outside = prompt.input['outside'] == true;
+        _line(
+          '  -> ${exactLines(target).join(r'\u{A}')}'
+          '${outside ? ' (outside the workspace)' : ''}',
+        );
+      }
       _line('1) allow  2) deny');
     } else {
       _line('question: ${_describe(prompt)}');

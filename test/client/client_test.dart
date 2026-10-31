@@ -423,6 +423,25 @@ void main() {
       expect(rig.out.lines, contains('permission: bash ./build.sh'));
       expect(rig.out.lines, contains(r'  in vendor/x\u{A}y'));
     });
+
+    test('a file call shows the target its path resolves to', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('run it');
+      await rig.settle();
+      await rig.prompt('c1', 'write', {
+        'path': 'innocent.txt',
+        'content': 'x',
+        'target': '/home/u/.bashrc',
+        'outside': true,
+      });
+
+      expect(rig.out.lines, contains('permission: write innocent.txt'));
+      expect(
+        rig.out.lines,
+        contains('  -> /home/u/.bashrc (outside the workspace)'),
+      );
+    });
   });
 
   group('Input longer than a protocol line', () {
