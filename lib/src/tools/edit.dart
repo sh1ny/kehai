@@ -45,10 +45,19 @@ List<List<String>?>? linesIn(Uint8List bytes, List<(int, int)?> ranges) {
     for (final range in ranges)
       if (range case (final start, final end)
           when 1 <= start && start <= end && end <= lines.count)
-        [for (var n = start; n <= end; n++) utf8.decode(lines.content(n))]
+        [for (var n = start; n <= end; n++) _text(lines.content(n))]
       else
         null,
   ];
+}
+
+/// [line] decoded, keeping a leading U+FEFF, which the UTF-8 decoder drops
+/// as a byte order mark; inside a file it is part of the line.
+String _text(Uint8List line) {
+  final text = utf8.decode(line);
+  final marked =
+      line.length >= 3 && line[0] == 0xEF && line[1] == 0xBB && line[2] == 0xBF;
+  return marked && !text.startsWith('﻿') ? '﻿$text' : text;
 }
 
 const int _lf = 0x0a;

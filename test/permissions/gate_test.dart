@@ -559,6 +559,21 @@ void main() {
       await deny(item, pending);
     });
 
+    test('a U+FEFF that starts a later line stays in it', () async {
+      put('a.txt', [
+        0xEF, 0xBB, 0xBF, 0x61, 0x0a, // BOM, then a
+        0xEF, 0xBB, 0xBF, 0x62, 0x0a, // U+FEFF b
+      ]);
+      final (item, pending) = await prompt('a.txt', [
+        {'op': 'delete', 'start': 1, 'end': 2},
+      ]);
+
+      expect(item.input['old'], [
+        ['a', '﻿b'],
+      ]);
+      await deny(item, pending);
+    });
+
     test('an operation past the end has no old lines', () async {
       put('a.txt', utf8.encode('a\nb\nc\nd\n'));
       final (item, pending) = await prompt('a.txt', [
