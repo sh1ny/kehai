@@ -416,6 +416,17 @@ void main() {
       );
     });
 
+    test('every character beyond ASCII is shown escaped', () async {
+      final blank = String.fromCharCode(0x2800);
+      final letter = String.fromCharCode(0x0436);
+      final rig = await promptFor('./build$blank.sh $letter');
+
+      expect(
+        rig.out.lines,
+        contains(r'permission: bash ./build\u{2800}.sh \u{436}'),
+      );
+    });
+
     test('a backslash that looks like an escape is escaped itself', () async {
       final rig = await promptFor(r'./build.sh\u{E007F} C:\dir\file');
 
