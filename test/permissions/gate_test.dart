@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:kehai/kehai.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -488,6 +489,150 @@ void main() {
 
       expect(env.answerer.withdrawn, [item.key]);
       expect(env.channel.reply(item.key, 'allow'), 'question withdrawn');
+    });
+  });
+
+  group('edit prompts', () {
+    File put(String name, List<int> bytes) =>
+        File(p.join(env.workspace.path, name))..writeAsBytesSync(bytes);
+
+    Future<(PromptItem, Future<StageOutcome>)> prompt(
+      String path,
+      List<Map<String, Object?>> ops, {
+      int index = 0,
+    }) async {
+      final pending = env.gate().check(
+        _call('edit', {'path': path, 'anchors': <String>[], 'ops': ops}),
+        CancelToken(),
+      );
+      return (await env.answerer.item(index), pending);
+    }
+
+    Future<void> deny(PromptItem item, Future<StageOutcome> pending) async {
+      env.channel.reply(item.key, 'deny');
+      await pending;
+    }
+
+    test('an edit prompt carries the lines it removes', () async {
+      put('a.txt', utf8.encode('a\nb\nc\nd\n'));
+      final (item, pending) = await prompt('a.txt', [
+        {'op': 'replace', 'start': 2, 'end': 3, 'text': 'x'},
+        {'op': 'insert', 'after': 4, 'text': 'y'},
+        {'op': 'delete', 'start': 1, 'end': 1},
+      ]);
+
+      expect(item.input['old'], [
+        ['b', 'c'],
+        null,
+        ['a'],
+      ]);
+      expect((item.input['ops']! as List).first, {
+        'op': 'replace',
+        'start': 2,
+        'end': 3,
+        'text': 'x',
+      });
+      await deny(item, pending);
+    });
+
+    test('CRLF and CR lines are split as edit splits them', () async {
+      put('a.txt', utf8.encode('a\r\nb\rc\n'));
+      final (item, pending) = await prompt('a.txt', [
+        {'op': 'delete', 'start': 1, 'end': 3},
+      ]);
+
+      expect(item.input['old'], [
+        ['a', 'b', 'c'],
+      ]);
+      await deny(item, pending);
+    });
+
+    test('a byte order mark is not part of the first old line', () async {
+      put('a.txt', [0xEF, 0xBB, 0xBF, ...utf8.encode('a\n')]);
+      final (item, pending) = await prompt('a.txt', [
+        {'op': 'delete', 'start': 1, 'end': 1},
+      ]);
+
+      expect(item.input['old'], [
+        ['a'],
+      ]);
+      await deny(item, pending);
+    });
+
+    test('a U+FEFF that starts a later line stays in it', () async {
+      put('a.txt', [
+        0xEF, 0xBB, 0xBF, 0x61, 0x0a, // BOM, then a
+        0xEF, 0xBB, 0xBF, 0x62, 0x0a, // U+FEFF b
+        0xEF, 0xBB, 0xBF, 0xEF, 0xBB, 0xBF, 0x63, 0x0a, // U+FEFF U+FEFF c
+      ]);
+      final (item, pending) = await prompt('a.txt', [
+        {'op': 'delete', 'start': 1, 'end': 3},
+      ]);
+
+      expect(item.input['old'], [
+        ['a', '﻿b', '﻿﻿c'],
+      ]);
+      await deny(item, pending);
+    });
+
+    test('an operation past the end has no old lines', () async {
+      put('a.txt', utf8.encode('a\nb\nc\nd\n'));
+      final (item, pending) = await prompt('a.txt', [
+        {'op': 'delete', 'start': 9, 'end': 9},
+        {'op': 'delete', 'start': 4, 'end': 5},
+        {'op': 'replace', 'start': 0, 'end': 1, 'text': 'x'},
+        {'op': 'replace', 'start': 2, 'text': 'x'},
+      ]);
+
+      expect(item.input['old'], [null, null, null, null]);
+      await deny(item, pending);
+    });
+
+    test('overlapping operations send no old lines', () async {
+      put('a.txt', utf8.encode('a\nb\nc\nd\n'));
+      final (item, pending) = await prompt('a.txt', [
+        for (var i = 0; i < 1000; i++) {'op': 'delete', 'start': 1, 'end': 4},
+      ]);
+
+      expect(item.input.containsKey('old'), isFalse);
+      await deny(item, pending);
+    });
+
+    test('a file edit cannot read sends no old lines', () async {
+      put('bad.txt', [0x61, 0xff, 0x0a]);
+      put('big.txt', List.filled(maxEditBytes + 1, 0x61));
+      final paths = ['missing.txt', 'bad.txt', 'big.txt'];
+      for (final (index, path) in paths.indexed) {
+        final (item, pending) = await prompt(path, [
+          {'op': 'delete', 'start': 1, 'end': 1},
+        ], index: index);
+
+        expect(item.input.containsKey('old'), isFalse, reason: path);
+        env.channel.reply(item.key, 'allow');
+        expect(
+          ((await pending).record! as Map<String, Object?>).containsKey(
+            'sha256',
+          ),
+          isFalse,
+          reason: path,
+        );
+      }
+    });
+
+    test('an allowed edit records the hash of the file shown', () async {
+      final bytes = utf8.encode('a\nb\n');
+      put('a.txt', bytes);
+      final (item, pending) = await prompt('a.txt', [
+        {'op': 'delete', 'start': 1, 'end': 1},
+      ]);
+      env.channel.reply(item.key, 'allow');
+
+      expect((await pending).record, {
+        'decision': 'allow',
+        'by': 'answer',
+        'target': realPath(p.join(env.workspace.path, 'a.txt')),
+        'sha256': sha256.convert(bytes).toString(),
+      });
     });
   });
 

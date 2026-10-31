@@ -76,8 +76,71 @@ void main() {
             {'op': 'replace', 'start': 3, 'end': 4, 'text': 'x'},
             {'op': 'delete', 'start': 9, 'end': 9},
           ],
+          'old': [
+            ['c', 'd'],
+            ['i'],
+          ],
         }),
-        ['  replace lines 3-4:', '  | x', '  delete lines 9-9'],
+        [
+          '  replace lines 3-4:',
+          '  - c',
+          '  - d',
+          '  + x',
+          '  delete lines 9-9',
+          '  - i',
+        ],
+      );
+    });
+
+    test('an edit without old lines shows only its text', () {
+      expect(
+        body('edit', {
+          'ops': [
+            {'op': 'replace', 'start': 3, 'end': 4, 'text': 'x'},
+          ],
+        }),
+        ['  replace lines 3-4:', '  + x'],
+      );
+    });
+
+    test('old lines are escaped', () {
+      expect(
+        body('edit', {
+          'ops': [
+            {'op': 'delete', 'start': 1, 'end': 1},
+          ],
+          'old': [
+            ['a\u001b[2Jb'],
+          ],
+        }),
+        ['  delete lines 1-1', r'  - a\u{1B}[2Jb'],
+      );
+    });
+
+    test('an old entry that is not a list of strings shows no old lines', () {
+      expect(
+        body('edit', {
+          'ops': [
+            {'op': 'delete', 'start': 1, 'end': 1},
+            {'op': 'delete', 'start': 2, 'end': 2},
+            {'op': 'delete', 'start': 3, 'end': 3},
+          ],
+          'old': [
+            'c',
+            [1],
+            null,
+          ],
+        }),
+        ['  delete lines 1-1', '  delete lines 2-2', '  delete lines 3-3'],
+      );
+      expect(
+        body('edit', {
+          'ops': [
+            {'op': 'delete', 'start': 1, 'end': 1},
+          ],
+          'old': 'c',
+        }),
+        ['  delete lines 1-1'],
       );
     });
 
@@ -88,7 +151,7 @@ void main() {
             {'op': 'replace', 'start': 3, 'end': 3, 'text': 'x\n'},
           ],
         }),
-        ['  replace lines 3-3:', '  | x', '  | '],
+        ['  replace lines 3-3:', '  + x', '  + '],
       );
     });
 
@@ -99,7 +162,7 @@ void main() {
             {'op': 'insert', 'after': 0, 'text': ''},
           ],
         }),
-        ['  insert after line 0:', '  | '],
+        ['  insert after line 0:', '  + '],
       );
     });
 
@@ -113,11 +176,11 @@ void main() {
         }),
         [
           '  insert after line 2:',
-          '  | a',
-          '  | b',
+          '  + a',
+          '  + b',
           '  insert after line 5:',
-          '  | c',
-          '  | d',
+          '  + c',
+          '  + d',
         ],
       );
     });
@@ -131,7 +194,7 @@ void main() {
             'junk',
           ],
         }),
-        ['  replace lines 3-?:', '  | x', '  ? operation', '  ? operation'],
+        ['  replace lines 3-?:', '  + x', '  ? operation', '  ? operation'],
       );
     });
 
@@ -142,7 +205,7 @@ void main() {
             {'op': 'insert', 'after': 1, 'text': 'a\u001b[2Jb'},
           ],
         }),
-        ['  insert after line 1:', r'  | a\u{1B}[2Jb'],
+        ['  insert after line 1:', r'  + a\u{1B}[2Jb'],
       );
     });
 

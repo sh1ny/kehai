@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:kehai/kehai.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -413,5 +414,51 @@ void main() {
     expect(outcome.status, ResultStatus.ok);
     expect(outcome.summary, contains('.v.txt.kehai-deadbeef'));
     expect(names(), ['.v.txt.kehai-deadbeef', 'v.txt']);
+  });
+
+  group('approval binding', () {
+    Future<ToolOutcome> approved(List<int> shown) async {
+      final target = realPath(p.join(ws.path, 'a.txt'))!;
+      final bytes = File(target).readAsBytesSync();
+      return tool.run(
+        toolContext(
+          ws,
+          RecordingOutput(),
+          permission: {
+            'decision': 'allow',
+            'by': 'answer',
+            'target': target,
+            'sha256': sha256.convert(shown).toString(),
+          },
+        ),
+        {
+          'path': 'a.txt',
+          'anchors': _anchors(bytes),
+          'ops': [_delete(1, 1)],
+        },
+      );
+    }
+
+    test('an edit of a file changed after approval is refused', () async {
+      final shown = utf8.encode('a\nb\n');
+      final file = put('a.txt', utf8.encode('z\nb\n'));
+
+      final outcome = await approved(shown);
+
+      expect(outcome.status, ResultStatus.denied);
+      expect(outcome.summary, fileChangedRefusal);
+      expect(file.readAsStringSync(), 'z\nb\n');
+      expect(renames, 0);
+    });
+
+    test('an edit with the approved hash applies', () async {
+      final shown = utf8.encode('a\nb\n');
+      final file = put('a.txt', shown);
+
+      final outcome = await approved(shown);
+
+      expect(outcome.status, ResultStatus.ok, reason: outcome.summary);
+      expect(file.readAsStringSync(), 'b\n');
+    });
   });
 }
