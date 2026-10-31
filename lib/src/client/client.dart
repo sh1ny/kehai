@@ -60,7 +60,7 @@ final class LineClient {
   final TreeMirror _mirror = TreeMirror();
   final PromptState _prompts = PromptState();
   final Completer<int> _result = Completer<int>();
-  final Map<int, String> _shown = {};
+  final Map<int, StringBuffer> _shown = {};
 
   /// Exchanges whose failure or stop was already printed.
   final Set<String> _notedExchanges = {};
@@ -107,6 +107,9 @@ final class LineClient {
 
   bool get _running => _requestId != null;
 
+  /// How many steps' streamed text the client still holds, for tests.
+  int get bufferedSteps => _shown.length;
+
   // Output.
 
   void _write(String text) {
@@ -131,8 +134,13 @@ final class LineClient {
   // Input.
 
   void _gate() {
+    // Piped input waits while nothing could take its next line: the exchange
+    // runs with no prompt open, or an answer is still in flight.
     final shouldPause =
-        !_ready || (!interactive && _running && _prompts.active == null);
+        !_ready ||
+        (!interactive &&
+            _running &&
+            (_prompts.active == null || _prompts.inFlight != null));
     final lines = _lines;
     if (lines == null || shouldPause == _paused) return;
     _paused = shouldPause;
@@ -357,7 +365,7 @@ final class LineClient {
     if (turn is! int || delta is! String) return;
     if (_finishedSteps.contains(_stepKey(turn))) return;
     if (_gapOpen || turn <= _gapThrough) return;
-    _shown[turn] = '${_shown[turn] ?? ''}$delta';
+    (_shown[turn] ??= StringBuffer()).write(delta);
     _write(delta);
   }
 
@@ -382,6 +390,7 @@ final class LineClient {
       _prompts.refused();
       _line(message);
       _write('answer> ');
+      _gate();
       _maybeFinishInput();
     } else if (to is String && to == _requestId) {
       _line('error: $message');
@@ -436,13 +445,21 @@ final class LineClient {
   }
 
   /// Prints the part of a completed step's text that was not shown live.
+  ///
+  /// A failed or cancelled step prints nothing more; its streamed text is
+  /// released either way.
   void _commitStep(String key) {
     if (_finishedSteps.contains(key)) return;
     final node = _mirror.get('body/steps/$key');
-    if (node is! Map<String, Object?> || node['state'] != 'completed') return;
+    if (node is! Map<String, Object?>) return;
+    final state = node['state'];
+    if (state != 'completed' && state != 'failed' && state != 'cancelled') {
+      return;
+    }
     _finishedSteps.add(key);
     final turn = int.tryParse(key.startsWith('s-') ? key.substring(2) : '');
-    final shown = (turn == null ? null : _shown.remove(turn)) ?? '';
+    final shown = (turn == null ? null : _shown.remove(turn))?.toString() ?? '';
+    if (state != 'completed') return;
     final output = node['output'];
     final committed = output is List<Object?>
         ? output
@@ -513,7 +530,19 @@ final class LineClient {
     final prompt = _prompts.active;
     if (prompt == null) return;
     if (prompt.kind == 'permission') {
-      _line(cutTo('permission: ${_describe(prompt)}', maxLineLength));
+      // Shown whole and escaped, never cut: what is approved is what runs.
+      final tool = oneLine(prompt.tool);
+      final lines = exactLines(argumentText(prompt.input) ?? '');
+      if (lines.length == 1) {
+        _line(
+          'permission: $tool${lines.single.isEmpty ? '' : ' ${lines.single}'}',
+        );
+      } else {
+        _line('permission: $tool');
+        for (final line in lines) {
+          _line('  | $line');
+        }
+      }
       _line('1) allow  2) deny');
     } else {
       _line('question: ${_describe(prompt)}');

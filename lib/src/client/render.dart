@@ -20,15 +20,43 @@ String cutTo(String text, int max) {
   return '${String.fromCharCodes(runes.take(max - 1))}…';
 }
 
-/// The path, pattern or command a call was given, or an empty string.
-String argumentSummary(Object? input) {
-  if (input is! Map<String, Object?>) return '';
+/// The path, pattern or command a call was given, as given, or null.
+String? argumentText(Object? input) {
+  if (input is! Map<String, Object?>) return null;
   for (final field in _argumentFields) {
     final value = input[field];
-    if (value is String && value.isNotEmpty) return oneLine(value);
+    if (value is String && value.isNotEmpty) return value;
   }
-  return '';
+  return null;
 }
+
+/// The path, pattern or command a call was given, or an empty string.
+String argumentSummary(Object? input) => oneLine(argumentText(input) ?? '');
+
+/// [text] split at its line feeds, with every other character that a
+/// terminal would not show as itself written as `\u{XXXX}`: C0 and C1
+/// controls (carriage return and tab included), DEL, and invisible format
+/// and direction characters. Nothing is cut, so a reader sees what runs.
+List<String> exactLines(String text) => [
+  for (final line in text.split('\n'))
+    String.fromCharCodes([
+      for (final unit in line.runes)
+        if (_hidden(unit))
+          ...'\\u{${unit.toRadixString(16).toUpperCase()}}'.codeUnits
+        else
+          unit,
+    ]),
+];
+
+bool _hidden(int unit) =>
+    unit < 0x20 ||
+    (unit >= 0x7f && unit <= 0x9f) ||
+    unit == 0xad ||
+    unit == 0x061c ||
+    (unit >= 0x200b && unit <= 0x200f) ||
+    (unit >= 0x2028 && unit <= 0x202e) ||
+    (unit >= 0x2060 && unit <= 0x2069) ||
+    unit == 0xfeff;
 
 /// `[<tool> <label>] <summary>: <argument>`, cut to [maxLineLength].
 ///

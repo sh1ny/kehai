@@ -67,6 +67,7 @@ final class ClientRig {
     this.out,
     this.err,
     this.exit,
+    this.client,
   );
 
   /// The engine stand-in.
@@ -85,6 +86,9 @@ final class ClientRig {
 
   /// The client's exit code, once it returned.
   final Future<int> exit;
+
+  /// The client under test.
+  final LineClient client;
 
   int _offset = 10;
 
@@ -217,7 +221,7 @@ ClientRig clientRig({
     await engine.exit(0);
     await exit.timeout(const Duration(seconds: 5), onTimeout: () => -1);
   });
-  return ClientRig._(engine, input, interrupts, out, err, exit);
+  return ClientRig._(engine, input, interrupts, out, err, exit, client);
 }
 
 /// A step node that committed [text] as its only output.
