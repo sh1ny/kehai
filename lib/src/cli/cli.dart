@@ -21,7 +21,9 @@ import '../auth/logout.dart';
 import '../client/client.dart';
 import '../client/console_codepage.dart';
 import '../client/console_input.dart';
+import '../config/user_config.dart';
 import '../provider/provider.dart' show CancelToken;
+import '../workspace/inventory.dart';
 import 'doctor.dart';
 import 'rpc_command.dart';
 import 'settings.dart';
@@ -359,6 +361,13 @@ class _DoctorCommand extends _KehaiCommand {
   Future<int> run() async {
     final settings = this.settings;
     final backend = settings.createBackend();
+    var config = const UserConfig();
+    String? configError;
+    try {
+      config = UserConfig.load(settings.home);
+    } on ConfigError catch (e) {
+      configError = e.message;
+    }
     return runDoctor(
       store: CredentialStore(home: settings.home, backend: backend),
       backendName: Platform.isWindows
@@ -369,6 +378,12 @@ class _DoctorCommand extends _KehaiCommand {
       err: context.err,
       issuer: settings.issuer,
       apiBase: settings.apiBase,
+      workspace: loadWorkspace(
+        workspace: Directory.current.path,
+        kehaiHome: Directory(settings.home),
+      ),
+      config: config,
+      configError: configError,
     );
   }
 }

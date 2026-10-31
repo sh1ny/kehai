@@ -7,7 +7,10 @@ import '../auth/credential_store.dart';
 import '../auth/openai_constants.dart';
 import '../auth/refresher.dart';
 import '../provider/chatgpt_adapter.dart';
+import '../config/user_config.dart';
 import '../provider/provider.dart';
+import '../workspace/inventory.dart';
+import '../workspace/roles.dart';
 
 /// The most model lines doctor prints before it only counts the rest.
 const int doctorMaxModelLines = 200;
@@ -37,9 +40,89 @@ String printable(String text) {
 /// empty; otherwise it returns `1` and writes one summary line to [err]. No
 /// token is ever printed.
 ///
+/// With a [workspace], the report ends with its inventory (see
+/// [writeInventory]); the inventory never changes the exit code.
+///
 /// [backendName] and [path] describe the credential storage. [issuer] and
 /// [apiBase] are the endpoints; [now] is a test seam.
 Future<int> runDoctor({
+  required CredentialStore store,
+  required String backendName,
+  required String path,
+  required StringSink out,
+  required StringSink err,
+  String issuer = openAiIssuer,
+  String apiBase = openAiApiBase,
+  DateTime Function()? now,
+  Workspace? workspace,
+  UserConfig config = const UserConfig(),
+  String? configError,
+}) async {
+  final code = await _credentialReport(
+    store: store,
+    backendName: backendName,
+    path: path,
+    out: out,
+    err: err,
+    issuer: issuer,
+    apiBase: apiBase,
+    now: now,
+  );
+  if (workspace != null) {
+    writeInventory(workspace, config, out, configError: configError);
+  }
+  return code;
+}
+
+/// Writes the workspace inventory: project root, `AGENTS.md` files, skills
+/// with their root, commands, roles with model and mapped tools, and every
+/// problem (skills spec *Inventory in doctor*).
+void writeInventory(
+  Workspace workspace,
+  UserConfig config,
+  StringSink out, {
+  String? configError,
+}) {
+  out.writeln('root: ${printable(workspace.root)}');
+  if (configError != null) {
+    out.writeln('config: invalid (${printable(configError)})');
+  }
+  out.writeln('AGENTS.md files: ${workspace.files.length}');
+  for (final file in workspace.files) {
+    out.writeln('  ${printable(file.path)}');
+  }
+  out.writeln('skills: ${workspace.skills.length}');
+  for (final skill in workspace.skills) {
+    out.writeln('  ${printable(skill.name)}  ${printable(skill.rootDir)}');
+  }
+  out.writeln('commands: ${workspace.slashCommands.length}');
+  for (final command in workspace.slashCommands) {
+    out.writeln('  /${printable(command.name)}');
+  }
+  out.writeln('roles: ${workspace.roles.length}');
+  for (final role in workspace.roles) {
+    final tools = mapRoleTools(role.tools).tools;
+    out.writeln(
+      '  ${printable(role.name)}  ${_roleModel(role.model, config)}; '
+      'tools ${tools == null ? 'all but agent' : tools.join(', ')}',
+    );
+  }
+  out.writeln('problems: ${workspace.problems.length}');
+  for (final problem in workspace.problems) {
+    out.writeln('  ${printable(problem.path)}: ${printable(problem.reason)}');
+  }
+}
+
+String _roleModel(String? model, UserConfig config) {
+  if (model == null || model == 'inherit') return 'model inherit';
+  final slug = config.agentModels[model];
+  final alias = printable(model);
+  return slug == null
+      ? 'model $alias is not configured; uses the parent model'
+      : 'model $alias -> ${printable(slug)}';
+}
+
+Future<int> _credentialReport({
   required CredentialStore store,
   required String backendName,
   required String path,

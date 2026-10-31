@@ -40,6 +40,61 @@ void main() {
       expect(config.envPassthrough, isEmpty);
       expect(config.model, isNull);
       expect(config.contextWindows, isEmpty);
+      expect(config.agentModels, isEmpty);
+    });
+
+    test('agents.models aliases parse', () {
+      write({
+        'agents': {
+          'models': {'sonnet': 'gpt-6.1-mini', 'haiku': 'gpt-6.1-nano'},
+        },
+      });
+
+      expect(UserConfig.load(home.path).agentModels, {
+        'sonnet': 'gpt-6.1-mini',
+        'haiku': 'gpt-6.1-nano',
+      });
+
+      write({'agents': <String, Object?>{}});
+      expect(UserConfig.load(home.path).agentModels, isEmpty);
+    });
+
+    test('bad agents settings refuse naming the path', () {
+      write({
+        'agents': {
+          'models': {'sonnet': ''},
+        },
+      });
+      expect(
+        refused().message,
+        '${path()}: agents.models.sonnet: must be a non-empty string',
+      );
+
+      write({
+        'agents': {
+          'models': {'sonnet': 3},
+        },
+      });
+      expect(
+        refused().message,
+        '${path()}: agents.models.sonnet: must be a non-empty string',
+      );
+
+      write({
+        'agents': {'roles': <String, Object?>{}},
+      });
+      expect(refused().message, '${path()}: agents: unknown key roles');
+
+      write({'agents': <Object?>[]});
+      expect(refused().message, '${path()}: agents: must be an object');
+
+      write({
+        'agents': {'models': <Object?>[]},
+      });
+      expect(refused().message, '${path()}: agents.models: must be an object');
+
+      write({'agents': null});
+      expect(refused().message, '${path()}: agents: must be an object');
     });
 
     test('model and models contextWindow parse', () {

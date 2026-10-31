@@ -35,7 +35,7 @@
 | skills: Skills delivered whole | Unknown window | test/tools/skill_tool_test.dart | with an unknown window a skill is delivered whole and the request is sent | green |
 | skills: Skills delivered whole | Skill directory outside the project | test/workspace/containment_test.dart | a junctioned skill folder outside the root is not a skill | green |
 | skills: Inventory in doctor | Healthy workspace | test/qualification/installed_workflow_test.dart | doctor lists every installed command, skill and role with only shadowed problems | red |
-| skills: Inventory in doctor | Broken skill reported | test/cli/doctor_inventory_test.dart | a broken SKILL.md is listed under problems and doctor's exit code is unchanged | red |
+| skills: Inventory in doctor | Broken skill reported | test/cli/doctor_inventory_test.dart | a broken SKILL.md is listed under problems and doctor's exit code is unchanged | green |
 | slash-commands: Command definitions | Namespaced command | test/workspace/commands_test.dart | opsx/propose.md is the command opsx:propose without its frontmatter | green |
 | slash-commands: Command definitions | Broken frontmatter | test/workspace/commands_test.dart | an unclosed frontmatter is not a command and is a problem | green |
 | slash-commands: Skills as commands | User-invocable skill | test/loop/commands_test.dart | /specwright-roadmap next expands to the skill load text | green |
@@ -94,12 +94,12 @@
 | engine-rpc: Prompts reach the client | Relayed child prompt | test/rpc/relay_test.dart | a relayed prompt names its agent with a session-unique key | red |
 | engine-rpc: Child engine mode | Child started | test/rpc/child_mode_test.dart | child mode hello names protocol 1, the child session and model | red |
 | engine-rpc: Child engine mode | Unknown role in child mode | test/rpc/child_mode_test.dart | child mode with an unknown role is fatal and creates no session | red |
-| tool-permissions: User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | red |
+| tool-permissions: User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
 | tool-permissions: User configuration file | Invalid configuration | test/config/config_test.dart | unknown key or bad type refuses to start naming the path | green |
 | tool-permissions: User configuration file | Model settings | test/config/config_test.dart | model and models contextWindow parse | green |
 | tool-permissions: User configuration file | Invalid model settings | test/config/config_test.dart | bad contextWindow or unknown model key refuses naming the path | green |
-| tool-permissions: User configuration file | Agent model aliases | test/config/config_test.dart | agents.models aliases parse | red |
-| tool-permissions: User configuration file | Invalid agent settings | test/config/config_test.dart | bad agents settings refuse naming the path | red |
+| tool-permissions: User configuration file | Agent model aliases | test/config/config_test.dart | agents.models aliases parse | green |
+| tool-permissions: User configuration file | Invalid agent settings | test/config/config_test.dart | bad agents settings refuse naming the path | green |
 | tool-permissions: Repository content never widens approval | Role lists Bash | test/permissions/repository_frontmatter_test.dart | a child's bash call is prompted like the parent's | red |
 | tool-permissions: Repository content never widens approval | Yolo not inherited from repository | test/permissions/repository_frontmatter_test.dart | a child of a non-yolo parent is not yolo whatever the role says | red |
 
@@ -131,8 +131,8 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 5. Configuration and doctor
 
-- [ ] 5.1 Write the failing tests, then parse `agents.models` in `user_config.dart`. Turns green: *Missing configuration* (now also no aliases), *Agent model aliases*, *Invalid agent settings*; re-run the green *Invalid configuration*, *Model settings*, *Invalid model settings* rows.
-- [ ] 5.2 Write the failing test, then list the inventory in `kehai doctor` (root, `AGENTS.md` files, skills with root, commands, roles with model and mapped tools, problems; exit code unchanged). Turns green: *Broken skill reported*.
+- [x] 5.1 Write the failing tests, then parse `agents.models` in `user_config.dart`. Turns green: *Missing configuration* (now also no aliases), *Agent model aliases*, *Invalid agent settings*; re-run the green *Invalid configuration*, *Model settings*, *Invalid model settings* rows.
+- [x] 5.2 Write the failing test, then list the inventory in `kehai doctor` (root, `AGENTS.md` files, skills with root, commands, roles with model and mapped tools, problems; exit code unchanged). Turns green: *Broken skill reported*.
 
 ## 6. Child engine and agent jobs
 
