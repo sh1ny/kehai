@@ -111,12 +111,12 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 2. Workspace loaders
 
-- [ ] 2.1 Add `package:yaml` to `pubspec.yaml` (`dart pub add yaml` through mise) and write `lib/src/workspace/frontmatter.dart` (D2) and `project_root.dart`. Verify `mise run analyze` is clean.
-- [ ] 2.2 Write the failing containment tests, then `lib/src/workspace/` read containment (D15) reusing `realPath`, `isInside` and `isCredentialTarget`; on Windows the junction cases create junctions with `mklink /J`, on POSIX symlinks. Turns green: *File inside the project*, *Link to a file outside the project*, *Link to credentials*, *Skill directory outside the project*.
-- [ ] 2.3 Write the failing tests, then `agents_md.dart` (root-first chain, 32 KiB/8-file bounds, problems). Turns green: *Workspace below the project root*, *No repository and no file*, *Unreadable file*, *Oversized file*, *Deep workspace*.
-- [ ] 2.4 Write the failing tests, then `skills.dart` (discovery, validation, precedence, shadowed problems) and `substitution.dart`. Turns green: *Installed skills found*, *Invalid frontmatter*, *Directory without SKILL.md*, *Same skill in both roots*, *Skill directory substituted*, *Empty arguments*.
-- [ ] 2.5 Write the failing tests, then `commands.dart` (namespaced names, frontmatter removal, skills as commands with `user-invocable`) and `roles.dart` (role parsing, tool mapping, unmapped names). Turns green: *Namespaced command*, *Broken frontmatter*, *Installed roles*, *Invalid role file*, *Reviewer tools*, *Unknown tool name*.
-- [ ] 2.6 Write `inventory.dart` (one `Workspace` value with root, files, skills, commands, roles and problems) and `context_text.dart` (D5 rendering, 64-skill catalog bound). Turns green: *Catalog over its bound*. Verify the group with `dart test test/workspace -j 1` and `mise run analyze`.
+- [x] 2.1 Add `package:yaml` to `pubspec.yaml` (`dart pub add yaml` through mise) and write `lib/src/workspace/frontmatter.dart` (D2) and `project_root.dart`. Verify `mise run analyze` is clean.
+- [x] 2.2 Write the failing containment tests, then `lib/src/workspace/` read containment (D15) reusing `realPath`, `isInside` and `isCredentialTarget`; on Windows the junction cases create junctions with `mklink /J`, on POSIX symlinks. Turns green: *File inside the project*, *Link to a file outside the project*, *Link to credentials*, *Skill directory outside the project*.
+- [x] 2.3 Write the failing tests, then `agents_md.dart` (root-first chain, 32 KiB/8-file bounds, problems). Turns green: *Workspace below the project root*, *No repository and no file*, *Unreadable file*, *Oversized file*, *Deep workspace*.
+- [x] 2.4 Write the failing tests, then `skills.dart` (discovery, validation, precedence, shadowed problems) and `substitution.dart`. Turns green: *Installed skills found*, *Invalid frontmatter*, *Directory without SKILL.md*, *Same skill in both roots*, *Skill directory substituted*, *Empty arguments*.
+- [x] 2.5 Write the failing tests, then `commands.dart` (namespaced names, frontmatter removal, skills as commands with `user-invocable`) and `roles.dart` (role parsing, tool mapping, unmapped names). Turns green: *Namespaced command*, *Broken frontmatter*, *Installed roles*, *Invalid role file*, *Reviewer tools*, *Unknown tool name*.
+- [x] 2.6 Write `inventory.dart` (one `Workspace` value with root, files, skills, commands, roles and problems) and `context_text.dart` (D5 rendering, 64-skill catalog bound). Turns green: *Catalog over its bound*. Verify the group with `dart test test/workspace -j 1` and `mise run analyze`.
 
 ## 3. Context capture, instructions and budget
 
