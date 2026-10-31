@@ -138,6 +138,39 @@ void main() {
       await pending;
     });
 
+    test('a bash cwd through a link shows where the command runs', () async {
+      final outside = Directory(p.join(env.workspace.parent.path, 'outside'))
+        ..createSync();
+      try {
+        Link(p.join(env.workspace.path, 'vendor')).createSync(outside.path);
+      } on FileSystemException {
+        markTestSkipped('symbolic links need privileges here');
+        return;
+      }
+
+      final pending = env.gate().check(
+        _call('bash', {'command': './build.sh', 'cwd': 'vendor'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input['cwd'], 'vendor');
+      expect(item.input['target'], endsWith('outside'));
+      expect(item.input['outside'], isTrue);
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
+    });
+
+    test('a bash call in a plain workspace directory adds no target', () async {
+      final pending = env.gate().check(
+        _call('bash', {'command': './build.sh', 'cwd': 'lib'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input, {'command': './build.sh', 'cwd': 'lib'});
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
+    });
+
     test('status tools, job status and ask need no prompt', () async {
       final gate = env.gate();
       final calls = [

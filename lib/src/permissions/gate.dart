@@ -183,14 +183,18 @@ final class PermissionGate implements CallStage {
     return null;
   }
 
-  /// The input the prompt shows for [call]: its own input, plus, for a file
-  /// tool whose path resolves somewhere other than it reads (through a link,
-  /// or out of the workspace), the resolved `target` and whether it is
-  /// `outside` the workspace. The tool opens that target, so the user judges
-  /// it rather than the name.
+  /// The input the prompt shows for [call]: its own input, plus, when a file
+  /// tool's path or a `bash` call's cwd resolves somewhere other than it reads
+  /// (through a link, or out of the workspace), the resolved `target` and
+  /// whether it is `outside` the workspace. The tool opens, or the command
+  /// runs in, that target, so the user judges it rather than the name.
   Map<String, Object?> _promptInput(StageCall call) {
-    final path = call.input['path'];
-    if (!_fileTools.contains(call.tool) || path is! String) return call.input;
+    final path = switch (call.tool) {
+      'bash' => call.input['cwd'],
+      final tool when _fileTools.contains(tool) => call.input['path'],
+      _ => null,
+    };
+    if (path is! String) return call.input;
     final root = realPath(workspace.path);
     final real = realPath(_resolve(path));
     if (root == null || real == null) return call.input;
