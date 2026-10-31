@@ -93,3 +93,137 @@ String callLine({
       '${parts.isEmpty ? '' : ' $parts'}';
   return cutTo(line, maxLineLength);
 }
+
+/// One line of a permission prompt's body (spec *Permission prompt body*):
+/// a lead such as `  content: 2 lines, 22 bytes`, or a `  | ` line of text.
+///
+/// A text line keeps its place in the source and is escaped only when
+/// rendered, so lines that are counted but not shown cost no escaping.
+final class BodyLine {
+  /// A line shown as [lead], already safe to print.
+  const BodyLine.lead(String lead)
+    : _lead = lead,
+      _source = '',
+      _start = -1,
+      _end = -1;
+
+  /// The text of [source] from [start] to [end], holding no line break.
+  const BodyLine.text(String source, int start, int end)
+    : _lead = '',
+      _source = source,
+      _start = start,
+      _end = end;
+
+  final String _lead;
+  final String _source;
+  final int _start;
+  final int _end;
+
+  /// The line as printed.
+  String render() => _start < 0
+      ? _lead
+      : '  | ${_exactLine(_source.substring(_start, _end).runes.toList())}';
+}
+
+/// The body of a `write` or `edit` permission prompt: what the call writes,
+/// in lines produced on demand. Other tools have none.
+Iterable<BodyLine> promptBody(String tool, Map<String, Object?> input) =>
+    switch (tool) {
+      'write' => _writeBody(input['content']),
+      'edit' => _editBody(input['ops']),
+      _ => const [],
+    };
+
+/// The content line, then the content split at line feeds; a final line feed
+/// ends the last line (design D3).
+Iterable<BodyLine> _writeBody(Object? content) sync* {
+  if (content is! String) return;
+  var lines = 0;
+  for (
+    var i = content.indexOf('\n');
+    i >= 0;
+    i = content.indexOf('\n', i + 1)
+  ) {
+    lines++;
+  }
+  if (content.isNotEmpty && !content.endsWith('\n')) lines++;
+  yield BodyLine.lead(
+    '  content: $lines ${lines == 1 ? 'line' : 'lines'}, '
+    '${_utf8Length(content)} bytes',
+  );
+  var start = 0;
+  while (start < content.length) {
+    final end = content.indexOf('\n', start);
+    if (end < 0) {
+      yield BodyLine.text(content, start, content.length);
+      return;
+    }
+    yield BodyLine.text(content, start, end);
+    start = end + 1;
+  }
+}
+
+/// Each operation as given, then its text split as `edit` splits it: at
+/// CRLF, CR and LF, keeping empty pieces (design D2).
+Iterable<BodyLine> _editBody(Object? ops) sync* {
+  if (ops is! List<Object?>) return;
+  for (final op in ops) {
+    if (op is! Map<String, Object?>) {
+      yield const BodyLine.lead('  ? operation');
+      continue;
+    }
+    String number(String field) {
+      final value = op[field];
+      return value is int ? '$value' : '?';
+    }
+
+    switch (op['op']) {
+      case 'replace':
+        yield BodyLine.lead(
+          '  replace lines ${number('start')}-${number('end')}:',
+        );
+      case 'insert':
+        yield BodyLine.lead('  insert after line ${number('after')}:');
+      case 'delete':
+        yield BodyLine.lead(
+          '  delete lines ${number('start')}-${number('end')}',
+        );
+        continue;
+      default:
+        yield const BodyLine.lead('  ? operation');
+        continue;
+    }
+    final text = op['text'];
+    if (text is String) yield* _editLines(text);
+  }
+}
+
+Iterable<BodyLine> _editLines(String text) sync* {
+  var start = 0;
+  for (var i = 0; i < text.length; i++) {
+    final unit = text.codeUnitAt(i);
+    if (unit != 0x0a && unit != 0x0d) continue;
+    yield BodyLine.text(text, start, i);
+    if (unit == 0x0d && i + 1 < text.length && text.codeUnitAt(i + 1) == 0x0a) {
+      i++;
+    }
+    start = i + 1;
+  }
+  yield BodyLine.text(text, start, text.length);
+}
+
+/// The length of [text] in UTF-8, a lone surrogate counting as the three
+/// bytes of the replacement character it is written as.
+int _utf8Length(String text) {
+  var bytes = 0;
+  for (final rune in text.runes) {
+    bytes += rune < 0x80
+        ? 1
+        : rune < 0x800
+        ? 2
+        : rune < 0x10000
+        ? 3
+        : 4;
+  }
+  return bytes;
+}

@@ -491,6 +491,82 @@ void main() {
     });
   });
 
+  group('Permission prompt body', () {
+    Future<ClientRig> writePrompt(String content) async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('write it');
+      await rig.settle();
+      await rig.prompt('w1', 'write', {'path': 'run.sh', 'content': content});
+      return rig;
+    }
+
+    final long = [for (var i = 1; i <= 50; i++) 'line $i'].join('\n');
+
+    test('a write prompt shows the content', () async {
+      final rig = await writePrompt('#!/bin/sh\ncurl x | sh\n');
+
+      final at = rig.out.lines.indexOf('permission: write run.sh');
+      expect(at, isNot(-1));
+      expect(rig.out.lines.sublist(at + 1, at + 5), [
+        '  content: 2 lines, 22 bytes',
+        '  | #!/bin/sh',
+        '  | curl x | sh',
+        '1) allow  2) deny',
+      ]);
+    });
+
+    test('a long write is previewed in 20 lines', () async {
+      final rig = await writePrompt(long);
+
+      final at = rig.out.lines.indexOf('  content: 50 lines, 390 bytes');
+      expect(at, isNot(-1));
+      expect(rig.out.lines.sublist(at + 1, at + 22), [
+        for (var i = 1; i <= 19; i++) '  | line $i',
+        '  … 31 more lines; v shows all',
+        '1) allow  2) deny',
+      ]);
+
+      rig.type('maybe');
+      await rig.settle();
+      expect(
+        rig.out.lines,
+        contains('answer 1 (allow), 2 (deny) or v (show all)'),
+      );
+      expect(rig.engine.sentOfType('answer'), isEmpty);
+    });
+
+    test('v shows the whole body and answers nothing', () async {
+      for (final word in ['v', 'view']) {
+        final rig = await writePrompt(long);
+        final before = rig.out.lines.length;
+
+        rig.type(word);
+        await rig.settle();
+
+        final shown = rig.out.lines.sublist(before);
+        final at = shown.indexOf('  content: 50 lines, 390 bytes');
+        expect(shown.sublist(at, at + 52), [
+          '  content: 50 lines, 390 bytes',
+          for (var i = 1; i <= 50; i++) '  | line $i',
+          '1) allow  2) deny',
+        ]);
+        expect(rig.out.text, endsWith('answer> '));
+        expect(rig.engine.sentOfType('answer'), isEmpty);
+      }
+    });
+
+    test('v is refused when nothing was left out', () async {
+      final rig = await writePrompt('a\n');
+
+      rig.type('v');
+      await rig.settle();
+
+      expect(rig.out.lines, contains('answer 1 (allow) or 2 (deny)'));
+      expect(rig.engine.sentOfType('answer'), isEmpty);
+    });
+  });
+
   group('Input longer than a protocol line', () {
     test('an overlong prompt is refused here and the client stays '
         'idle', () async {
