@@ -95,7 +95,8 @@ String callLine({
 }
 
 /// One line of a permission prompt's body (spec *Permission prompt body*):
-/// a lead such as `  content: 2 lines, 22 bytes`, or a `  | ` line of text.
+/// a lead such as `  content: 2 lines, 22 bytes`, or a line of text marked
+/// `|` (written content), `-` (a line an edit removes) or `+` (edit text).
 ///
 /// A text line keeps its place in the source and is escaped only when
 /// rendered, so lines that are counted but not shown cost no escaping.
@@ -105,10 +106,12 @@ final class BodyLine {
     : _lead = lead,
       _source = '',
       _start = -1,
-      _end = -1;
+      _end = -1,
+      _mark = '';
 
-  /// The text of [source] from [start] to [end], holding no line break.
-  const BodyLine.text(String source, int start, int end)
+  /// The text of [source] from [start] to [end], holding no line break,
+  /// after `  ` and the mark.
+  const BodyLine.text(String source, int start, int end, [this._mark = '|'])
     : _lead = '',
       _source = source,
       _start = start,
@@ -118,11 +121,13 @@ final class BodyLine {
   final String _source;
   final int _start;
   final int _end;
+  final String _mark;
 
   /// The line as printed.
   String render() => _start < 0
       ? _lead
-      : '  | ${_exactLine(_source.substring(_start, _end).runes.toList())}';
+      : '  $_mark '
+            '${_exactLine(_source.substring(_start, _end).runes.toList())}';
 }
 
 /// The body of a `write` or `edit` permission prompt: what the call writes,
@@ -130,7 +135,7 @@ final class BodyLine {
 Iterable<BodyLine> promptBody(String tool, Map<String, Object?> input) =>
     switch (tool) {
       'write' => _writeBody(input['content']),
-      'edit' => _editBody(input['ops']),
+      'edit' => _editBody(input['ops'], input['old']),
       _ => const [],
     };
 
@@ -163,11 +168,11 @@ Iterable<BodyLine> _writeBody(Object? content) sync* {
   }
 }
 
-/// Each operation as given, then its text split as `edit` splits it: at
-/// CRLF, CR and LF, keeping empty pieces (design D2).
-Iterable<BodyLine> _editBody(Object? ops) sync* {
+/// Each operation as given, then the lines it removes from [old], then its
+/// text split as `edit` splits it: at CRLF, CR and LF, keeping empty pieces.
+Iterable<BodyLine> _editBody(Object? ops, Object? old) sync* {
   if (ops is! List<Object?>) return;
-  for (final op in ops) {
+  for (final (index, op) in ops.indexed) {
     if (op is! Map<String, Object?>) {
       yield const BodyLine.lead('  ? operation');
       continue;
@@ -188,13 +193,21 @@ Iterable<BodyLine> _editBody(Object? ops) sync* {
         yield BodyLine.lead(
           '  delete lines ${number('start')}-${number('end')}',
         );
-        continue;
       default:
         yield const BodyLine.lead('  ? operation');
         continue;
     }
+    // Old lines come from the engine, which read the file (no line breaks).
+    if (old is List<Object?> && index < old.length) {
+      if (old[index] case final List<Object?> lines
+          when lines.every((line) => line is String)) {
+        for (final line in lines.cast<String>()) {
+          yield BodyLine.text(line, 0, line.length, '-');
+        }
+      }
+    }
     final text = op['text'];
-    if (text is String) yield* _editLines(text);
+    if (op['op'] != 'delete' && text is String) yield* _editLines(text);
   }
 }
 
@@ -203,13 +216,13 @@ Iterable<BodyLine> _editLines(String text) sync* {
   for (var i = 0; i < text.length; i++) {
     final unit = text.codeUnitAt(i);
     if (unit != 0x0a && unit != 0x0d) continue;
-    yield BodyLine.text(text, start, i);
+    yield BodyLine.text(text, start, i, '+');
     if (unit == 0x0d && i + 1 < text.length && text.codeUnitAt(i + 1) == 0x0a) {
       i++;
     }
     start = i + 1;
   }
-  yield BodyLine.text(text, start, text.length);
+  yield BodyLine.text(text, start, text.length, '+');
 }
 
 /// The length of [text] in UTF-8, a lone surrogate counting as the three

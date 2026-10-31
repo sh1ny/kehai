@@ -536,6 +536,16 @@ void main() {
       expect(rig.engine.sentOfType('answer'), isEmpty);
     });
 
+    test('one line left out is named in the singular', () async {
+      final rig = await writePrompt(
+        [for (var i = 1; i <= 20; i++) 'line $i'].join('\n'),
+      );
+
+      expect(rig.out.lines, contains('  | line 19'));
+      expect(rig.out.lines, isNot(contains('  | line 20')));
+      expect(rig.out.lines, contains('  … 1 more line; v shows all'));
+    });
+
     test('v shows the whole body and answers nothing', () async {
       for (final word in ['v', 'view']) {
         final rig = await writePrompt(long);

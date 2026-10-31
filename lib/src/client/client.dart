@@ -610,7 +610,9 @@ final class LineClient {
         }
       }
       _cutKey = more > 0 ? prompt.key : null;
-      if (more > 0) _line('  … $more more lines; v shows all');
+      if (more > 0) {
+        _line('  … $more more ${more == 1 ? 'line' : 'lines'}; v shows all');
+      }
       _line('1) allow  2) deny');
     } else {
       _line('question: ${_describe(prompt)}');
