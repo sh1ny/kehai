@@ -101,7 +101,10 @@ void main() {
       );
       final item = await env.answerer.item(0);
       expect(env.channel.reply(item.key, 'allow'), isNull);
-      expect((await pending).record, {'decision': 'allow', 'by': 'answer'});
+      final record = (await pending).record! as Map<String, Object?>;
+      expect(record['decision'], 'allow');
+      expect(record['by'], 'answer');
+      expect(record['target'], endsWith(p.join('outside', 's.txt')));
     });
 
     test('a write through a link shows where it lands', () async {
@@ -405,7 +408,40 @@ void main() {
       expect(item.toJson()['kind'], 'permission');
       expect(env.channel.reply(item.key, 'allow'), isNull);
 
-      expect((await pending).record, {'decision': 'allow', 'by': 'answer'});
+      expect((await pending).record, {
+        'decision': 'allow',
+        'by': 'answer',
+        'target': realPath(p.join(env.workspace.path, 'a')),
+      });
+    });
+
+    test('a target that moves while the prompt is open is refused', () async {
+      final outside = Directory(p.join(env.workspace.parent.path, 'outside'))
+        ..createSync();
+      final vendor = p.join(env.workspace.path, 'vendor');
+      Directory(vendor).createSync();
+      final pending = env.gate().check(
+        _call('write', {'path': 'vendor/.bashrc', 'content': 'x'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input.containsKey('target'), isFalse);
+
+      // An earlier approved call swaps the directory for a link outside.
+      Directory(vendor).deleteSync();
+      try {
+        Link(vendor).createSync(outside.path);
+      } on FileSystemException {
+        markTestSkipped('symbolic links need privileges here');
+        env.channel.reply(item.key, 'deny');
+        await pending;
+        return;
+      }
+      expect(env.channel.reply(item.key, 'allow'), isNull);
+
+      final outcome = await pending;
+      expect(outcome.denyReason, targetMovedRefusal);
+      expect((outcome.record! as Map<String, Object?>)['decision'], 'deny');
     });
 
     test('a cancelled prompt is withdrawn', () async {

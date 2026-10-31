@@ -47,6 +47,37 @@ void main() {
     expect(dir.summary, 'tool is a directory');
   });
 
+  test('a write whose path no longer resolves to the approved target is '
+      'refused', () async {
+    final approved = p.join(ws.path, 'elsewhere', 'a.txt');
+    final outcome = await WriteTool().run(
+      toolContext(
+        ws,
+        RecordingOutput(),
+        permission: {'decision': 'allow', 'by': 'answer', 'target': approved},
+      ),
+      {'path': 'a.txt', 'content': 'x'},
+    );
+
+    expect(outcome.status, ResultStatus.denied);
+    expect(outcome.summary, targetMovedRefusal);
+    expect(File(p.join(ws.path, 'a.txt')).existsSync(), isFalse);
+  });
+
+  test('a write to the approved target runs', () async {
+    final approved = realPath(p.join(ws.path, 'a.txt'))!;
+    final outcome = await WriteTool().run(
+      toolContext(
+        ws,
+        RecordingOutput(),
+        permission: {'decision': 'allow', 'by': 'answer', 'target': approved},
+      ),
+      {'path': 'a.txt', 'content': 'x'},
+    );
+
+    expect(outcome.status, ResultStatus.ok, reason: outcome.summary);
+  });
+
   test('failed rename leaves the target and no temporary file', () async {
     final target = File(p.join(ws.path, 'target.txt'))
       ..writeAsBytesSync([0x01, 0x02, 0xFF, 0x0a]);

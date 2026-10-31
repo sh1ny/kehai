@@ -8,7 +8,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../permissions/credentials.dart';
-import '../permissions/gate.dart' show credentialRefusal;
+import '../permissions/gate.dart' show credentialRefusal, targetMovedRefusal;
 import '../permissions/workspace_paths.dart';
 import '../results/composer.dart';
 import 'tool.dart';
@@ -84,4 +84,18 @@ final class PathLocks {
       if (identical(_tails[key], tail)) _tails.remove(key);
     }
   }
+}
+
+/// The outcome that refuses a call whose resolved [absolute] path is not the
+/// target the user approved at its permission prompt, or null.
+///
+/// The gate records that target when the user allows a call; a link that
+/// moved since then would make the tool act somewhere the user never saw.
+ToolOutcome? movedDenial(ToolContext context, String absolute) {
+  final approved = context.permission?['target'];
+  if (approved is! String || p.equals(approved, absolute)) return null;
+  return const ToolOutcome(
+    status: ResultStatus.denied,
+    summary: targetMovedRefusal,
+  );
 }
