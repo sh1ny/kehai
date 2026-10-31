@@ -519,7 +519,8 @@ String _escapeGlob(String component) =>
 }) {
   final raw = (input['path'] as String?) ?? '.';
   final absolute = absolutePath(context.workspace, raw);
-  final denied = credentialDenial(context, absolute);
+  final denied =
+      credentialDenial(context, absolute) ?? movedDenial(context, absolute);
   if (denied != null) return (null, denied);
   final isFile = switch (FileSystemEntity.typeSync(absolute)) {
     FileSystemEntityType.notFound => null,

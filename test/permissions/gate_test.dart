@@ -76,7 +76,10 @@ void main() {
       final item = await env.answerer.item(0);
       expect(item.kind, PromptKind.permission);
       expect(item.tool, 'read');
-      expect(item.input, {'path': '../other/secret.txt'});
+      expect(item.input['path'], '../other/secret.txt');
+      expect(item.input['target'], endsWith(p.join('other', 'secret.txt')));
+      expect(p.isAbsolute(item.input['target']! as String), isTrue);
+      expect(item.input['outside'], isTrue);
       expect(env.channel.reply(item.key, 'deny'), isNull);
       expect((await escape).denyReason, isNotNull);
     });
@@ -98,7 +101,77 @@ void main() {
       );
       final item = await env.answerer.item(0);
       expect(env.channel.reply(item.key, 'allow'), isNull);
-      expect((await pending).record, {'decision': 'allow', 'by': 'answer'});
+      final record = (await pending).record! as Map<String, Object?>;
+      expect(record['decision'], 'allow');
+      expect(record['by'], 'answer');
+      expect(record['target'], endsWith(p.join('outside', 's.txt')));
+    });
+
+    test('a write through a link shows where it lands', () async {
+      final outside = Directory(p.join(env.workspace.parent.path, 'outside'))
+        ..createSync();
+      final rc = File(p.join(outside.path, '.bashrc'))..writeAsStringSync('');
+      try {
+        Link(p.join(env.workspace.path, 'innocent.txt')).createSync(rc.path);
+      } on FileSystemException {
+        markTestSkipped('symbolic links need privileges here');
+        return;
+      }
+
+      final pending = env.gate().check(
+        _call('write', {'path': 'innocent.txt', 'content': 'x'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input['path'], 'innocent.txt');
+      expect(item.input['target'], endsWith(p.join('outside', '.bashrc')));
+      expect(item.input['outside'], isTrue);
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
+    });
+
+    test('a write to a plain workspace path adds no target', () async {
+      final pending = env.gate().check(
+        _call('write', {'path': 'lib/new.dart', 'content': 'x'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input, {'path': 'lib/new.dart', 'content': 'x'});
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
+    });
+
+    test('a bash cwd through a link shows where the command runs', () async {
+      final outside = Directory(p.join(env.workspace.parent.path, 'outside'))
+        ..createSync();
+      try {
+        Link(p.join(env.workspace.path, 'vendor')).createSync(outside.path);
+      } on FileSystemException {
+        markTestSkipped('symbolic links need privileges here');
+        return;
+      }
+
+      final pending = env.gate().check(
+        _call('bash', {'command': './build.sh', 'cwd': 'vendor'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input['cwd'], 'vendor');
+      expect(item.input['target'], endsWith('outside'));
+      expect(item.input['outside'], isTrue);
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
+    });
+
+    test('a bash call in a plain workspace directory adds no target', () async {
+      final pending = env.gate().check(
+        _call('bash', {'command': './build.sh', 'cwd': 'lib'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input, {'command': './build.sh', 'cwd': 'lib'});
+      expect(env.channel.reply(item.key, 'deny'), isNull);
+      await pending;
     });
 
     test('status tools, job status and ask need no prompt', () async {
@@ -335,7 +408,75 @@ void main() {
       expect(item.toJson()['kind'], 'permission');
       expect(env.channel.reply(item.key, 'allow'), isNull);
 
-      expect((await pending).record, {'decision': 'allow', 'by': 'answer'});
+      expect((await pending).record, {
+        'decision': 'allow',
+        'by': 'answer',
+        'target': realPath(p.join(env.workspace.path, 'a')),
+      });
+    });
+
+    test(
+      'a path through a dangling link is refused without a prompt',
+      () async {
+        try {
+          Link(p.join(env.workspace.path, 'dangle'))
+              .createSync(p.join(env.workspace.path, 'nowhere'));
+        } on FileSystemException {
+          markTestSkipped('symbolic links need privileges here');
+          return;
+        }
+
+        final outcome = await env.gate().check(
+          _call('write', {'path': 'dangle', 'content': 'x'}),
+          CancelToken(),
+        );
+
+        expect(outcome.denyReason, unresolvedRefusal);
+        expect(env.answerer.items, isEmpty);
+      },
+    );
+
+    test(
+      'a path with .. after a missing directory is refused without a prompt',
+      () async {
+        final outcome = await env.gate().check(
+          _call('write', {'path': 'missing/../.bashrc', 'content': 'x'}),
+          CancelToken(),
+        );
+
+        expect(outcome.denyReason, unresolvedRefusal);
+        expect(env.answerer.items, isEmpty);
+      },
+      testOn: '!windows',
+    );
+
+    test('a target that moves while the prompt is open is refused', () async {
+      final outside = Directory(p.join(env.workspace.parent.path, 'outside'))
+        ..createSync();
+      final vendor = p.join(env.workspace.path, 'vendor');
+      Directory(vendor).createSync();
+      final pending = env.gate().check(
+        _call('write', {'path': 'vendor/.bashrc', 'content': 'x'}),
+        CancelToken(),
+      );
+      final item = await env.answerer.item(0);
+      expect(item.input.containsKey('target'), isFalse);
+
+      // An earlier approved call swaps the directory for a link outside.
+      Directory(vendor).deleteSync();
+      try {
+        Link(vendor).createSync(outside.path);
+      } on FileSystemException {
+        markTestSkipped('symbolic links need privileges here');
+        env.channel.reply(item.key, 'deny');
+        await pending;
+        return;
+      }
+      expect(env.channel.reply(item.key, 'allow'), isNull);
+
+      final outcome = await pending;
+      expect(outcome.denyReason, targetMovedRefusal);
+      expect((outcome.record! as Map<String, Object?>)['decision'], 'deny');
     });
 
     test('a cancelled prompt is withdrawn', () async {

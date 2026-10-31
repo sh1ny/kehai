@@ -23,6 +23,17 @@ import 'workspace_paths.dart';
 /// The reason a call is refused when it names a credential file.
 const String credentialRefusal = 'credential files are not readable by tools';
 
+/// The reason a call is refused when the path or directory it was approved
+/// for now resolves somewhere else.
+const String targetMovedRefusal =
+    'the target moved after it was approved; ask again';
+
+/// The reason a call is refused when the path or directory it names cannot
+/// be resolved, so the prompt could not show where it acts.
+const String unresolvedRefusal =
+    'the path cannot be resolved (a dangling link, or .. after a missing '
+    'directory); name it without either';
+
 /// The tools whose `path` argument credential files are refused for.
 const Set<String> _fileTools = {'read', 'edit', 'write', 'grep', 'find', 'ls'};
 
@@ -183,6 +194,51 @@ final class PermissionGate implements CallStage {
     return null;
   }
 
+  /// What [call] names as the place it acts: a file tool's `path`, or the
+  /// directory a `bash` command runs in; null for other tools.
+  String? _named(StageCall call) => switch (call.tool) {
+    'bash' => switch (call.input['cwd']) {
+      final String cwd => cwd,
+      _ => '.',
+    },
+    final tool when _fileTools.contains(tool) => switch (call.input['path']) {
+      final String path => path,
+      _ => null,
+    },
+    _ => null,
+  };
+
+  /// Where [call] acts: the real path [_named] resolves to; null for other
+  /// tools, or when it cannot be resolved.
+  String? _target(StageCall call) {
+    final named = _named(call);
+    return named == null ? null : realPath(_resolve(named));
+  }
+
+  static bool _sameTarget(String? a, String? b) =>
+      a == null ? b == null : b != null && p.equals(a, b);
+
+  /// The input the prompt shows for [call]: its own input, plus, when
+  /// [target] is somewhere other than the call names (through a link, or out
+  /// of the workspace), that `target` and whether it is `outside` the
+  /// workspace. The tool opens, or the command runs in, that target, so the
+  /// user judges it rather than the name.
+  Map<String, Object?> _promptInput(StageCall call, String? target) {
+    final named = _named(call);
+    final root = realPath(workspace.path);
+    if (named == null || root == null || target == null) return call.input;
+    final inside = isInside(root, target);
+    if (inside &&
+        p.equals(p.relative(target, from: root), p.normalize(named))) {
+      return call.input;
+    }
+    return {
+      ...call.input,
+      'target': inside ? p.relative(target, from: root) : target,
+      'outside': !inside,
+    };
+  }
+
   Future<StageOutcome> _ask(StageCall call, CancelToken cancel) async {
     if (!prompts.hasAnswerer) {
       return const StageOutcome.deny(
@@ -190,19 +246,39 @@ final class PermissionGate implements CallStage {
         record: {'decision': 'deny', 'by': 'headless'},
       );
     }
+    final target = _target(call);
+    // A path that cannot be resolved yet (a dangling link, or `..` after a
+    // missing part) can land anywhere once the tool creates what is missing,
+    // so the prompt could not show where it acts.
+    if (target == null && _named(call) != null) {
+      return const StageOutcome.deny(
+        unresolvedRefusal,
+        record: {'decision': 'deny', 'by': 'builtin', 'rule': 'unresolved'},
+      );
+    }
     final answer = await prompts.open(
       PromptItem(
         key: call.callKey,
         kind: PromptKind.permission,
         tool: call.tool,
-        input: call.input,
+        input: _promptInput(call, target),
       ),
       cancel,
       choices: const ['allow', 'deny'],
     );
+    // Earlier calls may have run while the prompt was open; the user approved
+    // the target shown, so a call that now lands elsewhere is refused. The
+    // record carries the target, and the tool refuses one that moves later.
+    final now = _target(call);
+    if (answer == 'allow' && !_sameTarget(target, now)) {
+      return const StageOutcome.deny(
+        targetMovedRefusal,
+        record: {'decision': 'deny', 'by': 'builtin', 'rule': 'target moved'},
+      );
+    }
     return switch (answer) {
-      'allow' => const StageOutcome.proceed(
-        record: {'decision': 'allow', 'by': 'answer'},
+      'allow' => StageOutcome.proceed(
+        record: {'decision': 'allow', 'by': 'answer', 'target': ?target},
       ),
       'deny' => const StageOutcome.deny(
         'denied by the user',

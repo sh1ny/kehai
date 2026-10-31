@@ -322,6 +322,10 @@ final class SessionWriter {
   /// completed.
   SessionTree get tree => _state.combined();
 
+  /// The byte length of the committed journal: the offset the next record's
+  /// line starts at, and the offset a snapshot of [tree] carries.
+  int get committedLength => _length;
+
   /// The lifecycle state of the writer.
   WriterState get state => _writerState;
 

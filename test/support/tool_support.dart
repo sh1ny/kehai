@@ -89,6 +89,7 @@ ToolContext toolContext(
   ToolOutput output, {
   Directory? kehaiHome,
   CancelToken? cancel,
+  Map<String, Object?>? permission,
 }) => ToolContext(
   callKey: 'c-test',
   callId: 'test',
@@ -97,6 +98,7 @@ ToolContext toolContext(
   workspace: workspace,
   config: const UserConfig(),
   kehaiHome: kehaiHome,
+  permission: permission,
 );
 
 /// A [ReadSource] over a real file that counts what is read.

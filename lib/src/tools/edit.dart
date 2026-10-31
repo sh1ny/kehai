@@ -41,7 +41,8 @@ final class EditTool implements Tool {
   Future<ToolOutcome> run(ToolContext context, Map<String, Object?> input) {
     final path = input['path']! as String;
     final absolute = absolutePath(context.workspace, path);
-    final denied = credentialDenial(context, absolute);
+    final denied =
+        credentialDenial(context, absolute) ?? movedDenial(context, absolute);
     if (denied != null) return Future.value(denied);
     // Edit the file a link points at instead of replacing the link.
     final target = realPath(absolute) ?? absolute;

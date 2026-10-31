@@ -6,8 +6,10 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
@@ -16,8 +18,12 @@ import '../auth/credential_error.dart';
 import '../auth/credential_store.dart';
 import '../auth/login_controller.dart';
 import '../auth/logout.dart';
+import '../client/client.dart';
+import '../client/console_codepage.dart';
+import '../client/console_input.dart';
 import '../provider/provider.dart' show CancelToken;
 import 'doctor.dart';
+import 'rpc_command.dart';
 import 'settings.dart';
 
 /// The exit code of a command that succeeded.
@@ -43,6 +49,8 @@ final class CliContext {
     StringSink? err,
     this.interrupts,
     this.stdinTerminalOverride,
+    this.rpcInput,
+    this.rpcOutput,
   }) : environment = environment ?? Platform.environment,
        out = out ?? stdout,
        err = err ?? stderr;
@@ -61,6 +69,13 @@ final class CliContext {
 
   /// Whether standard input is a terminal, or `null` to ask the process.
   final bool? stdinTerminalOverride;
+
+  /// The byte stream `kehai rpc` reads commands from, or `null` for standard
+  /// input.
+  final Stream<List<int>>? rpcInput;
+
+  /// The sink `kehai rpc` writes events to, or `null` for standard output.
+  final IOSink? rpcOutput;
 
   /// Whether standard input is a terminal.
   bool get stdinIsTerminal {
@@ -86,6 +101,8 @@ Future<int> runCli(
   StringSink? err,
   Stream<Object?>? interrupts,
   bool? stdinIsTerminal,
+  Stream<List<int>>? rpcInput,
+  IOSink? rpcOutput,
 }) async {
   final context = CliContext(
     environment: environment,
@@ -93,12 +110,16 @@ Future<int> runCli(
     err: err,
     interrupts: interrupts,
     stdinTerminalOverride: stdinIsTerminal,
+    rpcInput: rpcInput,
+    rpcOutput: rpcOutput,
   );
+  if (_startsClient(args)) return _runClient(args, context);
   final runner =
       CommandRunner<int>('kehai', 'Kehai headless coding-agent engine.')
         ..addCommand(_LoginCommand(context))
         ..addCommand(_LogoutCommand(context))
-        ..addCommand(_DoctorCommand(context));
+        ..addCommand(_DoctorCommand(context))
+        ..addCommand(_RpcCommand(context));
   try {
     return await runner.run(args) ?? exitSuccess;
   } on UsageException catch (e) {
@@ -109,6 +130,74 @@ Future<int> runCli(
   } on Object catch (e) {
     context.err.writeln('kehai: unexpected ${e.runtimeType}');
     return exitFailure;
+  }
+}
+
+/// The options of `kehai` run without a subcommand.
+final ArgParser _clientParser = ArgParser()
+  ..addFlag(
+    'resume',
+    negatable: false,
+    help: "Reopen the workspace's latest session.",
+  )
+  ..addOption('session', help: 'Reopen the session with this id.')
+  ..addOption('model', help: 'The model id to use.');
+
+/// Whether [args] start the interactive client: no arguments, or only the
+/// session and model options.
+bool _startsClient(List<String> args) =>
+    args.isEmpty ||
+    const ['--resume', '--session', '--model'].any(
+      (option) => args.first == option || args.first.startsWith('$option='),
+    );
+
+/// Runs the line client, which starts `kehai rpc` as its engine (design D1).
+Future<int> _runClient(List<String> args, CliContext context) async {
+  final ArgResults results;
+  try {
+    results = _clientParser.parse(args);
+    if (results.rest.isNotEmpty) {
+      throw UsageException('unexpected ${results.rest.first}', '');
+    }
+    if (results.flag('resume') && results.option('session') != null) {
+      throw UsageException('use --resume or --session, not both', '');
+    }
+  } on FormatException catch (e) {
+    context.err
+      ..writeln(e.message)
+      ..writeln(_clientParser.usage);
+    return exitUsage;
+  } on UsageException catch (e) {
+    context.err
+      ..writeln(e.message)
+      ..writeln(_clientParser.usage);
+    return exitUsage;
+  }
+  // Only the real process owns the console; an injected run must not touch it.
+  final owned = context.interrupts == null;
+  final restoreConsole = owned ? useUtf8ConsoleIfAttached() : () {};
+  final interrupts =
+      context.interrupts ?? ProcessSignal.sigint.watch().asBroadcastStream();
+  // A Ctrl-C at a Windows console ends standard input; read on past it.
+  final Stream<String> input =
+      owned && Platform.isWindows && context.stdinIsTerminal
+      ? windowsConsoleLines(interrupts)
+      : stdin.transform(utf8.decoder).transform(const LineSplitter());
+  try {
+    return await runLineClient(
+      engineArgs: [
+        if (results.flag('resume')) '--resume',
+        if (results.option('session') case final id?) ...['--session', id],
+        if (results.option('model') case final model?) ...['--model', model],
+      ],
+      input: input,
+      out: context.out,
+      err: context.err,
+      interactive: context.stdinIsTerminal,
+      interrupts: interrupts,
+    );
+  } finally {
+    restoreConsole();
   }
 }
 
@@ -280,6 +369,44 @@ class _DoctorCommand extends _KehaiCommand {
       err: context.err,
       issuer: settings.issuer,
       apiBase: settings.apiBase,
+    );
+  }
+}
+
+class _RpcCommand extends _KehaiCommand {
+  _RpcCommand(super.context) {
+    argParser
+      ..addFlag(
+        'resume',
+        negatable: false,
+        help: "Reopen the workspace's latest session.",
+      )
+      ..addOption('session', help: 'Reopen the session with this id.')
+      ..addOption('model', help: 'The model id to use.');
+  }
+
+  @override
+  final String name = 'rpc';
+
+  @override
+  final String description =
+      'Serve the engine to a client as newline-delimited JSON on standard '
+      'input and output.';
+
+  @override
+  Future<int> run() async {
+    final results = argResults!;
+    if (results.flag('resume') && results.option('session') != null) {
+      usageException('use --resume or --session, not both');
+    }
+    return runRpc(
+      settings: settings,
+      workspace: Directory.current,
+      input: context.rpcInput ?? stdin,
+      output: context.rpcOutput ?? stdout,
+      resume: results.flag('resume'),
+      sessionId: results.option('session'),
+      modelFlag: results.option('model'),
     );
   }
 }

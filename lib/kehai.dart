@@ -15,6 +15,7 @@ export 'src/session/ownership.dart'
 export 'src/session/requests.dart';
 export 'src/session/state.dart';
 export 'src/session/writer.dart';
+export 'src/session/write_gate.dart';
 export 'src/results/composer.dart';
 export 'src/results/descriptor.dart';
 export 'src/results/line_scanner.dart';
@@ -68,7 +69,8 @@ export 'src/tools/ask.dart'
     show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
 export 'src/permissions/credentials.dart'
     show isCredentialPath, isCredentialTarget;
-export 'src/permissions/gate.dart' show PermissionGate;
+export 'src/permissions/gate.dart'
+    show PermissionGate, targetMovedRefusal, unresolvedRefusal;
 export 'src/permissions/workspace_paths.dart' show isInside, realPath;
 export 'src/shell/proof.dart' show ProvenCommand, proveReadOnly, tokenizeSimple;
 export 'src/shell/detect.dart'
@@ -85,3 +87,15 @@ export 'src/shell/launch.dart'
 export 'src/jobs/recovery.dart';
 export 'src/jobs/supervisor.dart';
 export 'src/hooks/hook_stage.dart' show HookStage, maxHookReasonBytes;
+export 'src/loop/driver.dart';
+export 'src/loop/instructions.dart';
+export 'src/loop/request_builder.dart';
+export 'src/loop/retry.dart';
+export 'src/loop/sensorium.dart';
+export 'src/client/client.dart';
+export 'src/client/engine_process.dart';
+export 'src/rpc/codec.dart';
+export 'src/rpc/protocol.dart';
+export 'src/rpc/pump.dart';
+export 'src/rpc/server.dart';
+export 'src/rpc/session_location.dart';

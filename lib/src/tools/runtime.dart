@@ -31,6 +31,7 @@ import '../results/search.dart';
 import '../session/errors.dart';
 import '../session/path.dart';
 import '../session/record.dart';
+import '../session/write_gate.dart';
 import '../session/writer.dart';
 import '../shell/detect.dart';
 import '../hooks/hook_stage.dart';
@@ -140,6 +141,7 @@ final class ToolRuntime {
     this.kehaiHome,
     this.shell,
     this.jobs,
+    this.writeGate,
   );
 
   /// Attaches a runtime to [writer] and [store].
@@ -181,6 +183,7 @@ final class ToolRuntime {
     CallStage? gate,
     ToolRuntimeSeams seams = const ToolRuntimeSeams(),
     JobHooks jobHooks = const JobHooks(),
+    WriteGate? writeGate,
   }) async {
     if (gate == null && kehaiHome == null) {
       throw ArgumentError.value(
@@ -200,7 +203,13 @@ final class ToolRuntime {
         shell ??
         detectShell(workspaceRoot: realPath(workspace.path) ?? workspace.path);
     final prompts = PromptChannel(answerer);
-    final jobs = JobSupervisor(writer, store, hooks: jobHooks);
+    writeGate ??= WriteGate();
+    final jobs = JobSupervisor(
+      writer,
+      store,
+      hooks: jobHooks,
+      writeGate: writeGate,
+    );
     // Resolved once, when the first grep or find needs it, as a job of the
     // supervisor; a missing `rg` never fails attach, it fails those calls.
     final rgPath = config.rgPath;
@@ -256,6 +265,7 @@ final class ToolRuntime {
       kehaiHome,
       detection,
       jobs,
+      writeGate,
     );
     runtime.jobs
       ..liveCallKeys = (() => runtime._live.keys.toSet())
@@ -296,6 +306,10 @@ final class ToolRuntime {
   /// The supervisor of every process the tools start (design D8).
   final JobSupervisor jobs;
 
+  /// The gate every writer operation of the runtime passes (design D17); the
+  /// supervisor shares it.
+  final WriteGate writeGate;
+
   /// What attach finalized before it admitted any call (design D12).
   ResumeReport resumed = ResumeReport.none;
 
@@ -331,16 +345,35 @@ final class ToolRuntime {
 
   /// Runs [call] and returns the output that answers it.
   ///
+  /// With [cancel], the call ends `cancelled` with reason `user` when that
+  /// exchange token is cancelled, also when it was cancelled before the call
+  /// was admitted (design D5); such a call is still recorded, without hooks,
+  /// prompt or effect.
+  ///
   /// The output is the composed envelope for the call's stored result. Throws
   /// the writer's `StorageError` when the journal is unusable, and from then
   /// on for every later call.
-  Future<ToolOutputItem> run(ToolCall call) async {
+  Future<ToolOutputItem> run(ToolCall call, {CancelToken? cancel}) async {
     _ensureUsable();
     final live = _Live(call, callKey(call.callId));
     if (_live.containsKey(live.key)) {
       throw StateError('call id ${call.callId} is already running');
     }
     _live[live.key] = live;
+    void Function()? detach;
+    if (cancel != null) {
+      void fromExchange() {
+        live.cancelReason ??= 'user';
+        live.token.cancel();
+      }
+
+      if (cancel.isCancelled) {
+        fromExchange();
+        live.preCancelled = true;
+      } else {
+        detach = cancel.listen(fromExchange);
+      }
+    }
     try {
       final text = await _drive(live);
       return ToolOutputItem(callId: call.callId, output: text);
@@ -348,6 +381,7 @@ final class ToolRuntime {
       live.token.cancel();
       rethrow;
     } finally {
+      detach?.call();
       if (!live.terminal.isCompleted) live.terminal.complete('lost');
       _leave(live);
       _live.remove(live.key);
@@ -366,6 +400,13 @@ final class ToolRuntime {
   /// [JobSupervisor.cancelJob].
   Future<CancelOutcome> cancelJob(String id) => jobs.cancelJob(id);
 
+  /// Cancels the calls live now with reason `shutdown`, like [cancelTurn],
+  /// without closing the runtime; the server calls it when its input ends.
+  ///
+  /// The reasons are set before this returns its future, so cancelling the
+  /// exchange token right after cannot give those calls reason `user`.
+  Future<int> cancelForShutdown() => _cancelAll('shutdown');
+
   /// Stops admitting calls and cancels the ones still live, jobs included.
   Future<void> close() async {
     _closed = true;
@@ -375,6 +416,12 @@ final class ToolRuntime {
 
   Future<int> _cancelAll(String reason) async {
     final calls = _live.values.toList();
+    // Every call gets its reason now: a running call is cancelled only after
+    // the pending ones ended, and a cancelled exchange token would otherwise
+    // give it `user` first.
+    for (final call in calls) {
+      call.cancelReason ??= reason;
+    }
     var cancelled = 0;
     for (final running in [false, true]) {
       final group = [
@@ -428,9 +475,11 @@ final class ToolRuntime {
       ..input = input ?? call.argumentsJson;
 
     // Validation fails a call before it takes a slot or has any effect.
-    var failure = _validationFailure(call.name, definition, input);
+    var failure = live.preCancelled
+        ? null
+        : _validationFailure(call.name, definition, input);
     var queued = false;
-    if (failure == null) {
+    if (failure == null && !live.preCancelled) {
       if (_running < maxRunningCalls) {
         _running++;
         live.holdsSlot = true;
@@ -449,6 +498,7 @@ final class ToolRuntime {
     if (!await _create(live)) {
       throw StateError('call id ${call.callId} was already used');
     }
+    if (live.preCancelled) return _cancelledBeforeRun(live);
     if (failure != null) {
       final (summary, body) = failure;
       return _finishText(
@@ -729,44 +779,76 @@ final class ToolRuntime {
       case ResultStorageFailed():
         return _storageFailure(live, write);
     }
-    await _settle(live, descriptor, {
-      'status': lifecycle,
-      'envelope': envelope.name,
-      'summary': summary,
-      'result': {'handle': descriptor.handle, 'complete': whole},
-      'reason': ?reason,
-      ...live.takeExtra(),
-    });
-    live.terminal.complete(lifecycle);
     final file = File(
       p.join(store.sessionDir.path, resultsDirName, descriptor.sha256),
     );
-    final text = composed && whole
-        ? await file.readAsString()
-        : await composeResult(
-            live.tool,
-            envelope,
-            summary,
-            descriptor,
-            file,
-            policy: policy,
-          );
-    return text + _diagLines(live);
+    // Composed before the terminal record, so the record can carry the text
+    // (design D4).
+    final text =
+        (composed && whole
+            ? await file.readAsString()
+            : await composeResult(
+                live.tool,
+                envelope,
+                summary,
+                descriptor,
+                file,
+                policy: policy,
+              )) +
+        _diagLines(live);
+    final model = await _storeModel(text);
+    await _settle(
+      live,
+      [descriptor, ?model],
+      {
+        'status': lifecycle,
+        'envelope': envelope.name,
+        'summary': summary,
+        'result': {'handle': descriptor.handle, 'complete': whole},
+        'model': ?_modelRef(model),
+        'reason': ?reason,
+        ...live.takeExtra(),
+      },
+    );
+    live.terminal.complete(lifecycle);
+    return text;
   }
+
+  /// Stores the model [text]; null when it could not be stored, in which case
+  /// the node has no `model` and the request builder recomposes the text.
+  Future<ResultDescriptor?> _storeModel(String text) async {
+    try {
+      final write = await store.storeResult(Stream.value(utf8.encode(text)));
+      return write is ResultComplete ? write.descriptor : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  Map<String, Object?>? _modelRef(ResultDescriptor? model) =>
+      model == null ? null : {'handle': model.handle, 'complete': true};
 
   /// The one handle-less outcome: the result could not be stored.
   Future<String> _storageFailure(_Live live, ResultStorageFailed write) async {
-    await _settle(live, null, {
-      'status': 'failed',
-      'envelope': 'error',
-      'summary': 'storage failure',
-      'reason': 'storage: ${write.error}',
-      'accepted': write.bytesAccepted,
-      ...live.takeExtra(),
-    });
-    live.terminal.complete('failed');
-    return composeStorageFailure(live.tool, write.error, write.bytesAccepted) +
+    final text =
+        composeStorageFailure(live.tool, write.error, write.bytesAccepted) +
         _diagLines(live);
+    final model = await _storeModel(text);
+    await _settle(
+      live,
+      [?model],
+      {
+        'status': 'failed',
+        'envelope': 'error',
+        'summary': 'storage failure',
+        'reason': 'storage: ${write.error}',
+        'accepted': write.bytesAccepted,
+        'model': ?_modelRef(model),
+        ...live.takeExtra(),
+      },
+    );
+    live.terminal.complete('failed');
+    return text;
   }
 
   String _diagLines(_Live live) =>
@@ -779,10 +861,10 @@ final class ToolRuntime {
   /// and the same record retried under the same ownership guard.
   Future<void> _settle(
     _Live live,
-    ResultDescriptor? descriptor,
+    List<ResultDescriptor> descriptors,
     Map<String, Object?> fields,
   ) async {
-    if (descriptor != null) await _write(() => writer.recordResult(descriptor));
+    await _register(descriptors);
     await _seams.beforeSettle?.call(live.key);
     for (var attempt = 0; ; attempt++) {
       final outcome = await _guarded(live, fields);
@@ -790,8 +872,8 @@ final class ToolRuntime {
         case Applied():
           return;
         case Refused(reason: 'descriptors missing')
-            when descriptor != null && attempt < _maxSettleRetries:
-          await _write(() => writer.recordResult(descriptor));
+            when descriptors.isNotEmpty && attempt < _maxSettleRetries:
+          await _register(descriptors);
         case Refused(reason: 'stale'):
           _seams.onStale?.call(live.key);
           throw StaleCallError(live.key);
@@ -800,6 +882,12 @@ final class ToolRuntime {
             'the record for call ${live.key} was refused: $outcome',
           );
       }
+    }
+  }
+
+  Future<void> _register(List<ResultDescriptor> descriptors) async {
+    for (final descriptor in descriptors) {
+      await _write(() => writer.recordResult(descriptor));
     }
   }
 
@@ -865,7 +953,7 @@ final class ToolRuntime {
   /// error, which every later call then throws.
   Future<T> _write<T>(Future<T> Function() operation) async {
     try {
-      return await operation();
+      return await writeGate.run(operation);
     } on StorageError catch (e) {
       _fatal ??= e;
       rethrow;
@@ -934,6 +1022,7 @@ final class _Live {
   bool holdsSlot = false;
   bool running = false;
   bool created = false;
+  bool preCancelled = false;
   String? cancelReason;
   bool _diagTaken = false;
 

@@ -180,6 +180,10 @@ const int openAiMaxSseEventBytes = 8 * 1024 * 1024;
 /// Resource Bounds).
 const int openAiMaxToolCallArgumentBytes = 8 * 1024 * 1024;
 
+/// The cap on the output bytes of one response: text and reasoning summary
+/// deltas, opaque items and held tool-call arguments (design D16).
+const int openAiMaxResponseOutputBytes = 4 * 1024 * 1024;
+
 /// The most tool calls held until `response.completed` (design D10, Resource
 /// Bounds).
 const int openAiMaxHeldToolCalls = 128;

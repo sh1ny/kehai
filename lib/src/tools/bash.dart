@@ -52,6 +52,8 @@ final class BashTool implements Tool {
     };
     final cwd = _workingDirectory(context, input['cwd']);
     if (!Directory(cwd).existsSync()) return failure('no such directory $cwd');
+    final moved = movedDenial(context, cwd);
+    if (moved != null) return moved;
 
     final environment = Platform.environment;
     final passthrough = context.config.envPassthrough;

@@ -112,6 +112,8 @@ final class UserConfig {
     this.hooks = const [],
     this.rgPath,
     this.envPassthrough = const [],
+    this.model,
+    this.contextWindows = const {},
   });
 
   /// Reads `config.json` from [home].
@@ -152,19 +154,36 @@ final class UserConfig {
 
   /// The environment variable names a shell child may inherit.
   final List<String> envPassthrough;
+
+  /// The default model id, or null when the file sets none.
+  final String? model;
+
+  /// The `models.<id>.contextWindow` overrides, by model id.
+  final Map<String, int> contextWindows;
 }
 
 UserConfig _parse(String path, Object? json) {
   if (json is! Map<String, Object?>) {
     throw ConfigError(path, 'must be a JSON object');
   }
-  _noUnknown(path, '', json, const {'allow', 'hooks', 'rgPath', 'env'});
+  _noUnknown(path, '', json, const {
+    'allow',
+    'hooks',
+    'rgPath',
+    'env',
+    'model',
+    'models',
+  });
   final rgPath = json['rgPath'];
   if (json.containsKey('rgPath') && (rgPath is! String || rgPath.isEmpty)) {
     throw ConfigError(
       path,
       'rgPath: must ${rgPath is String ? 'not be empty' : 'be a string'}',
     );
+  }
+  final model = json['model'];
+  if (json.containsKey('model') && (model is! String || model.isEmpty)) {
+    throw ConfigError(path, 'model: must be a non-empty string');
   }
   final rules = _list(
     path,
@@ -195,7 +214,27 @@ UserConfig _parse(String path, Object? json) {
     hooks: hooks,
     rgPath: rgPath as String?,
     envPassthrough: _env(path, json),
+    model: model as String?,
+    contextWindows: _models(path, json),
   );
+}
+
+Map<String, int> _models(String path, Map<String, Object?> root) {
+  if (!root.containsKey('models')) return const {};
+  final map = _object(path, 'models', root['models']);
+  final windows = <String, int>{};
+  for (final MapEntry(:key, :value) in map.entries) {
+    final at = 'models.$key';
+    final entry = _object(path, at, value);
+    _noUnknown(path, at, entry, const {'contextWindow'});
+    if (!entry.containsKey('contextWindow')) continue;
+    final window = entry['contextWindow'];
+    if (window is! int || window < 1) {
+      throw ConfigError(path, '$at.contextWindow: must be a positive integer');
+    }
+    windows[key] = window;
+  }
+  return windows;
 }
 
 AllowRule _rule(String path, String at, Object? json) {

@@ -38,6 +38,62 @@ void main() {
       expect(config.hooks, isEmpty);
       expect(config.rgPath, isNull);
       expect(config.envPassthrough, isEmpty);
+      expect(config.model, isNull);
+      expect(config.contextWindows, isEmpty);
+    });
+
+    test('model and models contextWindow parse', () {
+      write({
+        'model': 'gpt-5.5',
+        'models': {
+          'gpt-5.5': {'contextWindow': 200000},
+          'other': <String, Object?>{},
+        },
+      });
+
+      final config = UserConfig.load(home.path);
+
+      expect(config.model, 'gpt-5.5');
+      expect(config.contextWindows, {'gpt-5.5': 200000});
+    });
+
+    test('bad contextWindow or unknown model key refuses naming the path', () {
+      for (final bad in <Object?>[0, -5, 1.5, '9', null]) {
+        write({
+          'models': {
+            'gpt-5.5': {'contextWindow': bad},
+          },
+        });
+        expect(
+          refused().message,
+          '${path()}: models.gpt-5.5.contextWindow: must be a positive integer',
+          reason: '$bad',
+        );
+      }
+
+      write({
+        'models': {
+          'gpt-5.5': {'window': 1},
+        },
+      });
+      expect(
+        refused().message,
+        '${path()}: models.gpt-5.5: unknown key window',
+      );
+
+      write({'models': <Object?>[]});
+      expect(refused().message, '${path()}: models: must be an object');
+
+      write({
+        'models': {'gpt-5.5': 3},
+      });
+      expect(refused().message, '${path()}: models.gpt-5.5: must be an object');
+
+      write({'model': ''});
+      expect(refused().message, '${path()}: model: must be a non-empty string');
+
+      write({'model': 3});
+      expect(refused().message, '${path()}: model: must be a non-empty string');
     });
 
     test('an explicit null is a wrong type, not an omitted field', () {

@@ -194,6 +194,10 @@ final class ChatGptAdapter implements ModelProvider {
             ModelInfo(
               id: model['slug']! as String,
               name: model['display_name']! as String,
+              contextWindow: switch (model['context_window']) {
+                final int window when window > 1 => window,
+                _ => null,
+              },
             ),
       ];
     }
@@ -246,6 +250,7 @@ final class _Turn {
   StreamSubscription<SseEvent>? _sse;
   final List<ToolCall> _held = [];
   final Set<String> _heldIds = {};
+  int _outputBytes = 0;
   void Function()? _detachCancel;
 
   Stream<ProviderEvent> get stream => _controller.stream;
@@ -504,17 +509,25 @@ final class _Turn {
     }
     if (decoded is! Map<String, Object?>) return;
     final type = decoded['type'] is String ? decoded['type'] : event.event;
+    final index = switch (decoded['output_index']) {
+      final int index when index >= 0 => index,
+      _ => null,
+    };
     switch (type) {
       case 'response.output_text.delta':
         if (decoded['delta'] case final String delta when delta.isNotEmpty) {
-          _emit(TextDelta(delta));
+          if (_count(utf8.encode(delta).length)) {
+            _emit(TextDelta(delta, outputIndex: index));
+          }
         }
       case 'response.reasoning_summary_text.delta':
         if (decoded['delta'] case final String delta when delta.isNotEmpty) {
-          _emit(ReasoningSummaryDelta(delta));
+          if (_count(utf8.encode(delta).length)) {
+            _emit(ReasoningSummaryDelta(delta, outputIndex: index));
+          }
         }
       case 'response.output_item.done':
-        _onItem(decoded['item']);
+        _onItem(decoded['item'], index);
       case 'response.completed':
         _onCompleted(decoded['response']);
       case 'response.incomplete':
@@ -526,10 +539,32 @@ final class _Turn {
     }
   }
 
-  void _onItem(Object? item) {
+  /// Adds [bytes] to the response's output total (design D16).
+  ///
+  /// Returns false after failing the stream when the total passes the limit.
+  bool _count(int bytes) {
+    _outputBytes += bytes;
+    if (_outputBytes <= openAiMaxResponseOutputBytes) return true;
+    _held.clear();
+    _fail(
+      ProviderFailure(
+        kind: FailureKind.protocol,
+        message: _text
+            .compose(FailureKind.protocol, detail: 'Response output too large.')
+            .message,
+        code: 'response_output_limit',
+        sent: true,
+      ),
+    );
+    return false;
+  }
+
+  void _onItem(Object? item, int? index) {
     switch (item) {
       case {'type': 'reasoning'} when item is Map<String, Object?>:
-        _emit(OpaqueItem(item));
+        if (_count(utf8.encode(jsonEncode(item)).length)) {
+          _emit(OpaqueItem(item, outputIndex: index));
+        }
       case {
         'type': 'function_call',
         'call_id': final String callId,
@@ -543,9 +578,14 @@ final class _Turn {
           return;
         } else if (_held.length >= openAiMaxHeldToolCalls) {
           _fail(_local(FailureKind.protocol, 'Too many tool calls.'));
-        } else {
+        } else if (_count(utf8.encode(argumentsJson).length)) {
           _held.add(
-            ToolCall(callId: callId, name: name, argumentsJson: argumentsJson),
+            ToolCall(
+              callId: callId,
+              name: name,
+              argumentsJson: argumentsJson,
+              outputIndex: index,
+            ),
           );
         }
       case {'type': 'function_call'}:

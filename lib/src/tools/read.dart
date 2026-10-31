@@ -64,7 +64,8 @@ final class ReadTool implements Tool {
   Future<ToolOutcome> run(ToolContext context, Map<String, Object?> input) {
     final path = input['path']! as String;
     final absolute = absolutePath(context.workspace, path);
-    final denied = credentialDenial(context, absolute);
+    final denied =
+        credentialDenial(context, absolute) ?? movedDenial(context, absolute);
     if (denied != null) return Future.value(denied);
     return switch (FileSystemEntity.typeSync(absolute)) {
       FileSystemEntityType.notFound => Future.value(
