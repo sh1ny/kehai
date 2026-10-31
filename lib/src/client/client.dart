@@ -21,6 +21,10 @@ const String busyNote = 'busy: wait for the reply or press Ctrl-C';
 
 const Set<String> _allowWords = {'1', 'y', 'yes', 'allow'};
 const Set<String> _denyWords = {'2', 'n', 'no', 'deny'};
+const Set<String> _viewWords = {'v', 'view'};
+
+/// The most body lines a permission prompt shows before `v` (design D1).
+const int previewLines = 20;
 
 /// Reads prompts line by line and renders what the engine sends.
 final class LineClient {
@@ -61,6 +65,9 @@ final class LineClient {
 
   final TreeMirror _mirror = TreeMirror();
   final PromptState _prompts = PromptState();
+
+  /// The key of the active permission prompt when its body was cut.
+  String? _cutKey;
   final Completer<int> _result = Completer<int>();
   final Map<int, StringBuffer> _shown = {};
 
@@ -207,6 +214,16 @@ final class LineClient {
 
   void _answer(String line) {
     final prompt = _prompts.active!;
+    final cut = prompt.kind == 'permission' && prompt.key == _cutKey;
+    if (cut && _viewWords.contains(line.trim().toLowerCase())) {
+      // Printed one line at a time; it answers nothing.
+      for (final body in promptBody(prompt.tool, prompt.input)) {
+        _line(body.render());
+      }
+      _line('1) allow  2) deny');
+      _write('answer> ');
+      return;
+    }
     if (_prompts.inFlight != null) {
       _line('waiting for the previous answer');
       return;
@@ -220,7 +237,11 @@ final class LineClient {
           ? 'deny'
           : null;
       if (text == null) {
-        _line('answer 1 (allow) or 2 (deny)');
+        _line(
+          cut
+              ? 'answer 1 (allow), 2 (deny) or v (show all)'
+              : 'answer 1 (allow) or 2 (deny)',
+        );
         _write('answer> ');
         return;
       }
@@ -577,6 +598,19 @@ final class LineClient {
           '${outside ? ' (outside the workspace)' : ''}',
         );
       }
+      // What a write or edit writes; past the preview only counted.
+      var shown = 0;
+      var more = 0;
+      for (final body in promptBody(prompt.tool, prompt.input)) {
+        if (shown < previewLines) {
+          _line(body.render());
+          shown++;
+        } else {
+          more++;
+        }
+      }
+      _cutKey = more > 0 ? prompt.key : null;
+      if (more > 0) _line('  … $more more lines; v shows all');
       _line('1) allow  2) deny');
     } else {
       _line('question: ${_describe(prompt)}');

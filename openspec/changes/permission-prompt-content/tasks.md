@@ -4,16 +4,16 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| line-client → Permission prompt body | Short write | test/client/client_test.dart | a write prompt shows the content | red |
+| line-client → Permission prompt body | Short write | test/client/client_test.dart | a write prompt shows the content | green |
 | line-client → Permission prompt body | Empty write | test/client/render_test.dart | an empty write shows no lines | green |
 | line-client → Permission prompt body | Carriage return in written content | test/client/render_test.dart | a carriage return in written content stays on its line | green |
 | line-client → Permission prompt body | Edit operations | test/client/render_test.dart | edit operations show their ranges and text | green |
 | line-client → Permission prompt body | Edit text with a trailing line feed | test/client/render_test.dart | edit text keeps the empty line after a trailing line feed | green |
 | line-client → Permission prompt body | Empty edit text | test/client/render_test.dart | empty edit text is one empty line | green |
 | line-client → Permission prompt body | Carriage return in edit text | test/client/render_test.dart | a carriage return splits edit text | green |
-| line-client → Permission prompt preview | Long write is previewed | test/client/client_test.dart | a long write is previewed in 20 lines | red |
-| line-client → Permission prompt preview | Show the whole body | test/client/client_test.dart | v shows the whole body and answers nothing | red |
-| line-client → Permission prompt preview | v where nothing was left out | test/client/client_test.dart | v is refused when nothing was left out | red |
+| line-client → Permission prompt preview | Long write is previewed | test/client/client_test.dart | a long write is previewed in 20 lines | green |
+| line-client → Permission prompt preview | Show the whole body | test/client/client_test.dart | v shows the whole body and answers nothing | green |
+| line-client → Permission prompt preview | v where nothing was left out | test/client/client_test.dart | v is refused when nothing was left out | green |
 
 ## 1. Body lines of write and edit prompts
 
@@ -26,14 +26,14 @@
 
 ## 2. Preview and `v` in the line client
 
-- [ ] 2.1 In `test/client/client_test.dart`, add a `Permission prompt body` group with the client tests in the test map:
+- [x] 2.1 In `test/client/client_test.dart`, add a `Permission prompt body` group with the client tests in the test map:
   - The short write shows the content line and both lines before `1) allow  2) deny`.
   - A 50-line write shows the content line, 19 lines and `  … 31 more lines; v shows all`, and refuses other text with `answer 1 (allow), 2 (deny) or v (show all)`.
   - `v` and `view` print all 50 lines, then the choice line and `answer> `, and send no `answer`.
   - `v` at a short prompt gets `answer 1 (allow) or 2 (deny)` and sends nothing.
 
   Run `mise exec -- dart test -j 1 test/client/client_test.dart` and verify these fail on the missing body lines.
-- [ ] 2.2 In `lib/src/client/client.dart`, have `_showActive` print up to 20 body lines after the target line and count the rest, recording the key of a cut prompt. Have `_answer` handle `v` and `view` for that key before the in-flight check: print the whole body one line at a time, then the choice line and `answer> `. Its refusal names `v` only for a cut prompt. Verify that `mise exec -- dart test -j 1 test/client/client_test.dart test/client/render_test.dart` passes in full, and flip the rows green.
+- [x] 2.2 In `lib/src/client/client.dart`, have `_showActive` print up to 20 body lines after the target line and count the rest, recording the key of a cut prompt. Have `_answer` handle `v` and `view` for that key before the in-flight check: print the whole body one line at a time, then the choice line and `answer> `. Its refusal names `v` only for a cut prompt. Verify that `mise exec -- dart test -j 1 test/client/client_test.dart test/client/render_test.dart` passes in full, and flip the rows green.
 
 ## 3. Integration checks
 
