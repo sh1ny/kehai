@@ -409,6 +409,62 @@ void main() {
       expect(rig.out.text, contains('&& rm -rf /tmp/z'));
       expect(rig.out.text, isNot(contains('…')));
     });
+
+    test('the directory a command runs in is shown with it', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('run it');
+      await rig.settle();
+      await rig.prompt('c1', 'bash', {
+        'command': './build.sh',
+        'cwd': 'vendor/x\ny',
+      });
+
+      expect(rig.out.lines, contains('permission: bash ./build.sh'));
+      expect(rig.out.lines, contains(r'  in vendor/x\u{A}y'));
+    });
+  });
+
+  group('Input longer than a protocol line', () {
+    test('an overlong prompt is refused here and the client stays '
+        'idle', () async {
+      final rig = clientRig();
+      await rig.start();
+
+      rig.type('x' * (1024 * 1024));
+      await rig.settle();
+
+      expect(rig.engine.sentOfType('submit'), isEmpty);
+      expect(rig.out.lines, contains('prompt too long (limit 1 MiB)'));
+
+      rig.type('short');
+      await rig.settle();
+      expect(rig.engine.sentOfType('submit'), hasLength(1));
+      expect(rig.out.text, isNot(contains('busy:')));
+    });
+
+    test('an overlong answer is refused and the prompt stays open', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('ask me');
+      await rig.settle();
+      await rig.prompt('q1', 'ask', {
+        'question': 'Which shell?',
+        'choices': <String>[],
+        'allow_text': true,
+      }, kind: 'question');
+
+      rig.type('y' * (1024 * 1024));
+      await rig.settle();
+      expect(rig.engine.sentOfType('answer'), isEmpty);
+      expect(rig.out.lines, contains('answer too long (limit 1 MiB)'));
+
+      rig.type('bash');
+      await rig.settle();
+      expect(rig.engine.sentOfType('answer'), [
+        {'type': 'answer', 'key': 'q1', 'text': 'bash'},
+      ]);
+    });
   });
 
   group('Answering prompts', () {

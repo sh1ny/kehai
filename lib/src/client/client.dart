@@ -6,8 +6,10 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import '../rpc/protocol.dart';
 import '../session/record.dart';
 import 'engine_process.dart';
 import 'mirror.dart';
@@ -182,14 +184,26 @@ final class LineClient {
     // A terminal echoed the line and its newline; a pipe did not.
     if (!interactive) _write('\n');
     final id = 'r${_idBase}_${++_requests}';
-    _requestId = id;
-    engine.send({
+    final command = {
       'type': 'submit',
       'id': id,
       'text': text,
       'turn': _mirror.turn,
-    });
+    };
+    // The engine refuses an overlong line without naming the request, so
+    // the exchange would never end.
+    if (!_fits(command)) {
+      _line('prompt too long (limit 1 MiB)');
+      _showPrompt();
+      return;
+    }
+    _requestId = id;
+    engine.send(command);
   }
+
+  /// Whether [command] fits on one protocol line.
+  bool _fits(Map<String, Object?> command) =>
+      utf8.encode(jsonEncode(command)).length <= maxLineBytes;
 
   void _answer(String line) {
     final prompt = _prompts.active!;
@@ -218,8 +232,14 @@ final class LineClient {
         return;
       }
     }
+    final command = {'type': 'answer', 'key': prompt.key, 'text': text};
+    if (!_fits(command)) {
+      _line('answer too long (limit 1 MiB)');
+      _write('answer> ');
+      return;
+    }
     _prompts.markSent();
-    engine.send({'type': 'answer', 'key': prompt.key, 'text': text});
+    engine.send(command);
   }
 
   /// The text to send for [line] at the question [prompt], or null when the
@@ -542,6 +562,11 @@ final class LineClient {
         for (final line in lines) {
           _line('  | $line');
         }
+      }
+      // A relative command runs from here, so the directory is part of it.
+      final cwd = prompt.input['cwd'];
+      if (cwd is String && cwd.isNotEmpty) {
+        _line('  in ${exactLines(cwd).join(r'\u{A}')}');
       }
       _line('1) allow  2) deny');
     } else {

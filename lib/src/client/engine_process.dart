@@ -87,7 +87,8 @@ final class _ProcessEngine implements EngineLink {
   @override
   void send(Map<String, Object?> command) {
     try {
-      _process.stdin.writeln(jsonEncode(command));
+      // UTF-8 whatever the system code page: stdin's own encoding is not.
+      _process.stdin.add(utf8.encode('${jsonEncode(command)}\n'));
     } on Object {
       // The engine is gone; its exit is reported through the events.
     }
