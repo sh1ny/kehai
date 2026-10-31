@@ -395,6 +395,15 @@ final class LineClient {
         }
       }
     }
+    // The update that ended the running request may have been dropped with
+    // the overflow; the snapshot still holds its state.
+    final id = _requestId;
+    if (id != null) {
+      final request = _mirror.get('meta/requests/$id');
+      if (request is Map<String, Object?> && request['state'] != 'admitted') {
+        _endExchange();
+      }
+    }
   }
 
   /// Prints the part of a completed step's text that was not shown live.

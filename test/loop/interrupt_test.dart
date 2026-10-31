@@ -223,6 +223,37 @@ void main() {
       expect(provider.requests, hasLength(1));
     });
 
+    test('interrupt during a text-only step commit ends cancelled', () async {
+      final reached = Completer<void>();
+      final release = Completer<void>();
+      final provider = FakeProvider.steps([
+        [const TextDelta('All done.'), const Completed(StopReason.endTurn)],
+      ]);
+      final rig = await _rig(
+        provider,
+        seams: DriverSeams(
+          beforeStepCommit: (turn) async {
+            reached.complete();
+            await release.future;
+          },
+        ),
+      );
+      final done = rig.start('say something');
+      await reached.future;
+
+      expect(await rig.driver.interrupt(), isTrue);
+      release.complete();
+      final result = await done.timeout(const Duration(seconds: 10));
+
+      expect(result.state, 'cancelled');
+      expect(result.reason, 'user');
+      // The step had arrived whole, so it stays committed.
+      expect(
+        rig.map('body/steps/s-00000001'),
+        containsPair('state', 'completed'),
+      );
+    });
+
     test(
       'idle interrupt records nothing and replies no exchange running',
       () async {

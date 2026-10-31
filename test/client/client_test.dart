@@ -45,6 +45,32 @@ void main() {
     });
   });
 
+  test(
+    'a completion seen only in a resync snapshot ends the exchange',
+    () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('first');
+      await rig.settle();
+      final id = rig.engine.sentOfType('submit').single['id']! as String;
+
+      // The update that completed the request was dropped with the overflow.
+      await rig.emit({'type': 'resync'});
+      await rig.resnapshot({
+        'meta': {
+          'requests': {
+            id: {'state': 'completed'},
+          },
+        },
+      }, turn: 3);
+      rig.type('second');
+      await rig.settle();
+
+      expect(rig.out.text, isNot(contains('busy:')));
+      expect(rig.engine.sentOfType('submit'), hasLength(2));
+    },
+  );
+
   group('Non-terminal input', () {
     test('end of piped input waits for the running exchange after an '
         'answer', () async {

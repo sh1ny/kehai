@@ -503,7 +503,13 @@ final class ExchangeDriver {
           argumentsJson: part.arguments,
         ),
     ];
-    if (calls.isEmpty) return const _End('done', null);
+    if (calls.isEmpty) {
+      // An interrupt during the commit still cancels the exchange; the step
+      // arrived whole and stays committed.
+      return token.isCancelled
+          ? _End('cancelled', _cancelReason)
+          : const _End('done', null);
+    }
 
     // Every call is submitted before any is awaited, so the runtime's own
     // bounds decide what runs, queues or is refused busy.
