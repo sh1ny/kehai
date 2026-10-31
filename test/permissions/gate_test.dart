@@ -563,13 +563,14 @@ void main() {
       put('a.txt', [
         0xEF, 0xBB, 0xBF, 0x61, 0x0a, // BOM, then a
         0xEF, 0xBB, 0xBF, 0x62, 0x0a, // U+FEFF b
+        0xEF, 0xBB, 0xBF, 0xEF, 0xBB, 0xBF, 0x63, 0x0a, // U+FEFF U+FEFF c
       ]);
       final (item, pending) = await prompt('a.txt', [
-        {'op': 'delete', 'start': 1, 'end': 2},
+        {'op': 'delete', 'start': 1, 'end': 3},
       ]);
 
       expect(item.input['old'], [
-        ['a', '﻿b'],
+        ['a', '﻿b', '﻿﻿c'],
       ]);
       await deny(item, pending);
     });

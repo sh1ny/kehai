@@ -51,14 +51,10 @@ List<List<String>?>? linesIn(Uint8List bytes, List<(int, int)?> ranges) {
   ];
 }
 
-/// [line] decoded, keeping a leading U+FEFF, which the UTF-8 decoder drops
-/// as a byte order mark; inside a file it is part of the line.
-String _text(Uint8List line) {
-  final text = utf8.decode(line);
-  final marked =
-      line.length >= 3 && line[0] == 0xEF && line[1] == 0xBB && line[2] == 0xBF;
-  return marked && !text.startsWith('﻿') ? '﻿$text' : text;
-}
+/// [line] decoded with every U+FEFF kept. The UTF-8 decoder drops one at
+/// the start as a byte order mark, so the line is decoded after a space that
+/// is then removed; inside a file a U+FEFF is part of its line.
+String _text(Uint8List line) => utf8.decode([0x20, ...line]).substring(1);
 
 const int _lf = 0x0a;
 const int _cr = 0x0d;
