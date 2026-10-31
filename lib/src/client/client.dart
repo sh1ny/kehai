@@ -366,7 +366,7 @@ final class LineClient {
     if (_finishedSteps.contains(_stepKey(turn))) return;
     if (_gapOpen || turn <= _gapThrough) return;
     (_shown[turn] ??= StringBuffer()).write(delta);
-    _write(delta);
+    _write(modelText(delta));
   }
 
   void _onReply(Map<String, Object?> event) {
@@ -469,11 +469,11 @@ final class LineClient {
               .join()
         : '';
     if (committed.startsWith(shown)) {
-      _write(committed.substring(shown.length));
+      _write(modelText(committed.substring(shown.length)));
     } else {
       // The live text does not match the commit: show the commit whole.
       if (_midLine) _write('\n');
-      _write(committed);
+      _write(modelText(committed));
     }
     if (_midLine) _write('\n');
   }

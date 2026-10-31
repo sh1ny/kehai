@@ -2,6 +2,7 @@
 library;
 
 import 'package:kehai/kehai.dart';
+import 'package:kehai/src/client/render.dart' show oneLine;
 import 'package:test/test.dart';
 
 import '../support/client_support.dart';
@@ -161,6 +162,52 @@ void main() {
       await rig.endInput();
 
       expect(rig.engine.inputClosed, isTrue);
+    });
+  });
+
+  group('Model text cannot drive the terminal', () {
+    final esc = String.fromCharCode(0x1b);
+    final csi = String.fromCharCode(0x9b);
+
+    test('escape sequences in streamed text are shown escaped', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('hi');
+      await rig.settle();
+
+      await rig.stream(3, 'ok$esc[8mhidden${csi}2J\rx\ty');
+
+      expect(rig.out.text, isNot(contains(esc)));
+      expect(rig.out.text, isNot(contains(csi)));
+      expect(rig.out.text, isNot(contains('\r')));
+      expect(
+        rig.out.text,
+        contains(
+          r'ok\u{1B}[8mhidden\u{9B}2J\u{D}x'
+          '\ty',
+        ),
+      );
+    });
+
+    test('escape sequences in committed text are shown escaped', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('hi');
+      await rig.settle();
+
+      await rig.update(
+        stepPath(3),
+        'merge',
+        committedText('a$esc[2Kb'),
+        turn: 3,
+      );
+
+      expect(rig.out.text, isNot(contains(esc)));
+      expect(rig.out.text, contains(r'a\u{1B}[2Kb'));
+    });
+
+    test('C1 controls in a tool line become spaces', () {
+      expect(oneLine('a${csi}b'), 'a b');
     });
   });
 

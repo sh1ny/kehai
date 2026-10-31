@@ -8,9 +8,9 @@ const int maxLineLength = 160;
 /// The input fields that name what a call works on, most telling first.
 const List<String> _argumentFields = ['command', 'path', 'pattern', 'id'];
 
-/// [text] on one line: control characters become spaces.
+/// [text] on one line: control characters (C0, DEL and C1) become spaces.
 String oneLine(String text) => String.fromCharCodes([
-  for (final unit in text.runes) unit < 0x20 || unit == 0x7f ? 0x20 : unit,
+  for (final unit in text.runes) _control(unit) ? 0x20 : unit,
 ]);
 
 /// [text] cut to at most [max] characters, ending with `…` when it was cut.
@@ -33,6 +33,20 @@ String? argumentText(Object? input) {
 /// The path, pattern or command a call was given, or an empty string.
 String argumentSummary(Object? input) => oneLine(argumentText(input) ?? '');
 
+/// Model [text] safe to print: line feeds and tabs are kept, and every other
+/// control character (C0, DEL and C1, carriage return included) is written as
+/// `\u{XXXX}`, so the model cannot move the cursor, hide text or change the
+/// terminal's state.
+String modelText(String text) => String.fromCharCodes([
+  for (final unit in text.runes)
+    if (unit != 0x0a && unit != 0x09 && _control(unit))
+      ...'\\u{${unit.toRadixString(16).toUpperCase()}}'.codeUnits
+    else
+      unit,
+]);
+
+bool _control(int unit) => unit < 0x20 || (unit >= 0x7f && unit <= 0x9f);
+
 /// [text] split at its line feeds, with every other character that a
 /// terminal would not show as itself written as `\u{XXXX}`: C0 and C1
 /// controls (carriage return and tab included), DEL, and invisible format
@@ -49,8 +63,7 @@ List<String> exactLines(String text) => [
 ];
 
 bool _hidden(int unit) =>
-    unit < 0x20 ||
-    (unit >= 0x7f && unit <= 0x9f) ||
+    _control(unit) ||
     unit == 0xad ||
     unit == 0x061c ||
     (unit >= 0x200b && unit <= 0x200f) ||
