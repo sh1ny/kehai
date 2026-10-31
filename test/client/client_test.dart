@@ -392,39 +392,38 @@ void main() {
       expect(rig.out.text, isNot(contains('note curl')));
     });
 
-    test('control and bidi characters are shown escaped', () async {
-      final rig = await promptFor(
-        'ls\r${String.fromCharCode(0x202E)}cod.sh\u001b[2K\u0085x',
-      );
+    test('a terminal control in a command is shown escaped', () async {
+      final rig = await promptFor('echo a\u001b[2Jb; ls\r\u0085x');
 
       expect(
         rig.out.lines,
-        contains(r'permission: bash ls\u{D}\u{202E}cod.sh\u{1B}[2K\u{85}x'),
+        contains(r'permission: bash echo a\u{1B}[2Jb; ls\u{D}\u{85}x'),
       );
+      expect(rig.out.text, isNot(contains('\u001b')));
     });
 
-    test('tag, variation selector and odd space characters are shown '
-        'escaped', () async {
-      final tag = String.fromCharCode(0xe007f);
-      final selector = String.fromCharCode(0xfe0f);
-      final space = String.fromCharCode(0xa0);
-      final rig = await promptFor('./build.sh$tag x$selector y$space');
+    test('a non-ASCII path is shown as itself', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('run it');
+      await rig.settle();
+      await rig.prompt('c1', 'write', {'path': 'кафе.txt', 'content': 'x'});
 
-      expect(
-        rig.out.lines,
-        contains(r'permission: bash ./build.sh\u{E007F} x\u{FE0F} y\u{A0}'),
-      );
+      expect(rig.out.lines, contains('permission: write кафе.txt'));
     });
 
-    test('every character beyond ASCII is shown escaped', () async {
-      final blank = String.fromCharCode(0x2800);
-      final letter = String.fromCharCode(0x0436);
-      final rig = await promptFor('./build$blank.sh $letter');
+    test('invisible, bidi and blank characters are shown as '
+        'themselves', () async {
+      final shown = [
+        0xe007f, // tag
+        0xfe0f, // variation selector
+        0xa0, // no-break space
+        0x2800, // Braille blank
+        0x202e, // right-to-left override
+      ].map(String.fromCharCode).join(' ');
+      final rig = await promptFor('./build.sh $shown');
 
-      expect(
-        rig.out.lines,
-        contains(r'permission: bash ./build\u{2800}.sh \u{436}'),
-      );
+      expect(rig.out.lines, contains('permission: bash ./build.sh $shown'));
     });
 
     test('a backslash that looks like an escape is escaped itself', () async {
@@ -474,6 +473,21 @@ void main() {
         rig.out.lines,
         contains('  -> /home/u/.bashrc (outside the workspace)'),
       );
+    });
+
+    test('a line feed in the resolved target is written as an '
+        'escape', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('run it');
+      await rig.settle();
+      await rig.prompt('c1', 'write', {
+        'path': 'link.txt',
+        'content': 'x',
+        'target': 'out/a\nb',
+      });
+
+      expect(rig.out.lines, contains(r'  -> out/a\u{A}b'));
     });
   });
 

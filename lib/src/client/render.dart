@@ -47,11 +47,10 @@ String modelText(String text) => String.fromCharCodes([
 
 bool _control(int unit) => unit < 0x20 || (unit >= 0x7f && unit <= 0x9f);
 
-/// [text] split at its line feeds, in printable ASCII: every other
-/// character (controls, tab and carriage return included, and every
-/// character beyond U+007E) is written as `\u{XXXX}`. A terminal may draw a
-/// non-ASCII character as blank, as nothing, or as another character, so
-/// only ASCII is shown as itself. A backslash that starts `\u{` is written as
+/// [text] split at its line feeds, with every other control character (C0,
+/// tab and carriage return included, DEL and C1) and every lone surrogate
+/// written as `\u{XXXX}`, so the text cannot drive the terminal. Every other
+/// character is shown as itself. A backslash that starts `\u{` is written as
 /// `\u{5C}`, so each escape in the result stands for exactly one character.
 /// Nothing is cut, so a reader sees what runs.
 List<String> exactLines(String text) => [
@@ -73,7 +72,7 @@ bool _startsEscape(List<int> runes, int index) =>
     runes[index + 1] == 0x75 &&
     runes[index + 2] == 0x7b;
 
-bool _hidden(int unit) => unit < 0x20 || unit > 0x7e;
+bool _hidden(int unit) => _control(unit) || (unit >= 0xd800 && unit <= 0xdfff);
 
 /// `[<tool> <label>] <summary>: <argument>`, cut to [maxLineLength].
 ///

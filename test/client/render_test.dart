@@ -12,6 +12,19 @@ void main() {
       expect(exactLines(r'\u'), [r'\u']);
     });
 
+    test('lone surrogates are escaped', () {
+      final high = String.fromCharCode(0xd800);
+      final low = String.fromCharCode(0xdc00);
+
+      expect(exactLines('a${high}b${low}c'), [r'a\u{D800}b\u{DC00}c']);
+    });
+
+    test('a supplementary character is printed as itself', () {
+      final face = String.fromCharCode(0x1f600);
+
+      expect(exactLines('a${face}b'), ['a${face}b']);
+    });
+
     test('a long run of backslashes renders in linear time', () {
       final text = r'\u{' * 200000;
       final watch = Stopwatch()..start();
