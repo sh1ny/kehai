@@ -48,7 +48,7 @@ export 'src/tools/runtime.dart';
 export 'src/tools/schema.dart' show parseArguments, validateArguments;
 export 'src/tools/tool.dart';
 export 'src/tools/atomic_write.dart' show FileWriteSeams, RenameFile;
-export 'src/tools/edit.dart' show EditTool;
+export 'src/tools/edit.dart' show EditTool, fileChangedRefusal, maxEditBytes;
 export 'src/tools/read.dart'
     show ReadSeams, ReadSource, ReadSourceOpener, ReadTool;
 export 'src/tools/bash.dart' show BashTool, defaultForegroundBudget;

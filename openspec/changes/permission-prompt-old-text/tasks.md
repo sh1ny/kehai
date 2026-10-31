@@ -4,12 +4,12 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| tool-permissions → Edit prompts show the lines they remove | Replace and delete show the old lines | test/permissions/gate_test.dart | an edit prompt carries the lines it removes | red |
-| tool-permissions → Edit prompts show the lines they remove | Line numbers past the end | test/permissions/gate_test.dart | an operation past the end has no old lines | red |
-| tool-permissions → Edit prompts show the lines they remove | Overlapping operations | test/permissions/gate_test.dart | overlapping operations send no old lines | red |
-| tool-permissions → Edit prompts show the lines they remove | File not readable as text | test/permissions/gate_test.dart | a file edit cannot read sends no old lines | red |
-| tool-permissions → Edit approval is bound to the file shown | File changed after approval | test/tools/edit_tool_test.dart | an edit of a file changed after approval is refused | red |
-| tool-permissions → Edit approval is bound to the file shown | Unchanged file | test/permissions/gate_test.dart | an allowed edit records the hash of the file shown | red |
+| tool-permissions → Edit prompts show the lines they remove | Replace and delete show the old lines | test/permissions/gate_test.dart | an edit prompt carries the lines it removes | green |
+| tool-permissions → Edit prompts show the lines they remove | Line numbers past the end | test/permissions/gate_test.dart | an operation past the end has no old lines | green |
+| tool-permissions → Edit prompts show the lines they remove | Overlapping operations | test/permissions/gate_test.dart | overlapping operations send no old lines | green |
+| tool-permissions → Edit prompts show the lines they remove | File not readable as text | test/permissions/gate_test.dart | a file edit cannot read sends no old lines | green |
+| tool-permissions → Edit approval is bound to the file shown | File changed after approval | test/tools/edit_tool_test.dart | an edit of a file changed after approval is refused | green |
+| tool-permissions → Edit approval is bound to the file shown | Unchanged file | test/permissions/gate_test.dart | an allowed edit records the hash of the file shown | green |
 | line-client → Permission prompt body | Short write | test/client/client_test.dart | a write prompt shows the content | green |
 | line-client → Permission prompt body | Empty write | test/client/render_test.dart | an empty write shows no lines | green |
 | line-client → Permission prompt body | Carriage return in written content | test/client/render_test.dart | a carriage return in written content stays on its line | green |
@@ -28,8 +28,8 @@ Rows marked green are existing tests for scenarios this change leaves as they we
 
 ## 1. Old lines and the approval binding in the engine
 
-- [ ] 1.1 In `test/permissions/gate_test.dart`, add an `edit prompts` group with the gate tests in the test map. The unreadable case covers a missing file, invalid UTF-8 and a file over `maxEditBytes`. Also add `CRLF and CR lines are split as edit splits them` and `a byte order mark is not part of the first old line`, and in `test/tools/edit_tool_test.dart` add the test from the test map plus `an edit with the approved hash applies`. Run `mise exec -- dart test -j 1 test/permissions/gate_test.dart test/tools/edit_tool_test.dart` and verify that the new tests fail on the missing `old`, `sha256` and refusal.
-- [ ] 1.2 In `lib/src/tools/edit.dart`, expose the line splitting `edit` uses as one shared function. It returns the lines of file bytes as strings, or null when they are not valid UTF-8, and `_Lines` stays the one implementation. Add the `fileChangedRefusal` text, and refuse with status `denied` when the permission record's `sha256` differs from the hash of the bytes read, before planning. In `lib/src/permissions/gate.dart`, have `_ask` read the target of an `edit` (a file up to `maxEditBytes`), add `old` per design D1 (no `old` for overlapping `replace`/`delete` ranges), and add `sha256` to the allow record. Verify that the group-1 tests and the whole of both files pass.
+- [x] 1.1 In `test/permissions/gate_test.dart`, add an `edit prompts` group with the gate tests in the test map. The unreadable case covers a missing file, invalid UTF-8 and a file over `maxEditBytes`. Also add `CRLF and CR lines are split as edit splits them` and `a byte order mark is not part of the first old line`, and in `test/tools/edit_tool_test.dart` add the test from the test map plus `an edit with the approved hash applies`. Run `mise exec -- dart test -j 1 test/permissions/gate_test.dart test/tools/edit_tool_test.dart` and verify that the new tests fail on the missing `old`, `sha256` and refusal.
+- [x] 1.2 In `lib/src/tools/edit.dart`, expose the line splitting `edit` uses as one shared function. It returns the lines of file bytes as strings, or null when they are not valid UTF-8, and `_Lines` stays the one implementation. Add the `fileChangedRefusal` text, and refuse with status `denied` when the permission record's `sha256` differs from the hash of the bytes read, before planning. In `lib/src/permissions/gate.dart`, have `_ask` read the target of an `edit` (a file up to `maxEditBytes`), add `old` per design D1 (no `old` for overlapping `replace`/`delete` ranges), and add `sha256` to the allow record. Verify that the group-1 tests and the whole of both files pass.
 
 ## 2. Old and new lines in the line client
 

@@ -12,9 +12,11 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../permissions/workspace_paths.dart';
+import '../results/composer.dart';
 import 'atomic_write.dart';
 import 'block_hash.dart';
 import 'file_access.dart';
@@ -22,6 +24,32 @@ import 'tool.dart';
 
 /// The largest file `edit` works on; it holds the whole file in memory.
 const int maxEditBytes = 16 * 1024 * 1024;
+
+/// The reason an edit is refused when its file is not the one the user saw
+/// at the permission prompt.
+const String fileChangedRefusal =
+    'the file changed after it was approved; ask again';
+
+/// The lines `start..end` (1-based, inclusive) of each of [ranges] in
+/// [bytes], split as `edit` splits a file, without terminators: null for a
+/// null range or one whose lines do not all exist. Returns null when [bytes]
+/// are not valid UTF-8, as `edit` refuses them.
+List<List<String>?>? linesIn(Uint8List bytes, List<(int, int)?> ranges) {
+  try {
+    const Utf8Decoder().convert(bytes);
+  } on FormatException {
+    return null;
+  }
+  final lines = _Lines(bytes);
+  return [
+    for (final range in ranges)
+      if (range case (final start, final end)
+          when 1 <= start && start <= end && end <= lines.count)
+        [for (var n = start; n <= end; n++) utf8.decode(lines.content(n))]
+      else
+        null,
+  ];
+}
 
 const int _lf = 0x0a;
 const int _cr = 0x0d;
@@ -72,6 +100,14 @@ final class EditTool implements Tool {
       );
     }
     final bytes = await file.readAsBytes();
+    // The user approved the lines of the file as the prompt read it.
+    final approved = context.permission?['sha256'];
+    if (approved is String && sha256.convert(bytes).toString() != approved) {
+      return const ToolOutcome(
+        status: ResultStatus.denied,
+        summary: fileChangedRefusal,
+      );
+    }
     try {
       const Utf8Decoder().convert(bytes);
     } on FormatException {

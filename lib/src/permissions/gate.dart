@@ -8,7 +8,9 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../config/user_config.dart';
@@ -16,6 +18,7 @@ import '../provider/provider.dart';
 import '../shell/direct_exec.dart';
 import '../shell/proof.dart';
 import '../tools/ask.dart';
+import '../tools/edit.dart';
 import '../tools/tool.dart';
 import 'credentials.dart';
 import 'workspace_paths.dart';
@@ -239,6 +242,45 @@ final class PermissionGate implements CallStage {
     };
   }
 
+  /// The bytes of the file at [target] when `edit` could work on it: a file
+  /// of at most [maxEditBytes]; null otherwise.
+  static Future<Uint8List?> _editable(String target) async {
+    try {
+      final file = File(target);
+      if (file.statSync().type != FileSystemEntityType.file) return null;
+      if (await file.length() > maxEditBytes) return null;
+      final bytes = await file.readAsBytes();
+      return bytes.length > maxEditBytes ? null : bytes;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// The `old` entries of an edit's [ops] against [bytes] (design D1), or
+  /// null when [bytes] are not UTF-8 or two removed ranges overlap.
+  static List<List<String>?>? _oldLines(Uint8List bytes, Object? ops) {
+    if (ops is! List<Object?>) return null;
+    final ranges = [
+      for (final op in ops)
+        if (op
+            case {
+              'op': 'replace' || 'delete',
+              'start': final int start,
+              'end': final int end,
+            }
+            when start <= end)
+          (start, end)
+        else
+          null,
+    ];
+    final sorted = ranges.nonNulls.toList()
+      ..sort((a, b) => a.$1.compareTo(b.$1));
+    for (var i = 1; i < sorted.length; i++) {
+      if (sorted[i].$1 <= sorted[i - 1].$2) return null;
+    }
+    return linesIn(bytes, ranges);
+  }
+
   Future<StageOutcome> _ask(StageCall call, CancelToken cancel) async {
     if (!prompts.hasAnswerer) {
       return const StageOutcome.deny(
@@ -256,12 +298,18 @@ final class PermissionGate implements CallStage {
         record: {'decision': 'deny', 'by': 'builtin', 'rule': 'unresolved'},
       );
     }
+    // An edit shows the lines it removes, and its approval holds only for
+    // the bytes they were read from.
+    final shown = call.tool == 'edit' && target != null
+        ? await _editable(target)
+        : null;
+    final old = shown == null ? null : _oldLines(shown, call.input['ops']);
     final answer = await prompts.open(
       PromptItem(
         key: call.callKey,
         kind: PromptKind.permission,
         tool: call.tool,
-        input: _promptInput(call, target),
+        input: {..._promptInput(call, target), 'old': ?old},
       ),
       cancel,
       choices: const ['allow', 'deny'],
@@ -278,7 +326,13 @@ final class PermissionGate implements CallStage {
     }
     return switch (answer) {
       'allow' => StageOutcome.proceed(
-        record: {'decision': 'allow', 'by': 'answer', 'target': ?target},
+        record: {
+          'decision': 'allow',
+          'by': 'answer',
+          'target': ?target,
+          if (shown != null && old != null)
+            'sha256': sha256.convert(shown).toString(),
+        },
       ),
       'deny' => const StageOutcome.deny(
         'denied by the user',
