@@ -415,6 +415,41 @@ void main() {
       });
     });
 
+    test(
+      'a path through a dangling link is refused without a prompt',
+      () async {
+        try {
+          Link(p.join(env.workspace.path, 'dangle'))
+              .createSync(p.join(env.workspace.path, 'nowhere'));
+        } on FileSystemException {
+          markTestSkipped('symbolic links need privileges here');
+          return;
+        }
+
+        final outcome = await env.gate().check(
+          _call('write', {'path': 'dangle', 'content': 'x'}),
+          CancelToken(),
+        );
+
+        expect(outcome.denyReason, unresolvedRefusal);
+        expect(env.answerer.items, isEmpty);
+      },
+    );
+
+    test(
+      'a path with .. after a missing directory is refused without a prompt',
+      () async {
+        final outcome = await env.gate().check(
+          _call('write', {'path': 'missing/../.bashrc', 'content': 'x'}),
+          CancelToken(),
+        );
+
+        expect(outcome.denyReason, unresolvedRefusal);
+        expect(env.answerer.items, isEmpty);
+      },
+      testOn: '!windows',
+    );
+
     test('a target that moves while the prompt is open is refused', () async {
       final outside = Directory(p.join(env.workspace.parent.path, 'outside'))
         ..createSync();

@@ -28,6 +28,12 @@ const String credentialRefusal = 'credential files are not readable by tools';
 const String targetMovedRefusal =
     'the target moved after it was approved; ask again';
 
+/// The reason a call is refused when the path or directory it names cannot
+/// be resolved, so the prompt could not show where it acts.
+const String unresolvedRefusal =
+    'the path cannot be resolved (a dangling link, or .. after a missing '
+    'directory); name it without either';
+
 /// The tools whose `path` argument credential files are refused for.
 const Set<String> _fileTools = {'read', 'edit', 'write', 'grep', 'find', 'ls'};
 
@@ -188,16 +194,25 @@ final class PermissionGate implements CallStage {
     return null;
   }
 
-  /// Where [call] acts: the real path a file tool's `path` names, or the
-  /// directory a `bash` command runs in; null for other tools, or when it
-  /// cannot be resolved.
-  String? _target(StageCall call) {
-    final Object? path = switch (call.tool) {
-      'bash' => call.input['cwd'] ?? '.',
-      final tool when _fileTools.contains(tool) => call.input['path'],
+  /// What [call] names as the place it acts: a file tool's `path`, or the
+  /// directory a `bash` command runs in; null for other tools.
+  String? _named(StageCall call) => switch (call.tool) {
+    'bash' => switch (call.input['cwd']) {
+      final String cwd => cwd,
+      _ => '.',
+    },
+    final tool when _fileTools.contains(tool) => switch (call.input['path']) {
+      final String path => path,
       _ => null,
-    };
-    return path is String ? realPath(_resolve(path)) : null;
+    },
+    _ => null,
+  };
+
+  /// Where [call] acts: the real path [_named] resolves to; null for other
+  /// tools, or when it cannot be resolved.
+  String? _target(StageCall call) {
+    final named = _named(call);
+    return named == null ? null : realPath(_resolve(named));
   }
 
   static bool _sameTarget(String? a, String? b) =>
@@ -209,11 +224,9 @@ final class PermissionGate implements CallStage {
   /// workspace. The tool opens, or the command runs in, that target, so the
   /// user judges it rather than the name.
   Map<String, Object?> _promptInput(StageCall call, String? target) {
-    final named = call.tool == 'bash'
-        ? call.input['cwd'] ?? '.'
-        : call.input['path'];
+    final named = _named(call);
     final root = realPath(workspace.path);
-    if (named is! String || root == null || target == null) return call.input;
+    if (named == null || root == null || target == null) return call.input;
     final inside = isInside(root, target);
     if (inside &&
         p.equals(p.relative(target, from: root), p.normalize(named))) {
@@ -234,6 +247,15 @@ final class PermissionGate implements CallStage {
       );
     }
     final target = _target(call);
+    // A path that cannot be resolved yet (a dangling link, or `..` after a
+    // missing part) can land anywhere once the tool creates what is missing,
+    // so the prompt could not show where it acts.
+    if (target == null && _named(call) != null) {
+      return const StageOutcome.deny(
+        unresolvedRefusal,
+        record: {'decision': 'deny', 'by': 'builtin', 'rule': 'unresolved'},
+      );
+    }
     final answer = await prompts.open(
       PromptItem(
         key: call.callKey,

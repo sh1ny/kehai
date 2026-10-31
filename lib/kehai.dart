@@ -69,7 +69,8 @@ export 'src/tools/ask.dart'
     show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
 export 'src/permissions/credentials.dart'
     show isCredentialPath, isCredentialTarget;
-export 'src/permissions/gate.dart' show PermissionGate, targetMovedRefusal;
+export 'src/permissions/gate.dart'
+    show PermissionGate, targetMovedRefusal, unresolvedRefusal;
 export 'src/permissions/workspace_paths.dart' show isInside, realPath;
 export 'src/shell/proof.dart' show ProvenCommand, proveReadOnly, tokenizeSimple;
 export 'src/shell/detect.dart'
