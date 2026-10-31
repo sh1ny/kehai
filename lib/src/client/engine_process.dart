@@ -6,6 +6,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 /// What the client needs from an engine.
 abstract interface class EngineLink {
   /// The decoded event lines; the stream ends when the engine's output ends.
@@ -30,18 +32,26 @@ typedef EngineStarter = Future<EngineLink> Function(List<String> args);
 /// The command line that starts `kehai rpc` with [rpcArgs] from the running
 /// executable (design D1).
 ///
-/// Under `dart run` the executable is the Dart VM, so its VM flags and the
-/// script come first; a compiled `kehai` runs by itself.
+/// A compiled `kehai` is its own script and runs by itself. Otherwise the
+/// executable is the Dart VM, running a source script or a snapshot (as
+/// `dart pub global activate` does), so its VM flags and the script come
+/// first. [executable], [executableArguments] and [script] default to this
+/// process's.
 ({String executable, List<String> arguments}) engineCommand(
-  List<String> rpcArgs,
-) {
-  final script = Platform.script;
-  final underVm = script.path.toLowerCase().endsWith('.dart');
+  List<String> rpcArgs, {
+  String? executable,
+  List<String>? executableArguments,
+  Uri? script,
+}) {
+  final vm = executable ?? Platform.resolvedExecutable;
+  final source = script ?? Platform.script;
+  final scriptPath = source.toFilePath();
+  final underVm = !p.equals(p.absolute(scriptPath), p.absolute(vm));
   return (
-    executable: Platform.resolvedExecutable,
+    executable: vm,
     arguments: [
-      if (underVm) ...Platform.executableArguments,
-      if (underVm) script.toFilePath(),
+      if (underVm) ...executableArguments ?? Platform.executableArguments,
+      if (underVm) scriptPath,
       'rpc',
       ...rpcArgs,
     ],
