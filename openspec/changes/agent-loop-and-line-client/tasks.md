@@ -80,13 +80,13 @@ The loop tests drive the `ExchangeDriver` against a scripted fake `ModelProvider
 | line-client → One line per tool call | Settled call | test/client/client_test.dart | settled bash call prints one status line | green |
 | line-client → One line per tool call | Long command | test/client/client_test.dart | long command line is cut to 160 characters with an ellipsis | green |
 | line-client → Answering prompts | Allow a command | test/client/client_test.dart | typing 1 at a permission prompt sends allow for its key | green |
-| line-client → Answering prompts | Two permission prompts | test/client/client_test.dart | second prompt is queued and each answer binds to one key | red |
-| line-client → Answering prompts | Refused answer keeps the active prompt | test/client/client_test.dart | refused answer keeps the active prompt and the queue | red |
-| line-client → Answering prompts | Withdrawal advances the queue | test/client/client_test.dart | withdrawals remove queued keys and advance the active one | red |
-| line-client → Answering prompts | Invalid choice | test/client/client_test.dart | invalid choice is refused locally and asked again | red |
-| line-client → Ctrl-C | Interrupt a running exchange | test/client/client_test.dart | two Ctrl-C while running send exactly one interrupt | red |
-| line-client → Ctrl-C | Engine stuck on exit | test/client/client_test.dart | engine still alive 5 s after stdin closes is killed | red |
-| line-client → Native Windows and Linux | Windows console | test/client/process_test.dart | [windows] naïve reaches the backend through client and engine and Ctrl-C interrupts | red |
+| line-client → Answering prompts | Two permission prompts | test/client/client_test.dart | second prompt is queued and each answer binds to one key | green |
+| line-client → Answering prompts | Refused answer keeps the active prompt | test/client/client_test.dart | refused answer keeps the active prompt and the queue | green |
+| line-client → Answering prompts | Withdrawal advances the queue | test/client/client_test.dart | withdrawals remove queued keys and advance the active one | green |
+| line-client → Answering prompts | Invalid choice | test/client/client_test.dart | invalid choice is refused locally and asked again | green |
+| line-client → Ctrl-C | Interrupt a running exchange | test/client/client_test.dart | two Ctrl-C while running send exactly one interrupt | green |
+| line-client → Ctrl-C | Engine stuck on exit | test/client/client_test.dart | engine still alive 5 s after stdin closes is killed | green |
+| line-client → Native Windows and Linux | Windows console | test/client/process_test.dart | [windows] naïve reaches the backend through client and engine and Ctrl-C interrupts | green |
 | line-client → Native Windows and Linux | Non-terminal input | test/client/process_test.dart | piped two lines run in order and exit at end of input | green |
 | model-provider → Output positions | Call before text | test/provider/chatgpt_adapter_test.dart | call at index 0 and text at index 1 carry their output indexes | green |
 | model-provider → Output positions | Missing index | test/provider/chatgpt_adapter_test.dart | delta without output_index carries no index | green |
@@ -149,9 +149,10 @@ The *Missing configuration* row is red because its expectation grows (no default
 
 ## 7. Line client prompts, Ctrl-C and Windows
 
-- [ ] 7.1 Write the failing `client_test.dart` rows *Two permission prompts*, *Refused answer keeps the active prompt*, *Withdrawal advances the queue* and *Invalid choice*. Implement the one-active-prompt FIFO (D14). Verify that the rows pass and flip them green.
-- [ ] 7.2 Write the failing `client_test.dart` rows *Interrupt a running exchange* and *Engine stuck on exit*, using a signal seam and a fake engine process. Implement client Ctrl-C and the 5 s kill. Verify that the rows pass and flip them green.
-- [ ] 7.3 Write the failing `process_test.dart` row *Windows console*. Implement the console code-page setup and restore with `SetConsoleCP`/`SetConsoleOutputCP` (65001). Verify that the row passes on Windows and flip it green. Then ask the user to run `kehai` in Windows Terminal PowerShell, submit a prompt containing `naïve` and press Ctrl-C during a reply, and record their result in the task notes.
+- [x] 7.1 Write the failing `client_test.dart` rows *Two permission prompts*, *Refused answer keeps the active prompt*, *Withdrawal advances the queue* and *Invalid choice*. Implement the one-active-prompt FIFO (D14). Verify that the rows pass and flip them green.
+- [x] 7.2 Write the failing `client_test.dart` rows *Interrupt a running exchange* and *Engine stuck on exit*, using a signal seam and a fake engine process. Implement client Ctrl-C and the 5 s kill. Verify that the rows pass and flip them green.
+- [x] 7.3 Write the failing `process_test.dart` row *Windows console*. Implement the console code-page setup and restore with `SetConsoleCP`/`SetConsoleOutputCP` (65001). Verify that the row passes on Windows and flip it green. Then ask the user to run `kehai` in Windows Terminal PowerShell, submit a prompt containing `naïve` and press Ctrl-C during a reply, and record their result in the task notes.
+  - Result, 2026-10-31, Windows Terminal PowerShell, `dart run bin/kehai.dart --model gpt-6.1-sol`. First run: `naïve` was shown correctly in the prompt and the reply, and Ctrl-C printed `interrupting…` and stopped the reply, but the same single Ctrl-C also exited the client: Ctrl-C ends Dart's standard input at a console. Fixed (console input read again after a Ctrl-C, D14) and run again: Ctrl-C interrupted and returned to `>`, the next prompt was answered, and Ctrl-C at the idle prompt exited.
 
 ## 8. Hung hooks and acceptance
 

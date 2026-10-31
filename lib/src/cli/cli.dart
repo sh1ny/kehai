@@ -19,6 +19,8 @@ import '../auth/credential_store.dart';
 import '../auth/login_controller.dart';
 import '../auth/logout.dart';
 import '../client/client.dart';
+import '../client/console_codepage.dart';
+import '../client/console_input.dart';
 import '../provider/provider.dart' show CancelToken;
 import 'doctor.dart';
 import 'rpc_command.dart';
@@ -171,18 +173,32 @@ Future<int> _runClient(List<String> args, CliContext context) async {
       ..writeln(_clientParser.usage);
     return exitUsage;
   }
-  return runLineClient(
-    engineArgs: [
-      if (results.flag('resume')) '--resume',
-      if (results.option('session') case final id?) ...['--session', id],
-      if (results.option('model') case final model?) ...['--model', model],
-    ],
-    input: stdin.transform(utf8.decoder).transform(const LineSplitter()),
-    out: context.out,
-    err: context.err,
-    interactive: context.stdinIsTerminal,
-    interrupts: context.interrupts,
-  );
+  // Only the real process owns the console; an injected run must not touch it.
+  final owned = context.interrupts == null;
+  final restoreConsole = owned ? useUtf8ConsoleIfAttached() : () {};
+  final interrupts =
+      context.interrupts ?? ProcessSignal.sigint.watch().asBroadcastStream();
+  // A Ctrl-C at a Windows console ends standard input; read on past it.
+  final Stream<String> input =
+      owned && Platform.isWindows && context.stdinIsTerminal
+      ? windowsConsoleLines(interrupts)
+      : stdin.transform(utf8.decoder).transform(const LineSplitter());
+  try {
+    return await runLineClient(
+      engineArgs: [
+        if (results.flag('resume')) '--resume',
+        if (results.option('session') case final id?) ...['--session', id],
+        if (results.option('model') case final model?) ...['--model', model],
+      ],
+      input: input,
+      out: context.out,
+      err: context.err,
+      interactive: context.stdinIsTerminal,
+      interrupts: interrupts,
+    );
+  } finally {
+    restoreConsole();
+  }
 }
 
 /// A command that reads [KehaiSettings] and builds the credential store.

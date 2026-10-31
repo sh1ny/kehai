@@ -60,12 +60,22 @@ final class FakeEngine implements EngineLink {
 
 /// A client wired to a [FakeEngine] and recording sinks.
 final class ClientRig {
-  ClientRig._(this.engine, this.input, this.out, this.err, this.exit);
+  ClientRig._(
+    this.engine,
+    this.input,
+    this.interrupts,
+    this.out,
+    this.err,
+    this.exit,
+  );
 
   /// The engine stand-in.
   final FakeEngine engine;
 
   final StreamController<String> input;
+
+  /// The Ctrl-C events the client watches.
+  final StreamController<Object?> interrupts;
 
   /// What the client printed to its output.
   final TestSink out;
@@ -167,6 +177,12 @@ final class ClientRig {
     await settle();
   }
 
+  /// Presses Ctrl-C.
+  Future<void> ctrlC() async {
+    interrupts.add(null);
+    await settle();
+  }
+
   /// Ends the user's input, as a closed pipe.
   Future<void> endInput() async {
     unawaited(input.close());
@@ -176,9 +192,13 @@ final class ClientRig {
 
 /// Starts a [LineClient] over a [FakeEngine]; everything is torn down after
 /// the test.
-ClientRig clientRig({bool interactive = true}) {
+ClientRig clientRig({
+  bool interactive = true,
+  Duration exitGrace = const Duration(milliseconds: 50),
+}) {
   final engine = FakeEngine();
   final input = StreamController<String>();
+  final interrupts = StreamController<Object?>();
   final out = TestSink();
   final err = TestSink();
   final client = LineClient(
@@ -187,15 +207,17 @@ ClientRig clientRig({bool interactive = true}) {
     out: out,
     err: err,
     interactive: interactive,
-    exitGrace: const Duration(milliseconds: 50),
+    interrupts: interrupts.stream,
+    exitGrace: exitGrace,
   );
   final exit = client.run();
   addTearDown(() async {
     if (!input.isClosed) unawaited(input.close());
+    if (!interrupts.isClosed) unawaited(interrupts.close());
     await engine.exit(0);
     await exit.timeout(const Duration(seconds: 5), onTimeout: () => -1);
   });
-  return ClientRig._(engine, input, out, err, exit);
+  return ClientRig._(engine, input, interrupts, out, err, exit);
 }
 
 /// A step node that committed [text] as its only output.

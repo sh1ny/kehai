@@ -57,12 +57,13 @@ final class PromptState {
   /// The key of the answer sent and not yet accepted or refused, or null.
   String? get inFlight => _inFlight;
 
+  /// Whether the prompt [key] is active or waiting.
+  bool contains(String key) =>
+      _active?.key == key || _pending.any((p) => p.key == key);
+
   /// Opens [prompt]; returns whether it became the active one.
   bool offer(OpenPrompt prompt) {
-    if (_active?.key == prompt.key ||
-        _pending.any((p) => p.key == prompt.key)) {
-      return false;
-    }
+    if (contains(prompt.key)) return false;
     if (_active == null) {
       _active = prompt;
       return true;

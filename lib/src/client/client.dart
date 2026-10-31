@@ -51,7 +51,7 @@ final class LineClient {
   /// Whether input comes from a terminal.
   final bool interactive;
 
-  /// Ctrl-C events; wired by the interrupt task.
+  /// Ctrl-C events.
   final Stream<Object?>? interrupts;
 
   /// How long the engine gets to exit after its input closed.
@@ -70,6 +70,7 @@ final class LineClient {
 
   StreamSubscription<Map<String, Object?>>? _events;
   StreamSubscription<String>? _lines;
+  StreamSubscription<Object?>? _interruptEvents;
   Timer? _killTimer;
   bool _paused = false;
   bool _ready = false;
@@ -77,6 +78,7 @@ final class LineClient {
   bool _inputEnded = false;
   bool _exiting = false;
   bool _fatalSeen = false;
+  bool _interruptSent = false;
   String? _requestId;
   int _requests = 0;
 
@@ -86,6 +88,7 @@ final class LineClient {
     _lines = input.listen(_onLine, onDone: _onInputDone);
     _lines!.pause();
     _paused = true;
+    _interruptEvents = interrupts?.listen((_) => _onInterrupt());
     return _result.future;
   }
 
@@ -187,10 +190,31 @@ final class LineClient {
         return;
       }
     } else {
-      text = line;
+      text = _questionAnswer(prompt, line);
+      if (text == null) {
+        _line('answer must be one of: ${_choicesOf(prompt).join(', ')}');
+        _write('answer> ');
+        return;
+      }
     }
     _prompts.markSent();
     engine.send({'type': 'answer', 'key': prompt.key, 'text': text});
+  }
+
+  /// The text to send for [line] at the question [prompt], or null when the
+  /// question offers only its choices and [line] is none of them.
+  ///
+  /// A number picks the choice with that number, a choice is sent as itself,
+  /// and anything else is free text when the question allows it.
+  String? _questionAnswer(OpenPrompt prompt, String line) {
+    final choices = _choicesOf(prompt);
+    final number = int.tryParse(line.trim());
+    if (number != null && number >= 1 && number <= choices.length) {
+      return choices[number - 1];
+    }
+    if (choices.contains(line)) return line;
+    final allowText = prompt.input['allow_text'];
+    return (allowText is bool ? allowText : choices.isEmpty) ? line : null;
   }
 
   void _onInputDone() {
@@ -226,7 +250,14 @@ final class LineClient {
         _onStream(event);
       case 'prompt':
         final prompt = OpenPrompt.fromJson(event['item']);
-        if (prompt != null && _prompts.offer(prompt)) _showActive();
+        if (prompt != null) {
+          final known = _prompts.contains(prompt.key);
+          if (_prompts.offer(prompt)) {
+            _showActive();
+          } else if (!known) {
+            _line(cutTo('queued: ${_describe(prompt)}', maxLineLength));
+          }
+        }
         _gate();
       case 'withdraw':
         final key = event['key'];
@@ -427,29 +458,28 @@ final class LineClient {
 
   // Prompts.
 
+  /// What [prompt] asks, on one line: the tool and its argument, or the
+  /// question.
+  String _describe(OpenPrompt prompt) {
+    if (prompt.kind == 'permission') {
+      final argument = argumentSummary(prompt.input);
+      return '${oneLine(prompt.tool)}${argument.isEmpty ? '' : ' $argument'}';
+    }
+    final question = prompt.input['question'];
+    return question is String ? oneLine(question) : oneLine(prompt.tool);
+  }
+
   void _showActive() {
     final prompt = _prompts.active;
     if (prompt == null) return;
     if (prompt.kind == 'permission') {
-      final argument = argumentSummary(prompt.input);
-      _line(
-        cutTo(
-          'permission: ${oneLine(prompt.tool)}'
-          '${argument.isEmpty ? '' : ' $argument'}',
-          maxLineLength,
-        ),
-      );
+      _line(cutTo('permission: ${_describe(prompt)}', maxLineLength));
       _line('1) allow  2) deny');
     } else {
-      final question = prompt.input['question'];
-      _line(
-        'question: ${question is String ? oneLine(question) : prompt.tool}',
-      );
-      final choices = prompt.input['choices'];
-      if (choices is List<Object?>) {
-        for (var i = 0; i < choices.length; i++) {
-          _line('${i + 1}) ${oneLine('${choices[i]}')}');
-        }
+      _line('question: ${_describe(prompt)}');
+      final choices = _choicesOf(prompt);
+      for (var i = 0; i < choices.length; i++) {
+        _line('${i + 1}) ${oneLine(choices[i])}');
       }
     }
     _write('answer> ');
@@ -466,9 +496,24 @@ final class LineClient {
 
   // Exchange and process lifecycle.
 
+  /// Ctrl-C: interrupts a running exchange or an open prompt once, and exits
+  /// at an idle prompt.
+  void _onInterrupt() {
+    if (_exiting) return;
+    if (_running || _prompts.active != null) {
+      if (_interruptSent) return;
+      _interruptSent = true;
+      engine.send({'type': 'interrupt'});
+      _line('interrupting…');
+    } else {
+      _shutdown();
+    }
+  }
+
   void _endExchange() {
     if (!_running) return;
     _requestId = null;
+    _interruptSent = false;
     if (_midLine) _write('\n');
     _showPrompt();
     _gate();
@@ -491,8 +536,15 @@ final class LineClient {
     _killTimer?.cancel();
     unawaited(_lines?.cancel());
     unawaited(_events?.cancel());
+    unawaited(_interruptEvents?.cancel());
     if (!_result.isCompleted) _result.complete(_exiting ? 0 : 1);
   }
+}
+
+/// The choices a question offers, as text.
+List<String> _choicesOf(OpenPrompt prompt) {
+  final choices = prompt.input['choices'];
+  return choices is List<Object?> ? [for (final c in choices) '$c'] : const [];
 }
 
 String _stepKey(int turn) => 's-${turn.toString().padLeft(8, '0')}';

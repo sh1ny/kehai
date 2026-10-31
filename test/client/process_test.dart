@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:kehai/kehai.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -57,6 +58,34 @@ final class Client {
     await pumpEventQueue();
     return code;
   }
+}
+
+/// The client's link to an engine child started by the test, which sets the
+/// environment and working directory that the default starter cannot.
+final class _ChildEngine implements EngineLink {
+  _ChildEngine(this._process)
+    : events = _process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .map((line) => jsonDecode(line) as Map<String, Object?>);
+
+  final Process _process;
+
+  @override
+  final Stream<Map<String, Object?>> events;
+
+  @override
+  void send(Map<String, Object?> command) =>
+      _process.stdin.writeln(jsonEncode(command));
+
+  @override
+  Future<void> closeInput() => _process.stdin.close();
+
+  @override
+  Future<int> get exitCode => _process.exitCode;
+
+  @override
+  void kill() => _process.kill();
 }
 
 Future<Client> startClient(
@@ -180,6 +209,75 @@ void main() {
   });
 
   group('Native Windows and Linux', () {
+    test('[windows] naïve reaches the backend through client and engine and '
+        'Ctrl-C interrupts', () async {
+      final fake = await FakeOpenAi.start();
+      home.store.replace(loggedInRecord());
+      final turn = sseTextTurn('par');
+      fake.responsesScripts.add(
+        ResponsesScript.sse([
+          turn[0],
+          turn[1],
+          const Delay(Duration(seconds: 60)),
+        ]),
+      );
+      final input = StreamController<String>();
+      final interrupts = StreamController<Object?>();
+      final out = TestSink();
+      final err = TestSink();
+      addTearDown(() {
+        if (!input.isClosed) unawaited(input.close());
+        unawaited(interrupts.close());
+      });
+
+      final exit = runLineClient(
+        engineArgs: const ['--model', 'gpt-fake'],
+        input: input.stream,
+        out: out,
+        err: err,
+        interactive: true,
+        interrupts: interrupts.stream,
+        starter: (args) async {
+          final root = Directory.current.path;
+          final process = await Process.start(
+            Platform.resolvedExecutable,
+            [
+              '--packages=${p.join(root, '.dart_tool', 'package_config.json')}',
+              p.join(root, 'bin', 'kehai.dart'),
+              'rpc',
+              ...args,
+            ],
+            workingDirectory: workspace.path,
+            environment: {
+              'KEHAI_HOME': home.path,
+              'KEHAI_OPENAI_ISSUER': fake.issuer,
+              'KEHAI_OPENAI_API_BASE': fake.apiBase,
+            },
+          );
+          addTearDown(process.kill);
+          process.stderr.drain<void>();
+          return _ChildEngine(process);
+        },
+      );
+      await out.until((text) => text.endsWith('> '));
+
+      input.add('naïve');
+      await out.until((text) => text.endsWith('par'));
+      expect(fake.responsesRequests, hasLength(1));
+      expect(jsonEncode(fake.responsesRequests.single.json), contains('naïve'));
+
+      interrupts
+        ..add(null)
+        ..add(null);
+      await out.until(
+        (text) => text.contains('interrupting…') && text.endsWith('> '),
+      );
+      expect(out.lines.where((l) => l == 'interrupting…'), hasLength(1));
+
+      unawaited(input.close());
+      expect(await exit.timeout(const Duration(seconds: 30)), 0);
+    }, skip: Platform.isWindows ? false : 'Windows only');
+
     test('piped two lines run in order and exit at end of input', () async {
       final fake = await FakeOpenAi.start();
       home.store.replace(loggedInRecord());
