@@ -201,10 +201,14 @@ final class SessionWriter {
   ///
   /// The directory is named `<yyyyMMddTHHmmssZ>-<8 hex>` and its journal
   /// starts with one origin record at turn 0. [decorate] wraps the file layer.
+  ///
+  /// [lineage] replaces the default `{parent: null}`; a child engine passes
+  /// `{parent: <session id>, job: <job id>}`.
   static Future<SessionWriter> create(
     Directory root, {
     JournalIoDecorator? decorate,
     OwnershipHooks? hooks,
+    Map<String, Object?> lineage = const {'parent': null},
   }) async {
     final id = newSessionId();
     final dir = Directory(p.join(root.path, id))..createSync(recursive: true);
@@ -218,7 +222,7 @@ final class SessionWriter {
           'meta': {
             'format': sessionFormatVersion,
             'session': id,
-            'lineage': {'parent': null},
+            'lineage': lineage,
           },
         },
       );

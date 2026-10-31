@@ -174,6 +174,7 @@ final class ExchangeDriver {
     DateTime Function()? clock,
     this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
+    this.childRole,
   }) : _builder = RequestBuilder(
          sessionDir: writer.sessionDir,
          model: model,
@@ -204,6 +205,10 @@ final class ExchangeDriver {
 
   /// Test pause points.
   final DriverSeams seams;
+
+  /// The role of a child engine, captured in the tree with each exchange's
+  /// context (design D4, D8), or null outside a child.
+  final ChildRole? childRole;
 
   final RequestBuilder _builder;
   final StreamController<StreamDelta> _deltas = StreamController.broadcast(
@@ -484,8 +489,11 @@ final class ExchangeDriver {
       kehaiHome: runtime.kehaiHome ?? _noHome,
     );
     final text = loaded.contextText;
+    final role = childRole;
+    // The role is part of the captured content: another role digest is
+    // another context.
     final contextKey = sha256
-        .convert(utf8.encode(text))
+        .convert(utf8.encode(role == null ? text : '${role.digest}\n$text'))
         .toString()
         .substring(0, 16);
     final stored = writer.tree.get(
@@ -504,6 +512,7 @@ final class ExchangeDriver {
                 {'path': f.path, 'bytes': f.size, 'truncated': f.truncated},
             ],
             'skills': loaded.skills.length,
+            'role': ?role?.toJson(),
             'problems': [
               for (final problem in loaded.problems)
                 {'path': problem.path, 'reason': problem.reason},
@@ -541,7 +550,7 @@ final class ExchangeDriver {
           'instructions': InstructionsIdentity(
             instructionsVersion,
             _contextKey,
-            _builder.roleDigest,
+            childRole?.digest ?? _builder.roleDigest,
           ).toJson(),
           'state': 'running',
           'attempts': 0,

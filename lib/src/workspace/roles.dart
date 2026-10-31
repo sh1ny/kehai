@@ -238,3 +238,16 @@ RoleTools mapRoleTools(List<String>? names) {
   tools.addAll(alwaysOfferedTools);
   return RoleTools(tools.toList(), unmapped);
 }
+
+/// The roster tool names a child engine of [role] offers (design D9).
+///
+/// Without `tools` that is every tool in [allTools] but `agent`; with them the
+/// mapped tools and the always-offered ones. `agent` is never included, so a
+/// child cannot start children of its own.
+Set<String> roleRoster(Role role, Iterable<String> allTools) {
+  final mapped = mapRoleTools(role.tools).tools;
+  return {
+    for (final name in allTools)
+      if (name != 'agent' && (mapped == null || mapped.contains(name))) name,
+  };
+}

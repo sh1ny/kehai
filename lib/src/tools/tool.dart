@@ -123,7 +123,17 @@ final class ToolContext {
     this.jobs,
     this.permission,
     this.capacity,
+    this.model,
+    this.yolo = false,
   });
+
+  /// The model slug the parent engine runs, which an agent without a model of
+  /// its own inherits; null when the context has none.
+  final String? model;
+
+  /// Whether the engine skips permission prompts (`--yolo`); a child agent
+  /// then runs the same way.
+  final bool yolo;
 
   /// The tokens left in the window after the step that made this call, or
   /// null when unknown; the function returns null for an unknown window.

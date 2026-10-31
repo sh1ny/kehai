@@ -36,6 +36,7 @@ import '../session/writer.dart';
 import '../shell/detect.dart';
 import '../hooks/hook_stage.dart';
 import '../permissions/workspace_paths.dart';
+import 'agent.dart';
 import 'ask.dart';
 import 'child_env.dart';
 import 'bash.dart';
@@ -77,6 +78,7 @@ Map<String, Tool> _builtinTools(LazyRg rg) => {
   'bash': const BashTool(),
   'job': const JobTool(),
   'skill': const SkillTool(),
+  'agent': AgentTool(),
 };
 
 /// The node key `c-<12 hex>` of the provider call id [callId].
@@ -144,6 +146,8 @@ final class ToolRuntime {
     this.shell,
     this.jobs,
     this.writeGate,
+    this.roster,
+    this.model,
   );
 
   /// Attaches a runtime to [writer] and [store].
@@ -166,6 +170,9 @@ final class ToolRuntime {
   /// file is missing, or when there is no home); an invalid file throws a
   /// `ConfigError` before anything starts.
   ///
+  /// [roster] narrows the offered tools to those names (a child engine's
+  /// role); null offers the whole roster.
+  ///
   /// [answerer] receives questions and permission prompts; without one the
   /// session is headless.
   ///
@@ -186,6 +193,8 @@ final class ToolRuntime {
     ToolRuntimeSeams seams = const ToolRuntimeSeams(),
     JobHooks jobHooks = const JobHooks(),
     WriteGate? writeGate,
+    Set<String>? roster,
+    String? model,
   }) async {
     if (gate == null && kehaiHome == null) {
       throw ArgumentError.value(
@@ -268,6 +277,8 @@ final class ToolRuntime {
       detection,
       jobs,
       writeGate,
+      roster,
+      model,
     );
     runtime.jobs
       ..liveCallKeys = (() => runtime._live.keys.toSet())
@@ -312,6 +323,15 @@ final class ToolRuntime {
   /// supervisor shares it.
   final WriteGate writeGate;
 
+  /// The names of the roster tools this runtime offers, or null for all of
+  /// them. A child engine narrows it to its role's tools (design D9); a call
+  /// naming any other tool fails as an unknown tool.
+  final Set<String>? roster;
+
+  /// The model slug the engine runs, which an `agent` call without a model of
+  /// its own gives its child; null when the runtime has none.
+  final String? model;
+
   /// What attach finalized before it admitted any call (design D12).
   ResumeReport resumed = ResumeReport.none;
 
@@ -320,8 +340,9 @@ final class ToolRuntime {
   final CallStage _gate;
   final ToolRuntimeSeams _seams;
 
-  final Map<String, ToolDefinition> _definitions = {
-    for (final d in toolDefinitions) d.name: d,
+  late final Map<String, ToolDefinition> _definitions = {
+    for (final d in toolDefinitions)
+      if (roster?.contains(d.name) ?? true) d.name: d,
   };
   final Map<String, _Live> _live = {};
   final Queue<_Live> _waiting = Queue();
@@ -331,7 +352,7 @@ final class ToolRuntime {
 
   /// The tools the model may call, with their argument schemas.
   late final List<ToolSpec> specs = List.unmodifiable([
-    for (final d in toolDefinitions)
+    for (final d in _definitions.values)
       if (d.name == 'bash')
         ToolSpec(
           name: d.name,
@@ -598,6 +619,8 @@ final class ToolRuntime {
       jobs: jobs,
       permission: permission,
       capacity: () => _capacityOf(live),
+      model: model,
+      yolo: yolo,
     );
     final tool = _invoke(_tools[live.tool]!, context, input);
     var first = await Future.any<_Step>([

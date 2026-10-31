@@ -233,4 +233,23 @@ final List<ToolDefinition> toolDefinitions = List.unmodifiable([
         'Returns its instructions whole, with paths resolved.',
     schema: _object({'name': _path, 'args': _string}, required: ['name']),
   ),
+  ToolDefinition(
+    name: 'agent',
+    version: 1,
+    description:
+        'Run an installed agent role as a child engine with a fresh context '
+        'and its own tools. The call ends with the typed result of the role; with '
+        'background: true it returns a job id at once, and job waits for, '
+        'reads or cancels it.',
+    schema: _object(
+      {
+        'role': _path,
+        'prompt': _path,
+        'description': _string,
+        'background': _bool,
+        'timeout_s': {'type': 'integer', 'minimum': 1, 'maximum': 86400},
+      },
+      required: ['role', 'prompt'],
+    ),
+  ),
 ]);

@@ -448,6 +448,26 @@ final class _Allowed {
 
 const List<_Allowed> _allowlist = [
   _Allowed(
+    'lib/src/tools/skill.dart',
+    'names.take(maxSuggestions)',
+    'skill name suggestions: the five closest names in an error, not output',
+  ),
+  _Allowed(
+    'lib/src/jobs/agent_run.dart',
+    'Uint8List.sublistView(chunk, start, end)',
+    'child protocol framing: one line of stdout, already spooled whole',
+  ),
+  _Allowed(
+    'lib/src/jobs/agent_run.dart',
+    ': chunk.sublist(start, end),',
+    'child protocol framing: one line of stdout, already spooled whole',
+  ),
+  _Allowed(
+    'lib/src/jobs/agent_run.dart',
+    'Uint8List.sublistView(bytes, 0, end)',
+    'child protocol framing: drops the CR of a CRLF line before decoding',
+  ),
+  _Allowed(
     'lib/src/tools/glob_match.dart',
     "pattern.substring(1)",
     'glob pattern parsing: drops a leading slash from the pattern',

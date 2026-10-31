@@ -397,7 +397,24 @@ class _RpcCommand extends _KehaiCommand {
         help: "Reopen the workspace's latest session.",
       )
       ..addOption('session', help: 'Reopen the session with this id.')
-      ..addOption('model', help: 'The model id to use.');
+      ..addOption('model', help: 'The model id to use.')
+      ..addFlag(
+        'child',
+        negatable: false,
+        help: 'Run as the child engine of an agent job (internal).',
+      )
+      ..addOption('parent', help: 'Child mode: the parent session directory.')
+      ..addOption('job', help: 'Child mode: the parent job id.')
+      ..addOption('role', help: 'Child mode: the agent role name.')
+      ..addOption(
+        'role-digest',
+        help: 'Child mode: the SHA-256 of the role file.',
+      )
+      ..addFlag(
+        'yolo',
+        negatable: false,
+        help: 'Child mode: run calls without permission prompts.',
+      );
   }
 
   @override
@@ -414,6 +431,7 @@ class _RpcCommand extends _KehaiCommand {
     if (results.flag('resume') && results.option('session') != null) {
       usageException('use --resume or --session, not both');
     }
+    final child = _childSpec(results, usageException);
     return runRpc(
       settings: settings,
       workspace: Directory.current,
@@ -422,6 +440,35 @@ class _RpcCommand extends _KehaiCommand {
       resume: results.flag('resume'),
       sessionId: results.option('session'),
       modelFlag: results.option('model'),
+      child: child,
     );
   }
+}
+
+/// The child-mode options of `rpc`, or null outside child mode.
+///
+/// Child mode needs all of `--parent`, `--job`, `--role` and `--role-digest`
+/// and refuses `--resume` and `--session`; the child-only options are refused
+/// without `--child`. [usage] throws the usage error.
+ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
+  const childOnly = ['parent', 'job', 'role', 'role-digest'];
+  if (!results.flag('child')) {
+    for (final name in [...childOnly, 'yolo']) {
+      if (results.wasParsed(name)) usage('--$name needs --child');
+    }
+    return null;
+  }
+  if (results.flag('resume') || results.option('session') != null) {
+    usage('--child cannot be combined with --resume or --session');
+  }
+  for (final name in childOnly) {
+    if (results.option(name) == null) usage('--child needs --$name');
+  }
+  return ChildSpec(
+    parent: results.option('parent')!,
+    job: results.option('job')!,
+    role: results.option('role')!,
+    roleDigest: results.option('role-digest')!,
+    yolo: results.flag('yolo'),
+  );
 }

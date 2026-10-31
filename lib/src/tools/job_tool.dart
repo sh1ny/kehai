@@ -37,7 +37,7 @@ final class JobTool implements Tool {
     return switch (input['action']) {
       'status' => _status(context, jobs, id),
       'wait' => _wait(context, jobs, id, input['timeout_s']),
-      'output' => _output(jobs, id),
+      'output' => _output(context, jobs, id),
       _ => _cancel(context, jobs, id),
     };
   }
@@ -131,10 +131,74 @@ final class JobTool implements Tool {
         detach();
       }
     }
+    final node = _node(jobs, id);
+    if (node != null && _isAgent(node) && _terminal.contains(node['state'])) {
+      return _agentResult(context, jobs, id, node);
+    }
     return _status(context, jobs, id);
   }
 
-  Future<ToolOutcome> _output(JobSupervisor jobs, String id) async {
+  bool _isAgent(Map<String, Object?> node) => node['kind'] == 'agent';
+
+  /// The typed result of the ended agent job [node] (design D11), not the
+  /// child's protocol stream.
+  ///
+  /// A node without a `result` reference is one whose result was never
+  /// stored: its text is composed from the node.
+  Future<ToolOutcome> _agentResult(
+    ToolContext context,
+    JobSupervisor jobs,
+    String id,
+    Map<String, Object?> node,
+  ) async {
+    final ref = node[resultStream];
+    if (ref is Map<String, Object?> && ref['handle'] is String) {
+      try {
+        final resolved = resolveHandle(
+          jobs.writer.tree,
+          jobs.store.sessionDir,
+          ref['handle']! as String,
+        );
+        final agent = node['agent'];
+        final status = agent is Map<String, Object?> ? agent['status'] : null;
+        return ToolOutcome(
+          summary:
+              'job $id ${node['state']}${status == null ? '' : ', agent $status'}',
+          complete: ref['complete'] == true,
+          result: resolved.descriptor,
+          policy: ResultPolicy.other,
+        );
+      } on Object catch (e) {
+        return failure('job $id result unavailable: $e');
+      }
+    }
+    final agent = node['agent'];
+    final session = agent is Map<String, Object?> ? agent['session'] : null;
+    final role = node['cmd'];
+    final reason = node['reason'];
+    final text = node['state'] == 'cancelled' && reason == 'interrupted'
+        ? 'agent $role cancelled (interrupted before its result was stored; '
+              'session ${session ?? '-'})'
+        : 'agent $role ${node['state']}${reason == null ? '' : ' ($reason)'}';
+    await context.output.writeText(text);
+    return ToolOutcome(summary: 'job $id ${node['state']}');
+  }
+
+  Future<ToolOutcome> _output(
+    ToolContext context,
+    JobSupervisor jobs,
+    String id,
+  ) async {
+    final agentNode = _node(jobs, id);
+    if (agentNode != null && _isAgent(agentNode)) {
+      if (_terminal.contains(agentNode['state'])) {
+        return _agentResult(context, jobs, id, agentNode);
+      }
+      return ToolOutcome(
+        summary: 'job $id is running; its result is not ready',
+        complete: false,
+      );
+    }
     final snapshot = await jobs.snapshot(id, 'output');
     switch (snapshot) {
       case ResultComplete(:final descriptor):

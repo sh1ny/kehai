@@ -157,15 +157,18 @@ final class RequestBuilder {
   /// Builds the request for the step at journal [turn] from [tree].
   Future<BuiltRequest> build(SessionTree tree, {required int turn}) async {
     final contextKey = _currentContext(tree);
+    // A child's role is read from the tree: the text captured at its start
+    // wins over the constructor's hook, whatever the role file says now.
+    final captured = _capturedRole(tree, contextKey);
     final identity = InstructionsIdentity(
       instructionsVersion,
       contextKey,
-      roleDigest,
+      captured?.digest ?? roleDigest,
     );
     final (items, baseline) = await _conversation(tree, identity);
     final session = tree.get(SessionPath.parse('meta/session'));
     final instructions = composeInstructions(
-      role: roleInstructions,
+      role: captured?.text ?? roleInstructions,
       context: _contextText(tree, contextKey),
     );
 
@@ -215,6 +218,19 @@ final class RequestBuilder {
     final last = _children(tree, 'body/exchanges').lastOrNull?.value;
     final key = last?['context'];
     return key is String ? key : null;
+  }
+
+  /// The role captured with context [key] (design D4), or null.
+  ({String text, String digest})? _capturedRole(SessionTree tree, String? key) {
+    if (key == null) return null;
+    final stored = tree.get(SessionPath.parse('body/contexts/$key'));
+    final role = stored is Map<String, Object?> ? stored['role'] : null;
+    if (role is Map<String, Object?> &&
+        role['text'] is String &&
+        role['digest'] is String) {
+      return (text: role['text']! as String, digest: role['digest']! as String);
+    }
+    return null;
   }
 
   /// The stored text of context [key]; empty when none is stored.

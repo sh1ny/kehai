@@ -15,6 +15,7 @@ import '../auth/posix_ffi.dart';
 import '../auth/refresher.dart';
 import '../config/user_config.dart';
 import '../loop/driver.dart';
+import '../loop/instructions.dart';
 import '../permissions/workspace_paths.dart';
 import '../provider/chatgpt_adapter.dart';
 import '../provider/provider.dart';
@@ -28,7 +29,10 @@ import '../session/journal.dart';
 import '../session/path.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
+import '../tools/roster.dart';
 import '../tools/runtime.dart';
+import '../workspace/inventory.dart' show loadWorkspace;
+import '../workspace/roles.dart';
 import 'doctor.dart' show printable;
 import 'settings.dart';
 
@@ -42,7 +46,41 @@ final class _StartupFailure implements Exception {
   final String message;
 }
 
+/// The arguments of `kehai rpc --child`: what an agent job tells the child
+/// engine it runs (design D8).
+final class ChildSpec {
+  /// Creates the spec.
+  const ChildSpec({
+    required this.parent,
+    required this.job,
+    required this.role,
+    required this.roleDigest,
+    this.yolo = false,
+  });
+
+  /// The parent session's directory; the child session is created under its
+  /// `agents` directory.
+  final String parent;
+
+  /// The parent's job id, recorded in the child's lineage.
+  final String job;
+
+  /// The agent role's name.
+  final String role;
+
+  /// The SHA-256 of the role file's text as the parent saw it.
+  final String roleDigest;
+
+  /// Whether the parent runs with `--yolo`; the child's gate skips prompts.
+  final bool yolo;
+}
+
 /// Runs `kehai rpc` for [workspace] and returns the exit code.
+///
+/// With [child] the engine is an agent job's child: it creates a new session
+/// under the parent session's directory, runs [ChildSpec.role] with the
+/// roster narrowed to that role's tools, and ignores [resume] and
+/// [sessionId] (the command refuses them).
 ///
 /// Every failure to start is one `fatal` line on [output] and exit code 1.
 /// With [resume] the latest session of the workspace is reopened, with
@@ -56,6 +94,7 @@ Future<int> runRpc({
   bool resume = false,
   String? sessionId,
   String? modelFlag,
+  ChildSpec? child,
 }) async {
   SessionWriter? writer;
   ToolRuntime? runtime;
@@ -75,8 +114,13 @@ Future<int> runRpc({
     } on ConfigError catch (e) {
       throw _StartupFailure(e.message);
     }
+    final role = child == null
+        ? null
+        : _childRole(child, real, Directory(settings.home));
     final sessions = sessionsDirFor(settings.home, workspace.path);
-    final existing = _existingSession(sessions, resume, sessionId);
+    final existing = child != null
+        ? null
+        : _existingSession(sessions, resume, sessionId);
     if (existing != null) {
       writer = await _open(existing);
       final recorded = writer.tree.get(SessionPath.parse('meta/workspace'));
@@ -98,7 +142,12 @@ Future<int> runRpc({
     );
 
     if (writer == null) {
-      writer = await _create(settings.home, sessions);
+      writer = child == null
+          ? await _create(settings.home, sessions)
+          : await SessionWriter.create(
+              Directory(p.join(child.parent, agentsDirName)),
+              lineage: {'parent': p.basename(child.parent), 'job': child.job},
+            );
       await writer.apply(
         JournalRecord(
           turn: writer.currentTurn,
@@ -117,6 +166,11 @@ Future<int> runRpc({
       config: config,
       kehaiHome: Directory(settings.home),
       answerer: answerer,
+      yolo: child?.yolo ?? false,
+      model: model,
+      roster: role == null
+          ? null
+          : roleRoster(role, toolDefinitions.map((d) => d.name)),
     );
     driver = ExchangeDriver(
       writer: writer,
@@ -124,6 +178,9 @@ Future<int> runRpc({
       provider: adapter,
       model: model,
       contextWindow: resolveContextWindow(config, model, models),
+      childRole: role == null
+          ? null
+          : ChildRole(name: role.name, digest: role.digest, body: role.body),
     );
     // Calls and jobs were finalized by attach; the exchanges and steps a dead
     // engine left running are finalized here, before hello (design D5).
@@ -181,6 +238,31 @@ Future<int> _fatal(IOSink output, String message) async {
   final pump = OutputPump(output)..send(fatalEvent(message));
   await pump.flush();
   return 1;
+}
+
+/// The directory under a parent session that holds its child sessions.
+const String agentsDirName = 'agents';
+
+/// The role [child] runs, loaded now from the workspace view.
+///
+/// Throws a [_StartupFailure] when the role does not exist, when its file no
+/// longer has the digest the parent saw, or when the parent session is
+/// missing. Nothing is created before this passes.
+Role _childRole(ChildSpec child, String workspace, Directory home) {
+  final role = loadWorkspace(
+    workspace: workspace,
+    kehaiHome: home,
+  ).role(child.role);
+  if (role == null) throw _StartupFailure('unknown agent role ${child.role}');
+  if (role.digest != child.roleDigest) {
+    throw const _StartupFailure('role changed');
+  }
+  if (!File(p.join(child.parent, journalFileName)).existsSync()) {
+    throw _StartupFailure(
+      'parent session not found: ${printable(child.parent)}',
+    );
+  }
+  return role;
 }
 
 /// The session to reopen, or null for a new one.

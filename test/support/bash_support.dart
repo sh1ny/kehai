@@ -32,9 +32,14 @@ final class BashHarness {
     JobHooks jobHooks = const JobHooks(),
     ResultStoreHooks storeHooks = const ResultStoreHooks(),
     ToolRuntimeSeams seams = const ToolRuntimeSeams(),
+    String? model,
+    bool yolo = false,
+    Directory? kehaiHome,
+    Directory? workspace,
+    Map<String, Tool> tools = const {},
   }) async {
     final root = await tempDir();
-    final workspace = await tempDir();
+    workspace ??= await tempDir();
     final writer = await createWriter(root);
     final store = ResultStore(writer.sessionDir, hooks: storeHooks);
     final runtime = await ToolRuntime.attach(
@@ -43,6 +48,10 @@ final class BashHarness {
       workspace: workspace,
       config: config,
       shell: shell,
+      model: model,
+      yolo: yolo,
+      kehaiHome: kehaiHome,
+      tools: tools,
       gate: RecordingStage(permission),
       jobHooks: jobHooks,
       seams: seams,

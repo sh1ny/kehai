@@ -50,41 +50,41 @@
 | subagents: Agent roles | Invalid role file | test/workspace/roles_test.dart | a role without description is a problem | green |
 | subagents: Role tools narrowed and mapped | Reviewer tools | test/workspace/roles_test.dart | reviewer tools map to the ten Kehai tools | green |
 | subagents: Role tools narrowed and mapped | Unknown tool name | test/workspace/roles_test.dart | WebFetch is ignored and recorded as unmapped | green |
-| subagents: Role tools narrowed and mapped | Out-of-roster call in the child | test/rpc/child_mode_test.dart | a reviewer child's edit call fails as unknown tool | red |
-| subagents: Role model selection | Inherited model | test/jobs/agent_job_test.dart | inherit runs the child on the parent's model | red |
-| subagents: Role model selection | Configured alias | test/jobs/agent_job_test.dart | a configured alias picks its slug | red |
-| subagents: Role model selection | Unmapped alias | test/jobs/agent_job_test.dart | an unmapped alias uses the parent's model with a note | red |
-| subagents: Agent tool | Foreground agent | test/jobs/agent_job_test.dart | a foreground agent call settles with the typed result | red |
-| subagents: Agent tool | Background agent | test/jobs/agent_job_test.dart | a background agent returns its id and job wait returns the result | red |
-| subagents: Agent tool | Unknown role | test/tools/agent_tool_test.dart | an unknown role fails listing the roles and starts nothing | red |
-| subagents: Child engine | Child session linked | test/rpc/child_mode_test.dart | the child session lives under the parent and records its lineage | red |
-| subagents: Child engine | Role file changed after the child ran | test/rpc/child_mode_test.dart | a rebuilt child request carries the role text captured at start | red |
-| subagents: Child engine | Child cannot start | test/jobs/agent_job_test.dart | a child fatal before its exchange fails the job with that message | red |
-| subagents: Parent follows the child's state | Large committed response | test/jobs/agent_run_test.dart | a 3 MiB committed response reaches the typed result | red |
-| subagents: Parent follows the child's state | Terminal update dropped by resync | test/jobs/agent_run_test.dart | an end seen only in a resync snapshot ends the job | red |
-| subagents: Parent follows the child's state | Malformed child output | test/jobs/agent_run_test.dart | a non-JSON line fails the job with child protocol error | red |
-| subagents: Typed agent result | Done | test/jobs/agent_run_test.dart | a done child gives the header line and its final text | red |
-| subagents: Typed agent result | Child exchange failed | test/jobs/agent_run_test.dart | a child stopped on overflow gives status failed with its reason | red |
+| subagents: Role tools narrowed and mapped | Out-of-roster call in the child | test/rpc/child_mode_test.dart | a reviewer child's edit call fails as unknown tool | green |
+| subagents: Role model selection | Inherited model | test/jobs/agent_job_test.dart | inherit runs the child on the parent's model | green |
+| subagents: Role model selection | Configured alias | test/jobs/agent_job_test.dart | a configured alias picks its slug | green |
+| subagents: Role model selection | Unmapped alias | test/jobs/agent_job_test.dart | an unmapped alias uses the parent's model with a note | green |
+| subagents: Agent tool | Foreground agent | test/jobs/agent_job_test.dart | a foreground agent call settles with the typed result | green |
+| subagents: Agent tool | Background agent | test/jobs/agent_job_test.dart | a background agent returns its id and job wait returns the result | green |
+| subagents: Agent tool | Unknown role | test/tools/agent_tool_test.dart | an unknown role fails listing the roles and starts nothing | green |
+| subagents: Child engine | Child session linked | test/rpc/child_mode_test.dart | the child session lives under the parent and records its lineage | green |
+| subagents: Child engine | Role file changed after the child ran | test/rpc/child_mode_test.dart | a rebuilt child request carries the role text captured at start | green |
+| subagents: Child engine | Child cannot start | test/jobs/agent_job_test.dart | a child fatal before its exchange fails the job with that message | green |
+| subagents: Parent follows the child's state | Large committed response | test/jobs/agent_run_test.dart | a 3 MiB committed response reaches the typed result | green |
+| subagents: Parent follows the child's state | Terminal update dropped by resync | test/jobs/agent_run_test.dart | an end seen only in a resync snapshot ends the job | green |
+| subagents: Parent follows the child's state | Malformed child output | test/jobs/agent_run_test.dart | a non-JSON line fails the job with child protocol error | green |
+| subagents: Typed agent result | Done | test/jobs/agent_run_test.dart | a done child gives the header line and its final text | green |
+| subagents: Typed agent result | Child exchange failed | test/jobs/agent_run_test.dart | a child stopped on overflow gives status failed with its reason | green |
 | subagents: Child prompts relayed | Permission relayed | test/rpc/relay_test.dart | a child permission prompt reaches the client with its agent and allow runs it | red |
 | subagents: Child prompts relayed | Prompt withdrawn on cancel | test/rpc/relay_test.dart | interrupting a foreground child withdraws its prompt | red |
 | subagents: Child prompts relayed | Background child's prompt survives an unrelated interrupt | test/rpc/relay_test.dart | a background child's prompt stays answerable across an interrupt | red |
-| subagents: Bounded agent jobs | Fifth agent refused | test/jobs/agent_job_test.dart | a fifth live agent is refused until one ends | red |
-| subagents: Bounded agent jobs | Shared job bound | test/jobs/agent_job_test.dart | agents count toward the sixteen-job bound | red |
-| subagents: Agent cancellation and deadline | Interrupt during a child | test/jobs/agent_job_test.dart | interrupt soft-stops the child and records cancelled | red |
-| subagents: Agent cancellation and deadline | Deadline | test/jobs/agent_job_test.dart | a child past its deadline ends with status timeout and its text so far | red |
-| subagents: Agent jobs on resume | Crash after the handoff intent | test/jobs/agent_resume_test.dart | resume after the intent settles the job with a resolvable result | red |
-| subagents: Agent jobs on resume | Crash before the handoff intent | test/jobs/agent_resume_test.dart | resume before the intent cancels the job with the interrupted text | red |
-| subagents: Agent jobs on resume | Typed result written but no intent | test/jobs/agent_resume_test.dart | an uncommitted result spool is discarded and counted | red |
-| subagents: Agent jobs on resume | Engine crashed during a child | test/jobs/agent_resume_test.dart | a running agent job is finalized interrupted and never relaunched | red |
+| subagents: Bounded agent jobs | Fifth agent refused | test/jobs/agent_job_test.dart | a fifth live agent is refused until one ends | green |
+| subagents: Bounded agent jobs | Shared job bound | test/jobs/agent_job_test.dart | agents count toward the sixteen-job bound | green |
+| subagents: Agent cancellation and deadline | Interrupt during a child | test/jobs/agent_job_test.dart | interrupt soft-stops the child and records cancelled | green |
+| subagents: Agent cancellation and deadline | Deadline | test/jobs/agent_job_test.dart | a child past its deadline ends with status timeout and its text so far | green |
+| subagents: Agent jobs on resume | Crash after the handoff intent | test/jobs/agent_resume_test.dart | resume after the intent settles the job with a resolvable result | green |
+| subagents: Agent jobs on resume | Crash before the handoff intent | test/jobs/agent_resume_test.dart | resume before the intent cancels the job with the interrupted text | green |
+| subagents: Agent jobs on resume | Typed result written but no intent | test/jobs/agent_resume_test.dart | an uncommitted result spool is discarded and counted | green |
+| subagents: Agent jobs on resume | Engine crashed during a child | test/jobs/agent_resume_test.dart | a running agent job is finalized interrupted and never relaunched | green |
 | subagents: Child progress shown | Progress lines | test/client/render_test.dart | agent stream events print as indented role lines | red |
 | subagents: Child progress shown | Slow client | test/rpc/pump_test.dart | agent stream events are droppable like other stream events | red |
-| tool-calls: Fixed versioned tool roster | Roster exposed as tool specs | test/tools/runtime_test.dart | specs list the thirteen tools with versioned names and JSON schemas | red |
+| tool-calls: Fixed versioned tool roster | Roster exposed as tool specs | test/tools/runtime_test.dart | specs list the thirteen tools with versioned names and JSON schemas | green |
 | tool-calls: Fixed versioned tool roster | Unknown tool | test/tools/runtime_test.dart | unknown tool settles failed with envelope error and a stored result | green |
-| tool-calls: Fixed versioned tool roster | Child roster | test/rpc/child_mode_test.dart | a child without role tools offers twelve tools and refuses agent | red |
+| tool-calls: Fixed versioned tool roster | Child roster | test/rpc/child_mode_test.dart | a child without role tools offers twelve tools and refuses agent | green |
 | job-supervisor: One job node shape | Shell job recorded | test/jobs/supervisor_test.dart | echo hi job node holds no pid and resolves its outputs | green |
 | job-supervisor: One job node shape | Launch failure | test/jobs/supervisor_test.dart | vanished shell fails the job pending to failed and clears its launch record | green |
-| job-supervisor: One job node shape | Agent job recorded | test/jobs/agent_job_test.dart | an agent job node records kind, agent fields and a result reference | red |
-| job-supervisor: One job node shape | Agent job read with job | test/tools/job_tool_test.dart | job wait and output on an agent job return the typed result | red |
+| job-supervisor: One job node shape | Agent job recorded | test/jobs/agent_job_test.dart | an agent job node records kind, agent fields and a result reference | green |
+| job-supervisor: One job node shape | Agent job read with job | test/tools/job_tool_test.dart | job wait and output on an agent job return the typed result | green |
 | agent-loop: Requests rebuilt from the tree | Tool output is the composed envelope | test/loop/request_builder_test.dart | tool output is the stored model text byte for byte | green |
 | agent-loop: Requests rebuilt from the tree | Resumed session | test/loop/request_builder_test.dart | resumed session request holds earlier items and cancelled calls' | green |
 | agent-loop: Requests rebuilt from the tree | Instructions from the exchange's context | test/loop/context_test.dart | a step uses the context captured at its exchange start | green |
@@ -92,8 +92,8 @@
 | engine-rpc: Prompts reach the client | Permission prompt | test/rpc/server_test.dart | non-autoapproved bash sends a permission prompt and allow runs it | green |
 | engine-rpc: Prompts reach the client | Prompt withdrawn by interrupt | test/rpc/server_test.dart | interrupt withdraws the open question and a late answer is refused | green |
 | engine-rpc: Prompts reach the client | Relayed child prompt | test/rpc/relay_test.dart | a relayed prompt names its agent with a session-unique key | red |
-| engine-rpc: Child engine mode | Child started | test/rpc/child_mode_test.dart | child mode hello names protocol 1, the child session and model | red |
-| engine-rpc: Child engine mode | Unknown role in child mode | test/rpc/child_mode_test.dart | child mode with an unknown role is fatal and creates no session | red |
+| engine-rpc: Child engine mode | Child started | test/rpc/child_mode_test.dart | child mode hello names protocol 1, the child session and model | green |
+| engine-rpc: Child engine mode | Unknown role in child mode | test/rpc/child_mode_test.dart | child mode with an unknown role is fatal and creates no session | green |
 | tool-permissions: User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
 | tool-permissions: User configuration file | Invalid configuration | test/config/config_test.dart | unknown key or bad type refuses to start naming the path | green |
 | tool-permissions: User configuration file | Model settings | test/config/config_test.dart | model and models contextWindow parse | green |
@@ -136,11 +136,11 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 6. Child engine and agent jobs
 
-- [ ] 6.1 Write the failing tests, then add `rpc --child` to `rpc_command.dart` (D8: parent dir, job, role, role digest, model, `--yolo`; refuses `--resume`/`--session`; lineage; role captured in the child's context; roster narrowed by D9). Turns green: *Child started*, *Unknown role in child mode*, *Child session linked*, *Role file changed after the child ran*, *Out-of-roster call in the child*, *Child roster*.
-- [ ] 6.2 Write the failing tests, then add the supervisor channel and soft stop (D11: stdin kept open, spool-then-channel, 5 s soft stop before termination, per-kind stream set with `result`) and `JobKind.agent`. Re-run the green *Shell job recorded* and *Launch failure* rows.
-- [ ] 6.3 Write the failing tests in `test/jobs/agent_run_test.dart`, then `lib/src/jobs/agent_run.dart` (D8: tree mirror replaced on snapshot, end decided from the mirror, 64 MiB line buffer, typed result text). Turns green: *Large committed response*, *Terminal update dropped by resync*, *Malformed child output*, *Done*, *Child exchange failed*.
-- [ ] 6.4 Write the failing tests, then `lib/src/tools/agent.dart` and its roster entry (D12 model selection, 4-agent bound inside 16, foreground/background, deadline, `job` wait/output composing `result`). Turns green: *Inherited model*, *Configured alias*, *Unmapped alias*, *Foreground agent*, *Background agent*, *Unknown role*, *Child cannot start*, *Fifth agent refused*, *Shared job bound*, *Interrupt during a child*, *Deadline*, *Agent job recorded*, *Agent job read with job*, *Roster exposed as tool specs*; re-run the green *Unknown tool* row.
-- [ ] 6.5 Write the failing tests, then extend recovery (D11: intent streams iterated by name, `result` never adopted before the intent, uncommitted `result` spools deleted and counted as `discarded` in the warning, interrupted text composed from the node). Turns green: *Crash after the handoff intent*, *Crash before the handoff intent*, *Typed result written but no intent*, *Engine crashed during a child*. Verify the group with `dart test test/jobs test/rpc/child_mode_test.dart test/tools -j 1`.
+- [x] 6.1 Write the failing tests, then add `rpc --child` to `rpc_command.dart` (D8: parent dir, job, role, role digest, model, `--yolo`; refuses `--resume`/`--session`; lineage; role captured in the child's context; roster narrowed by D9). Turns green: *Child started*, *Unknown role in child mode*, *Child session linked*, *Role file changed after the child ran*, *Out-of-roster call in the child*, *Child roster*.
+- [x] 6.2 Write the failing tests, then add the supervisor channel and soft stop (D11: stdin kept open, spool-then-channel, 5 s soft stop before termination, per-kind stream set with `result`) and `JobKind.agent`. Re-run the green *Shell job recorded* and *Launch failure* rows.
+- [x] 6.3 Write the failing tests in `test/jobs/agent_run_test.dart`, then `lib/src/jobs/agent_run.dart` (D8: tree mirror replaced on snapshot, end decided from the mirror, 64 MiB line buffer, typed result text). Turns green: *Large committed response*, *Terminal update dropped by resync*, *Malformed child output*, *Done*, *Child exchange failed*.
+- [x] 6.4 Write the failing tests, then `lib/src/tools/agent.dart` and its roster entry (D12 model selection, 4-agent bound inside 16, foreground/background, deadline, `job` wait/output composing `result`). Turns green: *Inherited model*, *Configured alias*, *Unmapped alias*, *Foreground agent*, *Background agent*, *Unknown role*, *Child cannot start*, *Fifth agent refused*, *Shared job bound*, *Interrupt during a child*, *Deadline*, *Agent job recorded*, *Agent job read with job*, *Roster exposed as tool specs*; re-run the green *Unknown tool* row.
+- [x] 6.5 Write the failing tests, then extend recovery (D11: intent streams iterated by name, `result` never adopted before the intent, uncommitted `result` spools deleted and counted as `discarded` in the warning, interrupted text composed from the node). Turns green: *Crash after the handoff intent*, *Crash before the handoff intent*, *Typed result written but no intent*, *Engine crashed during a child*. Verify the group with `dart test test/jobs test/rpc/child_mode_test.dart test/tools -j 1`.
 
 ## 7. Prompt relay and progress
 
