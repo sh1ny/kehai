@@ -363,6 +363,28 @@ void main() {
       expect(config.envPassthrough, ['OPENAI_API_KEY']);
     });
 
+    test('allow rules and hook tool lists accept skill and agent', () {
+      write({
+        'allow': [
+          {'tool': 'skill'},
+          {'tool': 'agent'},
+        ],
+        'hooks': [
+          {
+            'name': 'guard',
+            'argv': ['guard'],
+            'tools': ['skill', 'agent'],
+            'policy': 'deny',
+          },
+        ],
+      });
+
+      final config = UserConfig.load(home.path);
+
+      expect(config.allow.map((r) => r.tool), ['skill', 'agent']);
+      expect(config.hooks.single.tools, ['skill', 'agent']);
+    });
+
     test('hook shape problems name the path and the hook', () {
       Map<String, Object?> hook(Map<String, Object?> over) => {
         'name': 'guard',

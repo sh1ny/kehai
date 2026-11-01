@@ -28,6 +28,8 @@ const Set<String> toolRoster = {
   'job',
   'read_more',
   'search_result',
+  'skill',
+  'agent',
 };
 
 /// A configuration file that cannot be used.
