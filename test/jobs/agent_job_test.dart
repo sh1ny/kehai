@@ -258,6 +258,21 @@ void main() {
       expect((f.job['agent']! as Map)['note'], note);
       expect(text, contains(note));
     });
+
+    test('a role tool with no Kehai counterpart is named on the job and in '
+        'the result', () async {
+      final f = await _Fixture.create();
+      f.writeRole(_reviewer, tools: 'Read, WebFetch');
+      f.script('done');
+
+      final text = await f.h.call('agent', {
+        'role': _reviewer,
+        'prompt': 'review it',
+      });
+
+      expect((f.job['agent']! as Map)['unmapped'], ['WebFetch']);
+      expect(text, contains('unmapped role tools: WebFetch'));
+    });
   });
 
   group('agent calls', () {

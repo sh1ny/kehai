@@ -120,6 +120,7 @@ final class AgentTool implements Tool {
       role: role.name,
       prompt: prompt,
       modelNote: note,
+      unmapped: role.unmapped,
       onPrompt: (item) => unawaited(
         _relay(context, agentRun, role.name, jobId!, relayEnd, item),
       ),

@@ -42,6 +42,7 @@ final class AgentRun implements JobChannel {
     required this.role,
     required this.prompt,
     this.modelNote,
+    this.unmapped = const [],
     this.lineLimit = maxChildLineBytes,
     this.onPrompt,
     this.onWithdraw,
@@ -57,6 +58,14 @@ final class AgentRun implements JobChannel {
 
   /// The model note for the typed result, or `null`.
   final String? modelNote;
+
+  /// The role's tool names with no Kehai counterpart, which the child does
+  /// not get.
+  final List<String> unmapped;
+
+  /// The result line naming [unmapped], or `null` when there are none.
+  String? get _unmappedLine =>
+      unmapped.isEmpty ? null : 'unmapped role tools: ${unmapped.join(', ')}';
 
   /// The longest line buffered, in bytes.
   final int lineLimit;
@@ -267,6 +276,7 @@ final class AgentRun implements JobChannel {
     'model': ?_model,
     'session': ?_session,
     'note': ?modelNote,
+    if (unmapped.isNotEmpty) 'unmapped': unmapped,
   };
 
   // -- the mirror -------------------------------------------------------
@@ -426,7 +436,13 @@ final class AgentRun implements JobChannel {
     final header =
         'agent $role $status (${steps.length} steps, session ${_session ?? '-'})';
     return ChannelEnd(
-      [header, ?modelNote, ?reasonLine, if (text.isNotEmpty) text].join('\n'),
+      [
+        header,
+        ?modelNote,
+        ?_unmappedLine,
+        ?reasonLine,
+        if (text.isNotEmpty) text,
+      ].join('\n'),
       _fields(status, steps),
     );
   }

@@ -49,7 +49,7 @@
 | subagents: Agent roles | Installed roles | test/workspace/roles_test.dart | a role file gives name, model, tools and body | green |
 | subagents: Agent roles | Invalid role file | test/workspace/roles_test.dart | a role without description is a problem | green |
 | subagents: Role tools narrowed and mapped | Reviewer tools | test/workspace/roles_test.dart | reviewer tools map to the ten Kehai tools | green |
-| subagents: Role tools narrowed and mapped | Unknown tool name | test/workspace/roles_test.dart | WebFetch is ignored and recorded as unmapped | green |
+| subagents: Role tools narrowed and mapped | Unknown tool name | test/workspace/roles_test.dart; test/jobs/agent_job_test.dart | WebFetch is ignored and recorded as unmapped; a role tool with no Kehai counterpart is named on the job and in the result | green |
 | subagents: Role tools narrowed and mapped | Out-of-roster call in the child | test/rpc/child_mode_test.dart | a reviewer child's edit call fails as unknown tool | green |
 | subagents: Role model selection | Inherited model | test/jobs/agent_job_test.dart | inherit runs the child on the parent's model | green |
 | subagents: Role model selection | Configured alias | test/jobs/agent_job_test.dart | a configured alias picks its slug | green |
