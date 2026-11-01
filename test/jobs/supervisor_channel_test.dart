@@ -20,6 +20,7 @@ import 'dart:io';
 
 Future<void> main(List<String> args) async {
   final mode = args.first;
+  if (mode == 'crash') exit(255);
   final done = Completer<void>();
   stdin.transform(utf8.decoder).transform(const LineSplitter()).listen(
     (line) {
@@ -395,6 +396,29 @@ void main() {
       },
       skip: skip,
     );
+
+    test('a channel end that names a failure ends the job failed with it', () async {
+      final h = await JobHarness.create();
+      final channel = _Channel(
+        h,
+        end: const ChannelEnd(
+          'agent failed to start: child exited (255) before its first exchange',
+          {'role': 'r', 'status': 'failed', 'steps': 0},
+          failure:
+              'agent failed to start: child exited (255) before its first '
+              'exchange',
+        ),
+      );
+      final handle = h.supervisor.start(_agent(h, 'crash', channel));
+      final result = await handle.result.timeout(const Duration(seconds: 60));
+
+      expect(result.state, 'failed');
+      expect(result.reason, startsWith('agent failed to start: child exited'));
+      final node = h.node(handle.id)!;
+      expect(node['state'], 'failed');
+      expect(node['agent'], containsPair('status', 'failed'));
+      expect(h.stream(node, 'result'), startsWith('agent failed to start'));
+    }, skip: skip);
 
     test('shell and hook jobs keep the three streams and no result', () async {
       final h = await JobHarness.create();

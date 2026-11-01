@@ -540,4 +540,28 @@ void main() {
       contains('child refused the prompt: line too long (limit 1 MiB)'),
     );
   });
+  test('a child that exits before hello with no fatal fails the job, not '
+      'only the agent status', () async {
+    final host = _Host();
+    final run = _run(host);
+
+    final end = await run.finish(const JobEnd(exit: 255));
+
+    const message =
+        'agent failed to start: child exited (255) before its first exchange';
+    expect(end.result, message);
+    expect(end.fields['status'], 'failed');
+    expect(end.failure, message);
+  });
+
+  test('a done child names no job failure', () async {
+    final host = _Host();
+    final run = _run(host);
+
+    await _feed(run, _line(_hello()));
+    await _feed(run, _line(_snapshot(exchange: _exchange('done'))));
+    final end = await run.finish(const JobEnd(exit: 0));
+
+    expect(end.failure, isNull);
+  });
 }

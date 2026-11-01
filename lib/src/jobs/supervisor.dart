@@ -101,13 +101,18 @@ final class JobEnd {
 /// The typed end of a channelled job.
 final class ChannelEnd {
   /// Creates the end.
-  const ChannelEnd(this.result, this.fields);
+  const ChannelEnd(this.result, this.fields, {this.failure});
 
   /// The text of the `result` stream.
   final String result;
 
   /// The terminal `agent` fields of the job node.
   final Map<String, Object?> fields;
+
+  /// Why the job failed, when the channel found a failure the process exit
+  /// does not show (an agent child that ended before its first exchange);
+  /// the job then ends `failed` with it unless it already failed.
+  final String? failure;
 }
 
 /// A conversation with a job's process over its standard streams (design D11).
@@ -1274,6 +1279,7 @@ final class JobSupervisor {
           ),
         );
         agent = end.fields;
+        job.failReason ??= end.failure;
         await job.gates[resultStream]!.run(
           () => _spoolWrite(job, resultStream, utf8.encode(end.result)),
         );

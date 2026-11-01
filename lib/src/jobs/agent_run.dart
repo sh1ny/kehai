@@ -444,10 +444,11 @@ final class AgentRun implements JobChannel {
       status = cancelReason == 'deadline' ? 'timeout' : 'cancelled';
     } else if (!_submitted) {
       final fatal = _fatal;
-      return ChannelEnd(
-        'agent failed to start: ${fatal ?? 'child exited (${end.exit ?? 'unknown'}) before its first exchange'}',
-        _fields('failed', steps),
-      );
+      final message =
+          'agent failed to start: ${fatal ?? 'child exited (${end.exit ?? 'unknown'}) before its first exchange'}';
+      // The child never got its exchange: the job fails, not only the agent
+      // status (subagents spec: Child cannot start).
+      return ChannelEnd(message, _fields('failed', steps), failure: message);
     } else {
       status = 'failed';
       final fatal = _fatal;
