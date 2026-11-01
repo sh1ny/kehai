@@ -39,7 +39,7 @@ final class LineClient {
     required this.err,
     this.interactive = true,
     this.interrupts,
-    this.exitGrace = const Duration(seconds: 5),
+    this.exitGrace = const Duration(seconds: 15),
   });
 
   /// The engine.

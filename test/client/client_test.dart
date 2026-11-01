@@ -837,7 +837,7 @@ void main() {
       expect(await rig.exit.timeout(const Duration(seconds: 5)), 0);
     });
 
-    test('engine still alive 5 s after stdin closes is killed', () async {
+    test('engine still alive 15 s after stdin closes is killed', () async {
       expect(
         LineClient(
           engine: FakeEngine(),
@@ -845,7 +845,7 @@ void main() {
           out: TestSink(),
           err: TestSink(),
         ).exitGrace,
-        const Duration(seconds: 5),
+        const Duration(seconds: 15),
       );
 
       final rig = clientRig(exitGrace: const Duration(milliseconds: 200));
@@ -858,6 +858,24 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 400));
       expect(rig.engine.killed, isTrue);
+    });
+
+    test('the exit grace outlasts the shutdown of an agent job', () {
+      // The engine ends its agent jobs at once on shutdown. The nominal path
+      // of one (design D11, shutdown budget) is the soft stop, SIGTERM,
+      // SIGKILL and a probe for the child's group, the same for its
+      // descendant groups (one probe when they vanish promptly), and the
+      // pipe drain. Slow-to-die groups and held pipes are outside it.
+      const t = JobTimings();
+      final agentShutdown = t.softStop + (t.grace + t.probe) * 2 + t.drain;
+      final grace = LineClient(
+        engine: FakeEngine(),
+        input: const Stream<String>.empty(),
+        out: TestSink(),
+        err: TestSink(),
+      ).exitGrace;
+      expect(agentShutdown, const Duration(seconds: 13));
+      expect(grace, greaterThan(agentShutdown));
     });
   });
 }

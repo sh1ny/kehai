@@ -6,6 +6,7 @@ import 'package:kehai/kehai.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/client_support.dart' show FakeEngine;
 import '../support/job_support.dart';
 
 /// A fake child engine: reads lines from stdin and answers on stdout.
@@ -290,6 +291,69 @@ void main() {
       );
     },
     skip: skipUnlessUnix(),
+  );
+
+  test(
+    'shutdown with the default timings ends a stubborn child and its own '
+    'jobs within the client exit grace',
+    () async {
+      final setsid = posixShell()?.setsid;
+      final h = await JobHarness.create();
+      final channel = _Channel(h);
+      final pidFile = File(p.join(h.cwd, 'grandchild.pid'));
+      h.supervisor.start(
+        JobRequest(
+          kind: JobKind.agent,
+          cmd: 'agent fake',
+          cwd: h.cwd,
+          deadline: const Duration(seconds: 60),
+          channel: channel,
+          launch: () async {
+            final process = await startProcess(
+              'bash',
+              [
+                '-c',
+                'trap "" TERM; $setsid sleep 300 & echo \$! > ${pidFile.path}; '
+                    'while :; do sleep 1; done',
+              ],
+              workingDirectory: h.cwd,
+              environment: Platform.environment,
+              setsid: setsid,
+              keepStdin: true,
+            );
+            return ShellProcess(process, groupKnown: true);
+          },
+        ),
+      );
+      await waitFor(
+        () => pidFile.existsSync() && pidFile.readAsStringSync().trim() != '',
+      );
+      final grandchild = int.parse(pidFile.readAsStringSync().trim());
+
+      final clock = Stopwatch()..start();
+      await h.supervisor.close();
+      clock.stop();
+
+      final grace = LineClient(
+        engine: FakeEngine(),
+        input: const Stream<String>.empty(),
+        out: StringBuffer(),
+        err: StringBuffer(),
+      ).exitGrace;
+      expect(
+        clock.elapsed,
+        greaterThanOrEqualTo(const JobTimings().softStop),
+        reason: 'the whole soft stop was waited out',
+      );
+      expect(clock.elapsed, lessThan(grace));
+      expect(
+        Process.killPid(grandchild, ProcessSignal.sigcont),
+        isFalse,
+        reason: 'the job in its own session ended with the child',
+      );
+    },
+    skip: skipUnlessUnix(),
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 
   test('the deadline takes the same soft-stop path', () async {
