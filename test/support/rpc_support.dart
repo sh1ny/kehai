@@ -18,6 +18,7 @@ final class RpcRig {
     this.driver,
     this.provider,
     this.server,
+    this.answerer,
     this._input,
   );
 
@@ -35,6 +36,9 @@ final class RpcRig {
 
   /// The server under test.
   final RpcServer server;
+
+  /// The answerer the runtime was built with.
+  final RpcAnswerer answerer;
 
   final StreamController<List<int>> _input;
   late final StreamSubscription<String> _lines;
@@ -107,8 +111,11 @@ final class RpcRig {
     from: from,
   );
 
-  /// Waits for the update that completes request [id].
-  Future<Map<String, Object?>> requestSettled(String id) => next((e) {
+  /// Waits for the update that completes request [id], up to [timeout].
+  Future<Map<String, Object?>> requestSettled(
+    String id, {
+    Duration timeout = const Duration(seconds: 4),
+  }) => next((e) {
     if (e['type'] != 'update') return false;
     final record = e['record'] as Map<String, Object?>;
     final value = record['value'];
@@ -116,7 +123,7 @@ final class RpcRig {
         value is Map<String, Object?> &&
         value['state'] != null &&
         value['state'] != 'admitted';
-  });
+  }, timeout: timeout);
 
   /// Closes the input and waits for the server to return.
   Future<int> finish() async {
@@ -135,6 +142,7 @@ Future<RpcRig> rpcRig(
   int seedTurn = 0,
   PumpLimits limits = const PumpLimits(),
   Directory? resumeSession,
+  String? model,
 }) async {
   final root = await tempDir();
   final ws = Directory(p.join(root.path, 'ws'))..createSync();
@@ -156,6 +164,7 @@ Future<RpcRig> rpcRig(
     gate: gate ?? (kehaiHome ? null : const AllowAllStage()),
     kehaiHome: kehaiHome ? home : null,
     answerer: answerer,
+    model: model,
   );
   final driver = ExchangeDriver(
     writer: writer,
@@ -180,7 +189,15 @@ Future<RpcRig> rpcRig(
     ),
     limits: limits,
   );
-  final rig = RpcRig._(writer, runtime, driver, provider, server, input);
+  final rig = RpcRig._(
+    writer,
+    runtime,
+    driver,
+    provider,
+    server,
+    answerer,
+    input,
+  );
   rig._lines = out.stream
       .transform(utf8.decoder)
       .transform(const LineSplitter())

@@ -39,6 +39,8 @@ final class ToolOutcome {
     this.reason,
     this.policy,
     this.storage,
+    this.notrunc = false,
+    this.capacityTokens,
   });
 
   /// The envelope status of the call.
@@ -78,6 +80,15 @@ final class ToolOutcome {
   /// seal or publish failed). The call is then recorded `failed` with the
   /// storage reason and the accepted bytes, and no result.
   final JobStorageFailure? storage;
+
+  /// Whether the answer is composed whole, with no line or per-line cut
+  /// (the `skill` tool). A result over [capacityTokens] then settles `error`
+  /// with the composer's message and nothing is cut.
+  final bool notrunc;
+
+  /// The tokens left in the context window for a [notrunc] answer, or null
+  /// when unknown, in which case no capacity check is made.
+  final int? capacityTokens;
 }
 
 /// Where a tool streams its output.
@@ -111,7 +122,30 @@ final class ToolContext {
     this.shell,
     this.jobs,
     this.permission,
+    this.capacity,
+    this.model,
+    this.yolo = false,
   });
+
+  /// Sends one ephemeral progress line of [kind] to the client, when the
+  /// answerer takes progress; it is not recorded (design D13).
+  void progress(String kind, String delta) {
+    if (prompts?.answerer case final ProgressSink sink) {
+      sink.progress(kind, delta);
+    }
+  }
+
+  /// The model slug the parent engine runs, which an agent without a model of
+  /// its own inherits; null when the context has none.
+  final String? model;
+
+  /// Whether the engine skips permission prompts (`--yolo`); a child agent
+  /// then runs the same way.
+  final bool yolo;
+
+  /// The tokens left in the window after the step that made this call, or
+  /// null when unknown; the function returns null for an unknown window.
+  final int? Function()? capacity;
 
   /// The shell detected at attach, or null when the context has none.
   final ShellDetection? shell;

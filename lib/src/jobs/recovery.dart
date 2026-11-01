@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../results/descriptor.dart';
+import '../results/live_result.dart' show checkSpoolName;
 import '../results/result_store.dart';
 import '../session/path.dart';
 import '../session/record.dart';
@@ -45,6 +46,7 @@ final class ResumeReport {
     this.calls = 0,
     this.orphans = 0,
     this.leftovers = 0,
+    this.discarded = 0,
   });
 
   /// The report of a session with nothing to finalize.
@@ -63,14 +65,21 @@ final class ResumeReport {
   /// are left in place.
   final int leftovers;
 
+  /// Agent `result` spools deleted because their handoff intent was never
+  /// committed (design D11).
+  final int discarded;
+
   /// The number of nodes finalized, calls and jobs together.
   int get finalized => jobs + calls;
 
   /// The warning for the user, empty when nothing was finalized.
-  String get warning => finalized == 0 && orphans == 0
-      ? ''
-      : 'processes of the previous engine may still run: no process id is '
-            'stored to check';
+  String get warning => [
+    if (finalized != 0 || orphans != 0)
+      'processes of the previous engine may still run: no process id is '
+          'stored to check',
+    if (discarded != 0)
+      '$discarded agent results discarded before their handoff',
+  ].join('; ');
 
   @override
   String toString() =>
@@ -83,6 +92,7 @@ final class _Counts {
   int jobs = 0;
   int calls = 0;
   int orphans = 0;
+  int discarded = 0;
 }
 
 /// Finishes the work of owners that are gone.
@@ -114,6 +124,7 @@ final class JobRecovery {
       calls: counts.calls,
       orphans: counts.orphans,
       leftovers: _leftovers(),
+      discarded: counts.discarded,
     );
   }
 
@@ -206,7 +217,7 @@ final class JobRecovery {
     final node = _at('jobs/$id');
     final mine = node is Map<String, Object?> && node['launch'] == launch;
     if (!mine) {
-      await _transfer(launch, id, record);
+      await _transfer(launch, id, record, counts);
       counts.orphans++;
       return;
     }
@@ -214,7 +225,7 @@ final class JobRecovery {
       await clearLaunch(launch);
       return;
     }
-    if (await _finish(launch, id, record, node, reason)) counts.jobs++;
+    if (await _finish(launch, id, record, node, reason, counts)) counts.jobs++;
   }
 
   // -- the orphan transfer ---------------------------------------------
@@ -226,10 +237,11 @@ final class JobRecovery {
     String launch,
     String id,
     Map<String, Object?> record,
+    _Counts counts,
   ) async {
     final path = 'meta/orphans/$id/outputs/$launch';
     if (_at(path) == null) {
-      final mapping = await _mappingOf(record);
+      final mapping = await _mappingOf(record, counts);
       await _hook(hooks.beforeOrphan, id);
       await writer.applyGuarded(
         (read) => read(path) != null
@@ -243,11 +255,21 @@ final class JobRecovery {
 
   /// One entry per stream: spool name, hash when known, and disposition as
   /// found on disk.
-  Future<Map<String, Object?>> _mappingOf(Map<String, Object?> record) async {
+  ///
+  /// The streams are the intent's when it is committed, else the protocol
+  /// streams of the launch record: an agent's `result` spool is never mapped
+  /// before the intent, it is deleted and counted (design D11).
+  Future<Map<String, Object?>> _mappingOf(
+    Map<String, Object?> record,
+    _Counts counts,
+  ) async {
     final intent = record['streams'];
     final spools = record['spools'];
     final mapping = <String, Object?>{};
-    for (final stream in jobStreams) {
+    if (intent is! Map<String, Object?> && _discardResult(record)) {
+      counts.discarded++;
+    }
+    for (final stream in _streamsOf(record)) {
       final known = intent is Map<String, Object?> ? intent[stream] : null;
       final entry = known is Map<String, Object?> ? known : null;
       final name =
@@ -289,10 +311,11 @@ final class JobRecovery {
     Map<String, Object?> record,
     Map<String, Object?> node,
     String reason,
+    _Counts counts,
   ) async {
     var intent = record;
     if (record['streams'] is! Map<String, Object?>) {
-      final adopted = await _adoptIntent(launch, id, record, reason);
+      final adopted = await _adoptIntent(launch, id, record, reason, counts);
       if (adopted == null) return false;
       intent = adopted;
     }
@@ -309,7 +332,7 @@ final class JobRecovery {
     // 2. Publish what is not yet published, 3. register.
     final present = <String, ResultDescriptor>{};
     final absent = <String>[];
-    for (final stream in jobStreams) {
+    for (final stream in streams.keys) {
       final entry = streams[stream];
       final descriptor = entry is Map<String, Object?>
           ? await _publish(entry)
@@ -376,10 +399,11 @@ final class JobRecovery {
     String id,
     Map<String, Object?> record,
     String reason,
+    _Counts counts,
   ) async {
     final spools = record['spools'];
     final streams = <String, Object?>{};
-    for (final stream in jobStreams) {
+    for (final stream in _streamsOf(record)) {
       final name = spools is Map<String, Object?> ? spools[stream] : null;
       if (name is! String) continue;
       if (File(_resultPath(name)).existsSync()) {
@@ -395,7 +419,30 @@ final class JobRecovery {
         streams[stream] = {'spool': name, 'complete': false};
       }
     }
-    final outcome = {'state': 'cancelled', 'ended': _now(), 'reason': reason};
+    // An agent's typed result is never adopted: it is recorded as an entry
+    // without bytes, so the settled node lists it in `absent`, and its spool
+    // is deleted and counted.
+    final resultSpool = spools is Map<String, Object?>
+        ? spools[resultStream]
+        : null;
+    if (resultSpool is String) {
+      streams[resultStream] = {'spool': resultSpool, 'complete': false};
+      if (_discardResult(record)) counts.discarded++;
+    }
+    final node = _at('jobs/$id');
+    final agent = node is Map<String, Object?> && node['kind'] == 'agent'
+        ? <String, Object?>{
+            'role': node['cmd'],
+            ...?(node['agent'] as Map<String, Object?>?),
+            'status': 'cancelled',
+          }
+        : null;
+    final outcome = {
+      'state': 'cancelled',
+      'ended': _now(),
+      'reason': reason,
+      'agent': ?agent,
+    };
     final result = await writer.applyGuarded((read) {
       final current = read('meta/handoffs/$launch');
       if (current is! Map<String, Object?> || current['streams'] != null) {
@@ -415,6 +462,30 @@ final class JobRecovery {
     await _hook(hooks.afterIntent, id);
     final merged = _at('meta/handoffs/$launch');
     return merged is Map<String, Object?> ? merged : null;
+  }
+
+  /// The streams of the launch [record]: those its intent names, else the
+  /// protocol streams of its spools. An agent's `result` belongs to the
+  /// second only once the intent names it.
+  Iterable<String> _streamsOf(Map<String, Object?> record) {
+    final intent = record['streams'];
+    if (intent is Map<String, Object?>) return intent.keys;
+    final spools = record['spools'];
+    if (spools is! Map<String, Object?>) return jobStreams;
+    return spools.keys.where((s) => s != resultStream);
+  }
+
+  /// Deletes the `result` spool of a launch [record] whose intent is not
+  /// committed. Returns whether a file was deleted.
+  bool _discardResult(Map<String, Object?> record) {
+    final spools = record['spools'];
+    final name = spools is Map<String, Object?> ? spools[resultStream] : null;
+    if (name is! String) return false;
+    checkSpoolName(name);
+    final file = File(_resultPath(name));
+    if (!file.existsSync()) return false;
+    file.deleteSync();
+    return true;
   }
 
   /// Publishes the stream of an intent [entry] and returns its descriptor,

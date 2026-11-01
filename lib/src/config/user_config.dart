@@ -28,6 +28,8 @@ const Set<String> toolRoster = {
   'job',
   'read_more',
   'search_result',
+  'skill',
+  'agent',
 };
 
 /// A configuration file that cannot be used.
@@ -114,6 +116,7 @@ final class UserConfig {
     this.envPassthrough = const [],
     this.model,
     this.contextWindows = const {},
+    this.agentModels = const {},
   });
 
   /// Reads `config.json` from [home].
@@ -160,6 +163,9 @@ final class UserConfig {
 
   /// The `models.<id>.contextWindow` overrides, by model id.
   final Map<String, int> contextWindows;
+
+  /// The `agents.models` map from a role's model alias to a model id.
+  final Map<String, String> agentModels;
 }
 
 UserConfig _parse(String path, Object? json) {
@@ -173,6 +179,7 @@ UserConfig _parse(String path, Object? json) {
     'env',
     'model',
     'models',
+    'agents',
   });
   final rgPath = json['rgPath'];
   if (json.containsKey('rgPath') && (rgPath is! String || rgPath.isEmpty)) {
@@ -216,7 +223,26 @@ UserConfig _parse(String path, Object? json) {
     envPassthrough: _env(path, json),
     model: model as String?,
     contextWindows: _models(path, json),
+    agentModels: _agents(path, json),
   );
+}
+
+Map<String, String> _agents(String path, Map<String, Object?> root) {
+  if (!root.containsKey('agents')) return const {};
+  final agents = _object(path, 'agents', root['agents']);
+  _noUnknown(path, 'agents', agents, const {'models'});
+  if (!agents.containsKey('models')) return const {};
+  final map = _object(path, 'agents.models', agents['models']);
+  return {
+    for (final MapEntry(:key, :value) in map.entries)
+      key: switch (value) {
+        final String s when s.isNotEmpty => s,
+        _ => throw ConfigError(
+          path,
+          'agents.models.$key: must be a non-empty string',
+        ),
+      },
+  };
 }
 
 Map<String, int> _models(String path, Map<String, Object?> root) {

@@ -40,6 +40,61 @@ void main() {
       expect(config.envPassthrough, isEmpty);
       expect(config.model, isNull);
       expect(config.contextWindows, isEmpty);
+      expect(config.agentModels, isEmpty);
+    });
+
+    test('agents.models aliases parse', () {
+      write({
+        'agents': {
+          'models': {'sonnet': 'gpt-6.1-mini', 'haiku': 'gpt-6.1-nano'},
+        },
+      });
+
+      expect(UserConfig.load(home.path).agentModels, {
+        'sonnet': 'gpt-6.1-mini',
+        'haiku': 'gpt-6.1-nano',
+      });
+
+      write({'agents': <String, Object?>{}});
+      expect(UserConfig.load(home.path).agentModels, isEmpty);
+    });
+
+    test('bad agents settings refuse naming the path', () {
+      write({
+        'agents': {
+          'models': {'sonnet': ''},
+        },
+      });
+      expect(
+        refused().message,
+        '${path()}: agents.models.sonnet: must be a non-empty string',
+      );
+
+      write({
+        'agents': {
+          'models': {'sonnet': 3},
+        },
+      });
+      expect(
+        refused().message,
+        '${path()}: agents.models.sonnet: must be a non-empty string',
+      );
+
+      write({
+        'agents': {'roles': <String, Object?>{}},
+      });
+      expect(refused().message, '${path()}: agents: unknown key roles');
+
+      write({'agents': <Object?>[]});
+      expect(refused().message, '${path()}: agents: must be an object');
+
+      write({
+        'agents': {'models': <Object?>[]},
+      });
+      expect(refused().message, '${path()}: agents.models: must be an object');
+
+      write({'agents': null});
+      expect(refused().message, '${path()}: agents: must be an object');
     });
 
     test('model and models contextWindow parse', () {
@@ -306,6 +361,28 @@ void main() {
       expect(config.hooks[1].timeout, defaultHookTimeout);
       expect(config.rgPath, '/opt/rg');
       expect(config.envPassthrough, ['OPENAI_API_KEY']);
+    });
+
+    test('allow rules and hook tool lists accept skill and agent', () {
+      write({
+        'allow': [
+          {'tool': 'skill'},
+          {'tool': 'agent'},
+        ],
+        'hooks': [
+          {
+            'name': 'guard',
+            'argv': ['guard'],
+            'tools': ['skill', 'agent'],
+            'policy': 'deny',
+          },
+        ],
+      });
+
+      final config = UserConfig.load(home.path);
+
+      expect(config.allow.map((r) => r.tool), ['skill', 'agent']);
+      expect(config.hooks.single.tools, ['skill', 'agent']);
     });
 
     test('hook shape problems name the path and the hook', () {

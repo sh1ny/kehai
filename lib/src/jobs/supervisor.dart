@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -26,6 +27,14 @@ const int maxLiveJobs = 16;
 const String tooManyJobsMessage =
     'too many live jobs ($maxLiveJobs); cancel one with job';
 
+/// The most agent jobs that may be live at once; each also counts toward
+/// [maxLiveJobs].
+const int maxLiveAgents = 4;
+
+/// The text a call settles with when a fifth agent would start.
+const String tooManyAgentsMessage =
+    'too many live agents ($maxLiveAgents); wait for or cancel one with job';
+
 /// The default job deadline.
 const Duration defaultJobDeadline = Duration(seconds: 3600);
 
@@ -35,18 +44,96 @@ const Duration maxJobDeadline = Duration(seconds: 86400);
 /// The three result streams of a job, in the order they are published.
 const List<String> jobStreams = ['stdout', 'stderr', 'output'];
 
+/// The typed result stream of an agent job (design D11).
+const String resultStream = 'result';
+
 /// The kind of process a job runs.
 enum JobKind {
   /// A `bash` tool command.
   shell('shell'),
 
   /// A hook.
-  hook('hook');
+  hook('hook'),
 
-  const JobKind(this.wire);
+  /// A child engine (design D8).
+  agent('agent', [...jobStreams, resultStream]);
+
+  const JobKind(this.wire, [this.streams = jobStreams]);
 
   /// The name stored in the job node.
   final String wire;
+
+  /// The result streams of this kind of job, in the order they are published:
+  /// [jobStreams], plus `result` for an agent.
+  final List<String> streams;
+}
+
+/// What the supervisor lets a [JobChannel] do to its job.
+abstract interface class JobHost {
+  /// The process's standard input, kept open for the job's whole life.
+  StreamSink<List<int>> get stdin;
+
+  /// Merges [fields] into the job node when the job still owns it; a stale
+  /// job changes nothing.
+  Future<void> merge(Map<String, Object?> fields);
+
+  /// Ends the job `failed` with [reason] and soft-stops its process. The first
+  /// reason wins.
+  void fail(String reason);
+}
+
+/// How a job's process ended, as told to [JobChannel.finish].
+final class JobEnd {
+  /// Creates the facts.
+  const JobEnd({this.exit, this.cancelReason, this.failReason});
+
+  /// The exit code, or `null` when the process never started or did not end.
+  final int? exit;
+
+  /// Why the job was cancelled (`user`, `deadline`, `rewound`, `shutdown`),
+  /// or `null`.
+  final String? cancelReason;
+
+  /// The reason given to [JobHost.fail], or `null`.
+  final String? failReason;
+}
+
+/// The typed end of a channelled job.
+final class ChannelEnd {
+  /// Creates the end.
+  const ChannelEnd(this.result, this.fields, {this.failure});
+
+  /// The text of the `result` stream.
+  final String result;
+
+  /// The terminal `agent` fields of the job node.
+  final Map<String, Object?> fields;
+
+  /// Why the job failed, when the channel found a failure the process exit
+  /// does not show (an agent child that ended before its first exchange);
+  /// the job then ends `failed` with it unless it already failed.
+  final String? failure;
+}
+
+/// A conversation with a job's process over its standard streams (design D11).
+///
+/// Used by agent jobs: the supervisor keeps the process's stdin open, hands it
+/// every stdout chunk once the chunk is spooled, soft-stops it before any
+/// signal, and takes the typed result from it after the process ended.
+abstract interface class JobChannel {
+  /// The process started; called before the first [onChunk].
+  void attach(JobHost host);
+
+  /// One stdout chunk, already spooled. The pipe stays paused until the future
+  /// completes.
+  Future<void> onChunk(List<int> chunk);
+
+  /// Asks the process to end by itself (agents: `interrupt`, then close
+  /// stdin). May be called more than once and after the process ended.
+  Future<void> softStop();
+
+  /// Called once, after the process exited and its pipes drained.
+  Future<ChannelEnd> finish(JobEnd end);
 }
 
 /// Starts the process of a job, or throws a `ProcessException`.
@@ -63,6 +150,7 @@ final class JobRequest {
     this.shell,
     this.call,
     this.deadline = defaultJobDeadline,
+    this.channel,
   });
 
   /// A request that runs [command] through [shell].
@@ -111,6 +199,10 @@ final class JobRequest {
 
   /// Starts the process.
   final JobLauncher launch;
+
+  /// The conversation with the process, for a job whose launcher keeps stdin
+  /// open (an agent). Its stdin, stdout and soft stop are the channel's.
+  final JobChannel? channel;
 }
 
 /// One stream of a finished job.
@@ -139,6 +231,7 @@ final class JobResult {
     this.streams = const {},
     this.stale = false,
     this.storage,
+    this.agent,
   });
 
   /// The job id.
@@ -173,6 +266,9 @@ final class JobResult {
   /// the seal or the publish failed). The state is then `failed` with the
   /// reason `storage: <error>`, and no stream is published.
   final JobStorageFailure? storage;
+
+  /// The terminal `agent` fields of an agent job, when the channel gave them.
+  final Map<String, Object?>? agent;
 }
 
 /// The output of a job could not be stored.
@@ -213,6 +309,18 @@ final class TooManyLiveJobs implements Exception {
 
   /// The text the call settles `failed` with.
   String get message => tooManyJobsMessage;
+
+  @override
+  String toString() => message;
+}
+
+/// The fifth live agent was refused; nothing started.
+final class TooManyLiveAgents implements Exception {
+  /// Creates the error.
+  const TooManyLiveAgents();
+
+  /// The text the call settles `failed` with.
+  String get message => tooManyAgentsMessage;
 
   @override
   String toString() => message;
@@ -331,7 +439,12 @@ final class JobTimings {
     this.probe = const Duration(seconds: 1),
     this.poll = const Duration(milliseconds: 25),
     this.closeSettle = const Duration(milliseconds: 250),
+    this.softStop = const Duration(seconds: 5),
   });
+
+  /// How long a channelled process may take to exit by itself after its soft
+  /// stop, before the termination.
+  final Duration softStop;
 
   /// SIGTERM to SIGKILL.
   final Duration grace;
@@ -408,20 +521,22 @@ final class _Pipe {
 /// The runtime entry of one job: its reservation, process and timers.
 final class _Job {
   _Job(this.id, this.launch, this.request)
-    : spools = {for (final s in jobStreams) s: '.spool-$launch-$s'} {
+    : streams = request.kind.streams,
+      spools = {for (final s in request.kind.streams) s: '.spool-$launch-$s'} {
     done.future.ignore();
   }
 
   final String id;
   final String launch;
   final JobRequest request;
+  final List<String> streams;
   final Map<String, String> spools;
 
   final Completer<JobResult> done = Completer<JobResult>();
   final Completer<int?> exited = Completer<int?>();
   final Completer<void> terminationStarted = Completer<void>();
   final Map<String, LiveResult> live = {};
-  final Map<String, _Gate> gates = {for (final s in jobStreams) s: _Gate()};
+  late final Map<String, _Gate> gates = {for (final s in streams) s: _Gate()};
   final Map<String, _Pipe> pipes = {};
 
   _Phase phase = _Phase.launching;
@@ -429,6 +544,7 @@ final class _Job {
   bool nodeCommitted = false;
   bool cancelRequested = false;
   String? cancelReason;
+  String? failReason;
   Object? storageError;
   bool forcedKill = false;
   ShellProcess? proc;
@@ -438,6 +554,25 @@ final class _Job {
 
   String get path => 'jobs/$id';
   String get launchPath => 'meta/handoffs/$launch';
+}
+
+/// What a [JobChannel] may do to its job.
+final class _Host implements JobHost {
+  _Host(this._supervisor, this._job);
+
+  final JobSupervisor _supervisor;
+  final _Job _job;
+
+  @override
+  StreamSink<List<int>> get stdin => _job.proc!.process.stdin;
+
+  @override
+  Future<void> merge(Map<String, Object?> fields) async {
+    await _supervisor._guardedMerge(_job, fields);
+  }
+
+  @override
+  void fail(String reason) => _supervisor._fail(_job, reason);
 }
 
 /// Owns every job process of one runtime (design D8, D9, D10).
@@ -509,11 +644,16 @@ final class JobSupervisor {
   /// The jobs holding an admission slot: `pending`, `running` or draining.
   int get liveCount => _jobs.values.where((j) => j.slotHeld).length;
 
+  /// The jobs of [kind] holding an admission slot.
+  int liveCountOf(JobKind kind) =>
+      _jobs.values.where((j) => j.slotHeld && j.request.kind == kind).length;
+
   /// Reserves a slot and starts [request] as a new job.
   ///
   /// The bound is checked and the reservation inserted before anything is
-  /// awaited. Throws [TooManyLiveJobs] when [maxLiveJobs] jobs are live; then
-  /// nothing starts and nothing is recorded. The returned handle completes
+  /// awaited. Throws [TooManyLiveAgents] when [request] is an agent and
+  /// [maxLiveAgents] agents are live, and [TooManyLiveJobs] when [maxLiveJobs]
+  /// jobs are live; then nothing starts and nothing is recorded. The returned handle completes
   /// [JobHandle.result] with the job's end; a storage failure completes it
   /// with that error.
   JobHandle start(JobRequest request) {
@@ -521,6 +661,10 @@ final class JobSupervisor {
     final deadline = request.deadline;
     if (deadline <= Duration.zero || deadline > maxJobDeadline) {
       throw ArgumentError.value(deadline, 'deadline', 'must be 1 s to 24 h');
+    }
+    if (request.kind == JobKind.agent &&
+        liveCountOf(JobKind.agent) >= maxLiveAgents) {
+      throw const TooManyLiveAgents();
     }
     if (liveCount >= maxLiveJobs) throw const TooManyLiveJobs();
     var id = 'j-${_hex(4)}';
@@ -546,15 +690,21 @@ final class JobSupervisor {
     return JobCancelled(await job.done.future);
   }
 
-  /// Terminates the live shell job started for call [call] and returns the
-  /// output it stored, or `null` when the call has no live job or the job left
-  /// no output (a cancelled call answers with what its job printed).
+  /// Terminates the live shell or agent job started for call [call] and
+  /// returns the output it stored (an agent's typed result), or `null` when
+  /// the call has no live job or the job left no output (a cancelled call
+  /// answers with what its job printed).
   Future<ResultDescriptor?> cancelCallJob(
     String call, {
     String reason = 'user',
   }) async {
     final job = _jobs.values
-        .where((j) => j.request.call == call && j.request.kind == JobKind.shell)
+        .where(
+          (j) =>
+              j.request.call == call &&
+              (j.request.kind == JobKind.shell ||
+                  j.request.kind == JobKind.agent),
+        )
         .firstOrNull;
     if (job == null) return null;
     try {
@@ -564,7 +714,9 @@ final class JobSupervisor {
         JobAlreadyExited() => await job.done.future,
         JobNotLive() => null,
       };
-      return result?.streams['output']?.descriptor;
+      return result
+          ?.streams[job.request.kind == JobKind.agent ? resultStream : 'output']
+          ?.descriptor;
     } on Object {
       return null;
     }
@@ -747,7 +899,7 @@ final class JobSupervisor {
     job.nodeCommitted = true;
     await _hook(hooks.afterPending, job);
     try {
-      for (final stream in jobStreams) {
+      for (final stream in job.streams) {
         job.live[stream] = await store.begin(job.spools[stream]!);
       }
     } on Object catch (e) {
@@ -769,6 +921,7 @@ final class JobSupervisor {
         request.deadline,
         () => unawaited(_cancel(job, 'deadline')),
       );
+      request.channel?.attach(_Host(this, job));
       _attachPipes(job);
       if (job.cancelRequested) _startTermination(job);
     }
@@ -817,6 +970,13 @@ final class JobSupervisor {
     if (job.proc != null) _startTermination(job);
   }
 
+  /// Ends [job] `failed` with [reason] (the first wins) and stops its process
+  /// as a cancellation does.
+  void _fail(_Job job, String reason) {
+    job.failReason ??= reason;
+    unawaited(_cancel(job, 'failed'));
+  }
+
   Future<String> _startTermination(_Job job) {
     final existing = job.termination;
     if (existing != null) return existing;
@@ -827,6 +987,100 @@ final class JobSupervisor {
 
   /// Terminates the process tree of [job] and returns its `cleanup` text.
   Future<String> _terminate(_Job job) async {
+    final started = job.proc!;
+    final process = started.process;
+    final channel = job.request.channel;
+    if (channel != null) {
+      // Soft stop first: the process may end by itself within the window.
+      final clock = Stopwatch()..start();
+      try {
+        await _within(channel.softStop(), timings.softStop);
+      } on Object {
+        // A channel that cannot ask is followed by the signals all the same.
+      }
+      final left = timings.softStop - clock.elapsed;
+      if (left > Duration.zero) await _within(process.exitCode, left);
+    }
+    // A child engine runs its own jobs in their own sessions, outside its
+    // group. When it did not end by itself, those groups are read while they
+    // are still its descendants and ended after it (subagents: the process
+    // tree ends after the grace). `taskkill /T` already covers them on Windows.
+    final owned =
+        !_windows && job.request.kind == JobKind.agent && job.exitCode == null
+        ? await _descendantGroups(process.pid)
+        : const <int>[];
+    final cleanup = await _terminateMain(job);
+    if (owned.isEmpty) return cleanup;
+    for (final group in owned) {
+      _signal(group, _sigterm);
+    }
+    var remaining = owned;
+    final waited = Stopwatch()..start();
+    while (remaining.isNotEmpty && waited.elapsed < timings.grace) {
+      await Future<void>.delayed(timings.poll);
+      remaining = [
+        for (final group in remaining)
+          if (_signal(group, 0) != _esrch) group,
+      ];
+    }
+    if (remaining.isNotEmpty) {
+      job.forcedKill = true;
+      for (final group in remaining) {
+        _signal(group, _sigkill);
+      }
+      for (final group in remaining) {
+        if (!await _groupGone(group, timings.probe)) {
+          return 'uncertain: descendant group still present';
+        }
+      }
+    }
+    return cleanup;
+  }
+
+  /// The process groups led by descendants of [root], other than its own.
+  ///
+  /// Only a group whose leader descends from [root] is returned, so no group
+  /// the engine itself belongs to is ever signalled. Empty when `ps` cannot
+  /// be read.
+  Future<List<int>> _descendantGroups(int root) async {
+    final ProcessResult listing;
+    try {
+      listing = await Process.run(
+        File('/bin/ps').existsSync() ? '/bin/ps' : '/usr/bin/ps',
+        const ['-A', '-o', 'pid=,ppid=,pgid='],
+      );
+    } on ProcessException {
+      return const [];
+    }
+    if (listing.exitCode != 0) return const [];
+    final children = <int, List<int>>{};
+    final groupOf = <int, int>{};
+    for (final line in LineSplitter.split(listing.stdout as String)) {
+      final fields = line.trim().split(RegExp(r'\s+'));
+      if (fields.length != 3) continue;
+      final [pid, ppid, pgid] = [for (final f in fields) int.tryParse(f)];
+      if (pid == null || ppid == null || pgid == null) continue;
+      (children[ppid] ??= []).add(pid);
+      groupOf[pid] = pgid;
+    }
+    final descendants = <int>{};
+    final queue = [root];
+    while (queue.isNotEmpty) {
+      for (final child in children[queue.removeLast()] ?? const <int>[]) {
+        if (descendants.add(child)) queue.add(child);
+      }
+    }
+    return {
+      for (final pid in descendants)
+        if (groupOf[pid] case final group?
+            when group != root && descendants.contains(group))
+          group,
+    }.toList();
+  }
+
+  /// Ends [job]'s own process (its group when known) and returns the
+  /// `cleanup` text.
+  Future<String> _terminateMain(_Job job) async {
     final started = job.proc!;
     final process = started.process;
     if (_windows) {
@@ -940,6 +1194,15 @@ final class JobSupervisor {
       unawaited(pipe.sub?.cancel());
       job.storageError ??= e;
       unawaited(_cancel(job, 'storage: $e'));
+      return;
+    }
+    // Spooled: now the channel may act on the bytes.
+    final channel = job.request.channel;
+    if (name != 'stdout' || channel == null) return;
+    try {
+      await channel.onChunk(chunk);
+    } on Object catch (e) {
+      _fail(job, 'channel failed: $e');
     }
   }
 
@@ -1002,8 +1265,26 @@ final class JobSupervisor {
     final writeError = job.storageError;
     if (writeError != null) return _failStorage(job, writeError, code, cleanup);
     final sealed = <String, ResultDescriptor>{};
+    Map<String, Object?>? agent;
     try {
-      for (final stream in jobStreams) {
+      // The typed result is written once the process is gone, then sealed with
+      // the other streams (design D11).
+      if (job.request.channel case final channel?) {
+        await job.pipes['stdout']?.writing;
+        final end = await channel.finish(
+          JobEnd(
+            exit: code,
+            cancelReason: cancelled ? job.cancelReason : null,
+            failReason: job.failReason,
+          ),
+        );
+        agent = end.fields;
+        job.failReason ??= end.failure;
+        await job.gates[resultStream]!.run(
+          () => _spoolWrite(job, resultStream, utf8.encode(end.result)),
+        );
+      }
+      for (final stream in job.streams) {
         await job.pipes[stream]?.writing;
         await hooks.beforeSeal?.call(job.id, stream);
         sealed[stream] = await job.gates[stream]!.run(job.live[stream]!.seal);
@@ -1014,17 +1295,24 @@ final class JobSupervisor {
     bool forced(String stream) => stream == 'output'
         ? job.pipes.values.any((p) => p.forced)
         : job.pipes[stream]?.forced ?? false;
-    final complete = {for (final s in jobStreams) s: !cancelled && !forced(s)};
+    final complete = {
+      for (final s in job.streams)
+        s: s == resultStream || (!cancelled && !forced(s)),
+    };
+    final failure = job.failReason;
     final signal = job.forcedKill
         ? 'kill'
         : (cancelled || job.termination != null ? 'term' : null);
     final outcome = <String, Object?>{
-      'state': cancelled ? 'cancelled' : 'settled',
+      'state': failure != null
+          ? 'failed'
+          : (cancelled ? 'cancelled' : 'settled'),
       'ended': _now(),
       'exit': ?code,
-      'reason': ?(cancelled ? job.cancelReason : null),
+      'reason': ?(failure ?? (cancelled ? job.cancelReason : null)),
       'cleanup': ?cleanup,
       'signal': ?signal,
+      'agent': ?agent,
     };
 
     JobResult result({bool stale = false}) => JobResult(
@@ -1038,13 +1326,14 @@ final class JobSupervisor {
       streams: stale
           ? const {}
           : {
-              for (final s in jobStreams)
+              for (final s in job.streams)
                 s: JobStream(sealed[s]!, complete: complete[s]!),
             },
       stale: stale,
+      agent: agent,
     );
     Map<String, Object?> mappingOf(String disposition) => {
-      for (final s in jobStreams)
+      for (final s in job.streams)
         s: {
           'spool': job.spools[s],
           'sha256': sealed[s]!.sha256,
@@ -1063,7 +1352,7 @@ final class JobSupervisor {
     // 1. Intent.
     await _hook(hooks.beforeIntent, job);
     final streamsJson = {
-      for (final s in jobStreams)
+      for (final s in job.streams)
         s: {
           'spool': job.spools[s],
           'sha256': sealed[s]!.sha256,
@@ -1090,7 +1379,7 @@ final class JobSupervisor {
     await _hook(hooks.afterIntent, job);
 
     // 2. Publish.
-    for (final s in jobStreams) {
+    for (final s in job.streams) {
       // Serialized with `snapshot`, which reads the spool or its published file.
       try {
         await job.gates[s]!.run(
@@ -1106,7 +1395,7 @@ final class JobSupervisor {
     // 3. Register, then 4. settle.
     final fields = {
       ...outcome,
-      for (final s in jobStreams)
+      for (final s in job.streams)
         s: {'handle': sealed[s]!.handle, 'complete': complete[s]},
     };
     Future<bool> settle() => _settle(job, fields, sealed.values);
@@ -1160,7 +1449,7 @@ final class JobSupervisor {
     String? signal,
     JobStorageFailure? storage,
   }) async {
-    for (final stream in jobStreams) {
+    for (final stream in job.streams) {
       final live = job.live[stream];
       try {
         if (live != null) await job.gates[stream]!.run(live.seal);
@@ -1186,7 +1475,7 @@ final class JobSupervisor {
       'signal': ?signal,
     };
     final mapping = <String, Object?>{
-      for (final s in jobStreams)
+      for (final s in job.streams)
         s: {'spool': job.spools[s], 'disposition': 'absent'},
     };
     Future<bool> settle() async => await _guardedMerge(job, fields) is Applied;

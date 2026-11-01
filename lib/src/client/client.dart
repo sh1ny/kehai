@@ -39,7 +39,7 @@ final class LineClient {
     required this.err,
     this.interactive = true,
     this.interrupts,
-    this.exitGrace = const Duration(seconds: 5),
+    this.exitGrace = const Duration(seconds: 15),
   });
 
   /// The engine.
@@ -400,7 +400,19 @@ final class LineClient {
   }
 
   void _onStream(Map<String, Object?> event) {
-    if (event['kind'] != 'text') return;
+    switch (event['kind']) {
+      case 'text':
+        _onText(event);
+      case 'agent':
+        // Child progress (design D13): ephemeral, printed under the running
+        // `agent` call. Stream kinds the client does not know are ignored.
+        if (event['delta'] case final String delta) {
+          _line('  ${cutTo(oneLine(delta), maxLineLength - 2)}');
+        }
+    }
+  }
+
+  void _onText(Map<String, Object?> event) {
     final turn = event['turn'];
     final delta = event['delta'];
     if (turn is! int || delta is! String) return;
@@ -570,6 +582,9 @@ final class LineClient {
   void _showActive() {
     final prompt = _prompts.active;
     if (prompt == null) return;
+    if (prompt.agent case (:final role, :final job)) {
+      _line('agent ${oneLine(role)} (job ${oneLine(job)}) asks:');
+    }
     if (prompt.kind == 'permission') {
       // Shown whole and escaped, never cut: what is approved is what runs.
       final tool = oneLine(prompt.tool);

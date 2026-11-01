@@ -4,6 +4,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -15,6 +16,8 @@ import '../session/record.dart';
 import '../session/requests.dart';
 import '../session/writer.dart';
 import '../tools/runtime.dart';
+import '../workspace/inventory.dart';
+import '../workspace/load.dart';
 import 'instructions.dart';
 import 'request_builder.dart';
 import 'retry.dart';
@@ -126,6 +129,16 @@ final class SubmitBusy extends SubmitOutcome {
   const SubmitBusy();
 }
 
+/// The prompt was refused before admission; nothing was recorded.
+final class SubmitRefused extends SubmitOutcome {
+  /// Creates the outcome with the user-facing [message].
+  const SubmitRefused(this.message);
+
+  /// Why the prompt was refused, such as `unknown command /x; start with //
+  /// to send it as text`.
+  final String message;
+}
+
 /// Pause points that make races deterministic in tests.
 final class DriverSeams {
   /// Creates seams; every callback is optional.
@@ -161,6 +174,7 @@ final class ExchangeDriver {
     DateTime Function()? clock,
     this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
+    this.childRole,
   }) : _builder = RequestBuilder(
          sessionDir: writer.sessionDir,
          model: model,
@@ -192,11 +206,18 @@ final class ExchangeDriver {
   /// Test pause points.
   final DriverSeams seams;
 
+  /// The role of a child engine, captured in the tree with each exchange's
+  /// context (design D4, D8), or null outside a child.
+  final ChildRole? childRole;
+
   final RequestBuilder _builder;
   final StreamController<StreamDelta> _deltas = StreamController.broadcast(
     sync: true,
   );
   bool _busy = false;
+
+  /// The context key of the running exchange, or null when idle.
+  String? _contextKey;
 
   /// The running exchange's cancel token, or null when idle.
   CancelToken? _token;
@@ -287,6 +308,13 @@ final class ExchangeDriver {
   /// than the session's with [SubmitStale], and nothing is recorded. The
   /// fingerprint covers the id and the text, not the turn, so a resend after
   /// the client saw a newer turn is still the same request.
+  ///
+  /// For a new id a leading `/name` is expanded before admission (design D7):
+  /// the exchange's prompt is the expansion and its `command` records what was
+  /// typed. An unknown or non-user-invocable name, or a file that cannot be
+  /// loaded, answers [SubmitRefused] with nothing recorded. A leading `//` is
+  /// sent as the text without its first slash. A known id is never expanded
+  /// again.
   Future<SubmitOutcome> submit({
     required String id,
     required String text,
@@ -299,10 +327,16 @@ final class ExchangeDriver {
         .toString();
     final known =
         writer.tree.get(SessionPath.parse('meta/requests/$id')) != null;
+    var expanded = _Expanded(text);
     if (!known) {
       if (_busy) return const SubmitBusy();
       final current = writer.currentTurn;
       if (turn != current) return SubmitStale(current);
+      try {
+        expanded = _expand(text);
+      } on LoadFailure catch (e) {
+        return SubmitRefused(e.message);
+      }
       _busy = true;
     }
     final Admission admission;
@@ -319,7 +353,7 @@ final class ExchangeDriver {
       return SubmitDuplicate(admission.state, admission.node ?? const {});
     }
     final first = writer.currentTurn + 1;
-    final done = _exchange(id, text, first).whenComplete(() {
+    final done = _exchange(id, expanded, first).whenComplete(() {
       _busy = false;
       _token = null;
     });
@@ -329,7 +363,7 @@ final class ExchangeDriver {
 
   Future<ExchangeResult> _exchange(
     String requestId,
-    String prompt,
+    _Expanded prompt,
     int first,
   ) async {
     final key = _exchangeKey(first);
@@ -342,12 +376,14 @@ final class ExchangeDriver {
         op: Op.set,
         value: {
           'request': requestId,
-          'prompt': prompt,
+          'prompt': prompt.text,
+          'command': ?prompt.command,
           'state': 'running',
           'first': first,
         },
       ),
     );
+    await _captureContext(key, first);
     var turn = first;
     _End end;
     for (var steps = 1; ; steps++) {
@@ -384,6 +420,121 @@ final class ExchangeDriver {
     return ExchangeResult(key, end.state, end.reason);
   }
 
+  /// Expands a leading `/name` of [text] (design D7); throws a [LoadFailure]
+  /// to refuse it.
+  _Expanded _expand(String text) {
+    if (text.startsWith('//')) return _Expanded(text.substring(1));
+    final match = RegExp(r'^/(\S+)').firstMatch(text);
+    if (match == null) return _Expanded(text);
+    final name = match[1]!;
+    final rest = text.substring(match.end);
+    final newline = rest.indexOf('\n');
+    final first = (newline < 0 ? rest : rest.substring(0, newline)).trim();
+    final more = newline < 0 ? '' : rest.substring(newline + 1);
+    final args = more.isEmpty
+        ? first
+        : first.isEmpty
+        ? more
+        : '$first\n$more';
+
+    final home = runtime.kehaiHome ?? _noHome;
+    final view = loadWorkspace(
+      workspace: runtime.workspace.path,
+      kehaiHome: home,
+    );
+    final entry = view.slashCommands.where((e) => e.name == name).firstOrNull;
+    if (entry == null) {
+      throw LoadFailure(
+        view.skill(name) != null
+            ? '$name is not a user command'
+            : 'unknown command /$name; start with // to send it as text',
+      );
+    }
+    final LoadedText loaded;
+    if (entry.command case final command?) {
+      loaded = loadFile(
+        root: view.root,
+        path: command.path,
+        kehaiHome: home,
+        name: name,
+        kind: 'command',
+        arguments: args,
+      );
+    } else {
+      final skill = entry.skill!;
+      loaded = loadFile(
+        root: view.root,
+        path: skill.file,
+        kehaiHome: home,
+        name: name,
+        kind: 'skill',
+        arguments: args,
+        baseDir: skill.directory,
+      );
+    }
+    return _Expanded(loaded.text, {
+      'name': name,
+      'args': args,
+      'source': loaded.source,
+      'sha256': sha256.convert(utf8.encode(loaded.text)).toString(),
+    });
+  }
+
+  /// Loads the workspace, stores its context text under a key of its content
+  /// unless already stored, and records the key on exchange [exchange]
+  /// (design D4). Both records carry the exchange's turn [first].
+  Future<void> _captureContext(String exchange, int first) async {
+    final loaded = loadWorkspace(
+      workspace: runtime.workspace.path,
+      kehaiHome: runtime.kehaiHome ?? _noHome,
+    );
+    final role = childRole;
+    final value = <String, Object?>{
+      'text': loaded.contextText,
+      'files': [
+        for (final f in loaded.files)
+          {'path': f.path, 'bytes': f.size, 'truncated': f.truncated},
+      ],
+      'skills': loaded.skills.length,
+      'role': ?role?.toJson(),
+      'problems': [
+        for (final problem in loaded.problems)
+          {'path': problem.path, 'reason': problem.reason},
+      ],
+    };
+    // The key covers everything stored, not the text alone: a problem that
+    // appears or goes away without changing the text (an unreadable file, a
+    // broken skill) is another context, so no exchange reuses stale
+    // diagnostics. The role is part of it too: another role digest is
+    // another context.
+    final contextKey = sha256
+        .convert(utf8.encode(jsonEncode(value)))
+        .toString()
+        .substring(0, 16);
+    final stored = writer.tree.get(
+      SessionPath.parse('body/contexts/$contextKey'),
+    );
+    if (stored == null) {
+      await _apply(
+        JournalRecord(
+          turn: first,
+          path: 'body/contexts/$contextKey',
+          op: Op.set,
+          value: value,
+        ),
+      );
+    }
+    await _apply(
+      JournalRecord(
+        turn: first,
+        path: 'body/exchanges/$exchange',
+        op: Op.merge,
+        value: {'context': contextKey},
+      ),
+    );
+    _contextKey = contextKey;
+  }
+
   /// Runs one step; returns [_End] when the exchange ends with it, else
   /// [_Continue] after its calls are all terminal.
   Future<_StepOutcome> _step(
@@ -399,7 +550,11 @@ final class ExchangeDriver {
         value: {
           'exchange': exchange,
           'model': model,
-          'instructions': instructionsVersion,
+          'instructions': InstructionsIdentity(
+            instructionsVersion,
+            _contextKey,
+            childRole?.digest ?? _builder.roleDigest,
+          ).toJson(),
           'state': 'running',
           'attempts': 0,
         },
@@ -628,6 +783,19 @@ final class ExchangeDriver {
   Future<T> _gated<T>(Future<T> Function() operation) =>
       runtime.writeGate.run(operation);
 }
+
+/// The prompt an exchange starts with and the `command` that produced it.
+final class _Expanded {
+  const _Expanded(this.text, [this.command]);
+
+  final String text;
+  final Map<String, Object?>? command;
+}
+
+/// A Kehai home that does not exist, for a runtime attached without one.
+final Directory _noHome = Directory(
+  p.join(Directory.systemTemp.path, 'kehai-no-home'),
+);
 
 const Map<String, Object?> _interrupted = {
   'state': 'cancelled',

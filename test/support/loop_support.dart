@@ -13,6 +13,7 @@ Future<void> seedExchange(
   int turn,
   String prompt, {
   String state = 'done',
+  String? context,
 }) async {
   await writer.apply(
     rec(turn, 'body/exchanges/x-${pad8(turn)}', Op.set, {
@@ -20,6 +21,7 @@ Future<void> seedExchange(
       'prompt': prompt,
       'state': state,
       'first': turn,
+      'context': ?context,
     }),
   );
 }
@@ -34,12 +36,15 @@ Future<void> seedStep(
   Map<String, Object?>? usage,
   Map<String, Object?>? context,
   String? partial,
+  Object? instructions,
 }) async {
   await writer.apply(
     rec(turn, 'body/steps/s-${pad8(turn)}', Op.set, {
       'exchange': 'x-${pad8(exchange)}',
       'model': 'gpt-5.5',
-      'instructions': 'kehai-1',
+      'instructions':
+          instructions ??
+          {'version': instructionsVersion, 'context': null, 'role': null},
       'state': state,
       'attempts': 1,
       'output': output,

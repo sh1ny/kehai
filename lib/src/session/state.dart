@@ -62,11 +62,13 @@ final class SessionState {
     switch (meta['lineage']) {
       case {'parent': null} && Map(length: 1):
       case {'parent': String(), 'parentTurn': int()} && Map(length: 2):
+      case {'parent': String(), 'job': String()} && Map(length: 2):
         break;
       default:
         throw invalid(
-          'meta/lineage must be {parent: null} or '
-          '{parent: <session id>, parentTurn: <int>}',
+          'meta/lineage must be {parent: null}, '
+          '{parent: <session id>, parentTurn: <int>} or '
+          '{parent: <session id>, job: <job id>}',
         );
     }
     return SessionState._(

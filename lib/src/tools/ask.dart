@@ -25,6 +25,7 @@ final class PromptItem {
     required this.kind,
     required this.tool,
     required this.input,
+    this.agent,
   });
 
   /// The call key; the answerer replies by it.
@@ -39,12 +40,17 @@ final class PromptItem {
   /// The validated arguments of the call.
   final Map<String, Object?> input;
 
-  /// The item as `{key, kind, tool, input}`.
+  /// For a prompt relayed from a child engine, `{role, job}` of the agent
+  /// that asks (design D10); null for the engine's own prompts.
+  final Map<String, String>? agent;
+
+  /// The item as `{key, kind, tool, input}`, with `agent` when it has one.
   Map<String, Object?> toJson() => {
     'key': key,
     'kind': kind.name,
     'tool': tool,
     'input': input,
+    'agent': ?agent,
   };
 }
 
@@ -58,6 +64,15 @@ abstract interface class Answerer {
 
   /// Tells the user the prompt for [key] is no longer open.
   void withdraw(String key);
+}
+
+/// Where a tool's ephemeral progress goes (design D13).
+///
+/// An [Answerer] that also implements it receives the progress of the tools
+/// running under its runtime; one that does not drops it.
+abstract interface class ProgressSink {
+  /// Shows one progress line of [kind].
+  void progress(String kind, String delta);
 }
 
 /// The open prompts of one runtime and the one attached answerer.

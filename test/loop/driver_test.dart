@@ -157,7 +157,12 @@ void main() {
       expect(rig.step(1)['usage'], {'input': 100, 'output': 10});
       expect(rig.step(1)['stop'], 'tool_use');
       expect(rig.step(1)['model'], 'gpt-5.5');
-      expect(rig.step(1)['instructions'], instructionsVersion);
+      expect(rig.step(1)['instructions'], {
+        'version': instructionsVersion,
+        'context': rig.exchange(1)['context'],
+        'role': null,
+      });
+      expect(rig.exchange(1)['context'], isA<String>());
       expect(rig.step(1)['attempts'], 1);
       expect(rig.step(1)['context'], containsPair('estimated', true));
       expect(rig.callNode('c1')['status'], 'settled');

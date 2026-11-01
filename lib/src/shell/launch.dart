@@ -17,7 +17,8 @@ final class ShellProcess {
   /// Wraps the started [process].
   const ShellProcess(this.process, {required this.groupKnown});
 
-  /// The process, with stdin already closed.
+  /// The process, with stdin already closed unless it was started with
+  /// `keepStdin`.
   final Process process;
 
   /// Whether the process leads its own process group (pid = pgid), so group
@@ -36,6 +37,9 @@ final class ShellProcess {
 /// never blocks the caller or throws: a process that exits without reading it
 /// is not an error.
 ///
+/// With [keepStdin] stdin stays open and belongs to the caller (a job channel,
+/// design D11); [input] is then not written.
+///
 /// Throws a [ProcessException] when the process cannot start.
 Future<Process> startProcess(
   String executable,
@@ -44,6 +48,7 @@ Future<Process> startProcess(
   required Map<String, String> environment,
   String? setsid,
   List<int>? input,
+  bool keepStdin = false,
 }) async {
   if (setsid != null) {
     _requireRunnable(executable, arguments, workingDirectory, environment);
@@ -55,7 +60,7 @@ Future<Process> startProcess(
     environment: environment,
     includeParentEnvironment: false,
   );
-  unawaited(_feed(process, input));
+  if (!keepStdin) unawaited(_feed(process, input));
   return process;
 }
 
@@ -127,6 +132,7 @@ Future<ShellProcess> startShell(
   String command, {
   required String workingDirectory,
   required Map<String, String> environment,
+  bool keepStdin = false,
 }) async {
   final setsid = shell.isPosix && !Platform.isWindows ? shell.setsid : null;
   final process = await startProcess(
@@ -135,6 +141,7 @@ Future<ShellProcess> startShell(
     workingDirectory: workingDirectory,
     environment: environment,
     setsid: setsid,
+    keepStdin: keepStdin,
   );
   return ShellProcess(process, groupKnown: setsid != null);
 }

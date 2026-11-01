@@ -52,6 +52,7 @@ export 'src/tools/edit.dart' show EditTool, fileChangedRefusal, maxEditBytes;
 export 'src/tools/read.dart'
     show ReadSeams, ReadSource, ReadSourceOpener, ReadTool;
 export 'src/tools/bash.dart' show BashTool, defaultForegroundBudget;
+export 'src/tools/agent.dart' show AgentTool;
 export 'src/tools/job_tool.dart' show JobTool, defaultJobWait;
 export 'src/tools/result_tools.dart' show ReadMoreTool, SearchResultTool;
 export 'src/tools/write.dart' show WriteTool;
@@ -66,7 +67,14 @@ export 'src/tools/search.dart'
         RgUnavailable,
         resolveRg;
 export 'src/tools/ask.dart'
-    show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
+    show
+        Answerer,
+        AskTool,
+        ProgressSink,
+        PromptChannel,
+        PromptItem,
+        PromptKind,
+        askRules;
 export 'src/permissions/credentials.dart'
     show isCredentialPath, isCredentialTarget;
 export 'src/permissions/gate.dart'
@@ -85,6 +93,7 @@ export 'src/shell/direct_exec.dart'
 export 'src/shell/launch.dart'
     show ShellProcess, shellArguments, startProcess, startShell;
 export 'src/jobs/recovery.dart';
+export 'src/jobs/agent_run.dart';
 export 'src/jobs/supervisor.dart';
 export 'src/hooks/hook_stage.dart' show HookStage, maxHookReasonBytes;
 export 'src/loop/driver.dart';

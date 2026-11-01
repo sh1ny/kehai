@@ -54,11 +54,19 @@ final class HelloInfo {
 ///
 /// The runtime is built with it before the server exists; the server binds it
 /// to its output when it starts.
-final class RpcAnswerer implements Answerer {
+final class RpcAnswerer implements Answerer, ProgressSink {
   void Function(Map<String, Object?> event)? _emit;
+  void Function(String kind, String delta)? _progress;
 
-  /// Sends later prompts and withdrawals to [emit].
-  void bind(void Function(Map<String, Object?> event) emit) => _emit = emit;
+  /// Sends later prompts and withdrawals to [emit], and progress to
+  /// [progress].
+  void bind(
+    void Function(Map<String, Object?> event) emit, {
+    void Function(String kind, String delta)? progress,
+  }) {
+    _emit = emit;
+    _progress = progress;
+  }
 
   @override
   void prompt(PromptItem item) =>
@@ -66,6 +74,9 @@ final class RpcAnswerer implements Answerer {
 
   @override
   void withdraw(String key) => _emit?.call({'type': 'withdraw', 'key': key});
+
+  @override
+  void progress(String kind, String delta) => _progress?.call(kind, delta);
 }
 
 /// How long the server waits for a cancelled exchange to end at shutdown.
@@ -135,7 +146,13 @@ final class RpcServer {
   /// Closing the runtime, the driver and the writer is the caller's, who owns
   /// them. After a `fatal` line the code is 1.
   Future<int> run() async {
-    answerer.bind(_pump.send);
+    answerer.bind(
+      _pump.send,
+      progress: (kind, delta) => _pump.send(
+        streamEvent(writer.currentTurn, kind, delta),
+        droppable: true,
+      ),
+    );
     _pump.send(
       helloEvent(
         session: hello.session,
@@ -322,6 +339,8 @@ final class RpcServer {
         _pump.send(errorEvent('stale: session is at turn $turn', to: id));
       case SubmitBusy():
         _pump.send(errorEvent('busy: an exchange is running', to: id));
+      case SubmitRefused(:final message):
+        _pump.send(errorEvent(message, to: id));
     }
   }
 

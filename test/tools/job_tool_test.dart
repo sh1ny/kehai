@@ -1,8 +1,35 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:kehai/kehai.dart';
 import 'package:test/test.dart';
 
 import '../support/bash_support.dart';
+
+/// An agent channel whose child printed protocol noise and left a typed end.
+final class _Typed implements JobChannel {
+  static const String text =
+      'agent r done (2 steps, session c-1)\nVERDICT: APPROVE';
+
+  @override
+  void attach(JobHost host) {}
+
+  @override
+  Future<void> onChunk(List<int> chunk) async {}
+
+  @override
+  Future<void> softStop() async {}
+
+  @override
+  Future<ChannelEnd> finish(JobEnd end) async => const ChannelEnd(text, {
+    'role': 'r',
+    'model': 'm',
+    'session': 'c-1',
+    'status': 'done',
+    'steps': 2,
+    'usage': <String, Object?>{},
+  });
+}
 
 void main() {
   final skip = skipBash();
@@ -91,6 +118,84 @@ void main() {
       expect(h.job(id)['state'], 'cancelled');
       expect(h.job(id)['reason'], 'user');
     }, skip: skip);
+    test(
+      'job wait and output on an agent job return the typed result',
+      () async {
+        final h = await BashHarness.create();
+        final handle = h.runtime.jobs.start(
+          JobRequest(
+            kind: JobKind.agent,
+            cmd: 'r',
+            cwd: h.workspace.path,
+            channel: _Typed(),
+            // The process prints its version: protocol noise in the output stream.
+            launch: () async => ShellProcess(
+              await startProcess(
+                Platform.resolvedExecutable,
+                ['--version'],
+                workingDirectory: h.workspace.path,
+                environment: Platform.environment,
+                keepStdin: true,
+              ),
+              groupKnown: false,
+            ),
+          ),
+        );
+        await handle.result;
+
+        final waited = await h.call('job', {
+          'id': handle.id,
+          'action': 'wait',
+          'timeout_s': 30,
+        });
+        final output = await h.call('job', {
+          'id': handle.id,
+          'action': 'output',
+        });
+
+        for (final text in [waited, output]) {
+          expect(text, contains(_Typed.text));
+          expect(text, isNot(contains('Dart SDK version')));
+        }
+        expect(h.lastCall['envelope'], 'ok');
+        expect(h.stream(h.job(handle.id), 'output'), contains('Dart SDK'));
+      },
+    );
+
+    test(
+      'job on an agent job without a result names its interruption',
+      () async {
+        final h = await BashHarness.create();
+        await h.writer.apply(
+          JournalRecord(
+            turn: h.writer.currentTurn,
+            path: 'jobs/j-dead',
+            op: Op.set,
+            value: {
+              'kind': 'agent',
+              'cmd': 'r',
+              'cwd': h.workspace.path,
+              'state': 'cancelled',
+              'reason': 'interrupted',
+              'agent': {'role': 'r', 'session': 'c-9', 'status': 'cancelled'},
+            },
+          ),
+        );
+        const text =
+            'agent r cancelled (interrupted before its result was stored; '
+            'session c-9)';
+
+        final waited = await h.call('job', {'id': 'j-dead', 'action': 'wait'});
+        final output = await h.call('job', {
+          'id': 'j-dead',
+          'action': 'output',
+        });
+
+        expect(waited, contains(text));
+        expect(output, contains(text));
+      },
+    );
+
     test('a wait that ends early leaves no timer running', () async {
       final h = await BashHarness.create();
       final started = await h.call('bash', {

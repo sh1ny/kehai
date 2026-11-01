@@ -163,7 +163,7 @@ void main() {
 
   group('roster', () {
     test(
-      'specs list the eleven tools with versioned names and JSON schemas',
+      'specs list the thirteen tools with versioned names and JSON schemas',
       () async {
         final h = await _attach(root);
 
@@ -180,6 +180,8 @@ void main() {
           'job',
           'read_more',
           'search_result',
+          'skill',
+          'agent',
         ]);
         for (final spec in h.runtime.specs) {
           expect(spec.description, isNotEmpty, reason: spec.name);
@@ -192,7 +194,7 @@ void main() {
         for (final d in toolDefinitions) {
           expect(d.version, greaterThanOrEqualTo(1), reason: d.name);
         }
-        expect(toolDefinitions.map((d) => d.name).toSet().length, 11);
+        expect(toolDefinitions.map((d) => d.name).toSet().length, 13);
       },
     );
 

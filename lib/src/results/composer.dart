@@ -98,8 +98,9 @@ int estimateTokens(int bytes) => (bytes + 2) ~/ 3;
 ///
 /// With [notrunc] the whole result is written with no line or per-line cut,
 /// provided its estimate is within [capacityTokens]; otherwise this throws a
-/// [ComposeError] before producing any body. [stats] records the memory the
-/// scan used.
+/// [ComposeError] before producing any body. A null [capacityTokens] means the
+/// capacity is unknown and only the caller's own bounds apply. [stats] records
+/// the memory the scan used.
 Future<String> composeResult(
   String tool,
   ResultStatus status,
@@ -150,15 +151,8 @@ Future<void> composeResultTo(
   final total = descriptor.lines;
 
   if (notrunc) {
-    if (capacityTokens == null) {
-      throw ArgumentError.value(
-        capacityTokens,
-        'capacityTokens',
-        'required with notrunc',
-      );
-    }
     final estimate = estimateTokens(descriptor.bytes);
-    if (estimate > capacityTokens) {
+    if (capacityTokens != null && estimate > capacityTokens) {
       throw ComposeError(
         'notrunc result of $estimate tokens exceeds capacity '
         '$capacityTokens; use read_more',
