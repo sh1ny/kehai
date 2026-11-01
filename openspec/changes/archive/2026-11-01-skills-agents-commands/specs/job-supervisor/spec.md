@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: One job node shape
-Every process the engine starts SHALL be a tree node `jobs/<id>` of one shape: `kind` (`shell`, `hook` or `agent`), `cmd`, `cwd`, `shell`, `call` (the owning call key), `launch` (a fresh random token), `state` (`pending`, `running`, `settled`, `failed` or `cancelled`), `started`, `ended`, `exit`, `signal` intent, `spool` (its temporary output file names) and the `stdout`, `stderr` and `output` result references. An `agent` job also records `agent` (role, model, child session, status, steps, usage, note) and a `result` reference to its typed result text; its `stdout` is the child's protocol stream. It never holds PIDs or OS handles.
+Every process the engine starts SHALL be a tree node `jobs/<id>` of one shape: `kind` (`shell`, `hook` or `agent`), `cmd`, `cwd`, `shell`, `call` (the owning call key), `launch` (a fresh token), `state` (`pending`, `running`, `settled`, `failed`, `cancelled`), `started`, `ended`, `exit`, `signal`, `spool` and the `stdout`, `stderr` and `output` references. It never holds PIDs or OS handles.
 
 #### Scenario: Shell job recorded
 - **WHEN** `bash` runs `echo hi` and it exits 0
@@ -12,6 +12,11 @@ Every process the engine starts SHALL be a tree node `jobs/<id>` of one shape: `
 #### Scenario: Launch failure
 - **WHEN** the shell executable disappears between detection and launch
 - **THEN** the job goes from `pending` to `failed` with the OS error as reason, and its call settles `failed`
+
+## ADDED Requirements
+
+### Requirement: Agent job fields
+An `agent` job SHALL also record `agent` (role, model, child session, status, steps, usage, note) and a `result` reference to its typed result text; its `stdout` is the child's protocol stream.
 
 #### Scenario: Agent job recorded
 - **WHEN** `agent` runs role `specwright-reviewer` and the child finishes

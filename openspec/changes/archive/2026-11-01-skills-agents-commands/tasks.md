@@ -83,8 +83,8 @@
 | tool-calls: Fixed versioned tool roster | Child roster | test/rpc/child_mode_test.dart | a child without role tools offers twelve tools and refuses agent | green |
 | job-supervisor: One job node shape | Shell job recorded | test/jobs/supervisor_test.dart | echo hi job node holds no pid and resolves its outputs | green |
 | job-supervisor: One job node shape | Launch failure | test/jobs/supervisor_test.dart | vanished shell fails the job pending to failed and clears its launch record | green |
-| job-supervisor: One job node shape | Agent job recorded | test/jobs/agent_job_test.dart | an agent job node records kind, agent fields and a result reference | green |
-| job-supervisor: One job node shape | Agent job read with job | test/tools/job_tool_test.dart | job wait and output on an agent job return the typed result | green |
+| job-supervisor: Agent job fields | Agent job recorded | test/jobs/agent_job_test.dart | an agent job node records kind, agent fields and a result reference | green |
+| job-supervisor: Agent job fields | Agent job read with job | test/tools/job_tool_test.dart | job wait and output on an agent job return the typed result | green |
 | agent-loop: Requests rebuilt from the tree | Tool output is the composed envelope | test/loop/request_builder_test.dart | tool output is the stored model text byte for byte | green |
 | agent-loop: Requests rebuilt from the tree | Resumed session | test/loop/request_builder_test.dart | resumed session request holds earlier items and cancelled calls' | green |
 | agent-loop: Requests rebuilt from the tree | Instructions from the exchange's context | test/loop/context_test.dart | a step uses the context captured at its exchange start | green |

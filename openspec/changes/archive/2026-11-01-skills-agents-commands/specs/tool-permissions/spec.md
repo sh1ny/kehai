@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: User configuration file
-The engine SHALL read its user configuration from `config.json` in the Kehai home. It holds the allow rules, hooks, `rgPath`, environment passthrough, the default `model` id, `models`: per-model settings keyed by model id, each with an optional `contextWindow` (a positive integer) that overrides the backend's, and `agents`: an optional `models` map from role model alias to model id. A missing file means defaults. An unreadable, invalid or unknown-key file stops the engine from starting, naming the file and the first problem. Repository content never changes it.
+The engine SHALL read its user configuration from `config.json` in the Kehai home. It holds the allow rules, hooks, `rgPath`, environment passthrough, the default `model` id, `models` (per model id, an optional positive `contextWindow` that overrides the backend's) and `agents.models` (role model alias to model id). A missing file means defaults. An unreadable, invalid or unknown-key file stops the engine from starting, naming the file and the first problem. Repository content never changes it.
 
 #### Scenario: Missing configuration
 - **WHEN** no `config.json` exists in the Kehai home

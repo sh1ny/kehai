@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Ctrl-C
-Ctrl-C while an exchange runs or a prompt is open SHALL send `interrupt` once and print `interrupting…`; further Ctrl-C until the exchange ends does nothing more. Ctrl-C at an idle prompt exits the client. On exit the client closes the engine's input, waits up to 15 s for it to exit, then kills it. The 15 s exceed the nominal shutdown of an agent job (13 s: the 5 s soft stop, then termination of the child's process group and of its descendant groups, then the pipe drain, with killed processes vanishing promptly) with 2 s for the engine's own writes, so on an exit that completes within them the engine ends its child engines before the client kills it. This is an allowance, not a guarantee: an engine that takes longer is still killed at 15 s, and a child it had not ended yet can survive.
+Ctrl-C while an exchange runs or a prompt is open SHALL send `interrupt` once and print `interrupting…`; further Ctrl-C until the exchange ends does nothing more. Ctrl-C at an idle prompt exits the client. On exit the client closes the engine's input, waits up to 15 s for it to exit, then kills it. The 15 s exceed an agent job's nominal 13 s shutdown, so an engine that exits in time has ended its child engines; one that takes longer is still killed, and a child it had not ended can survive.
 
 #### Scenario: Interrupt a running exchange
 - **WHEN** the user presses Ctrl-C twice while a `bash` call runs
