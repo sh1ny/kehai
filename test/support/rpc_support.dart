@@ -111,8 +111,11 @@ final class RpcRig {
     from: from,
   );
 
-  /// Waits for the update that completes request [id].
-  Future<Map<String, Object?>> requestSettled(String id) => next((e) {
+  /// Waits for the update that completes request [id], up to [timeout].
+  Future<Map<String, Object?>> requestSettled(
+    String id, {
+    Duration timeout = const Duration(seconds: 4),
+  }) => next((e) {
     if (e['type'] != 'update') return false;
     final record = e['record'] as Map<String, Object?>;
     final value = record['value'];
@@ -120,7 +123,7 @@ final class RpcRig {
         value is Map<String, Object?> &&
         value['state'] != null &&
         value['state'] != 'admitted';
-  });
+  }, timeout: timeout);
 
   /// Closes the input and waits for the server to return.
   Future<int> finish() async {

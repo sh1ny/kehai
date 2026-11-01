@@ -166,7 +166,8 @@ void main() {
 
         final reply = await r.rig.answerTo('answer');
         expect(reply['type'], 'reply');
-        await r.rig.requestSettled('r1');
+        // A child engine finishes its exchange first.
+        await r.rig.requestSettled('r1', timeout: _slow);
         expect(r.made.existsSync(), isTrue);
         expect(r.rig.ofType('withdraw'), isEmpty);
         final progress = await r.rig.next(
@@ -239,7 +240,8 @@ void main() {
         r.rig.send({'type': 'interrupt'});
         final reply = await r.rig.answerTo('interrupt');
         expect(reply['running'], isTrue);
-        await r.rig.requestSettled('r1');
+        // A child engine finishes its exchange first.
+        await r.rig.requestSettled('r1', timeout: _slow);
         await Future<void>.delayed(const Duration(milliseconds: 300));
 
         expect(r.rig.runtime.jobs.liveCount, 1, reason: 'the job keeps going');
