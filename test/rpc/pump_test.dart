@@ -205,6 +205,8 @@ void main() {
       await expectConverges(rig);
       expect(rig.ofType('resync'), isEmpty);
       expect(rig.ofType('update'), hasLength(2000));
-    });
+      // 2000 durable journal writes: about 3 s on a workstation, 9 s on a
+      // busy Windows runner, and over 30 s on a slow one.
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }
