@@ -54,6 +54,37 @@ void main() {
     expect(reasons['.claude/agents/b.md'], contains('duplicate'));
   });
 
+  test('a tools value that is not names makes the role invalid, never '
+      'unrestricted', () {
+    role('bool.md', '---\nname: bool\ndescription: x\ntools: false\n---\n');
+    role('num.md', '---\nname: num\ndescription: x\ntools: 42\n---\n');
+    role(
+      'map.md',
+      '---\nname: map\ndescription: x\ntools:\n  Read: yes\n---\n',
+    );
+    role(
+      'nested.md',
+      '---\nname: nested\ndescription: x\ntools: [[Read]]\n---\n',
+    );
+    role('empty.md', '---\nname: empty\ndescription: x\ntools:\n---\n');
+    role(
+      'list.md',
+      '---\nname: list\ndescription: x\ntools: [Read, Grep]\n---\n',
+    );
+    final found = discoverRoles(root: root, kehaiHome: home);
+    final reasons = {for (final e in found.problems) e.path: e.reason};
+    for (final name in ['bool', 'num', 'map', 'nested']) {
+      expect(
+        reasons['.claude/agents/$name.md'],
+        'tools must be a comma-separated string or a list of names',
+        reason: name,
+      );
+    }
+    expect(found.roles.map((r) => r.name), ['empty', 'list']);
+    expect(found.roles.first.tools, isNull, reason: 'empty is the default');
+    expect(found.roles.last.tools, ['Read', 'Grep']);
+  });
+
   test('reviewer tools map to the ten Kehai tools', () {
     final m = mapRoleTools(['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Skill']);
     expect(m.tools, [

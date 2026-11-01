@@ -167,7 +167,19 @@ RoleDiscovery discoverRoles({
       );
       continue;
     }
-    final tools = _toolNames(fm.data['tools']);
+    // No `tools` (or an empty one) is every tool but `agent`; any other
+    // value that is not names would widen the role, so it is invalid.
+    final rawTools = fm.data['tools'];
+    final tools = _toolNames(rawTools);
+    if (rawTools != null && tools == null) {
+      problems.add(
+        Problem(
+          shown,
+          'tools must be a comma-separated string or a list of names',
+        ),
+      );
+      continue;
+    }
     final mapped = mapRoleTools(tools);
     for (final unmapped in mapped.unmapped) {
       problems.add(Problem(shown, 'tool $unmapped is unmapped'));
@@ -195,9 +207,9 @@ List<String>? _toolNames(Object? value) => switch (value) {
     for (final t in s.split(','))
       if (t.trim().isNotEmpty) t.trim(),
   ],
-  final List<Object?> l => [
-    for (final t in l)
-      if ('$t'.trim().isNotEmpty) '$t'.trim(),
+  final List<Object?> l when l.every((t) => t is String) => [
+    for (final t in l.cast<String>())
+      if (t.trim().isNotEmpty) t.trim(),
   ],
   _ => null,
 };
