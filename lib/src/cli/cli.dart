@@ -428,6 +428,12 @@ class _RpcCommand extends _KehaiCommand {
         help: 'The reasoning effort to select (omitted: provider default).',
       )
       ..addFlag(
+        'effort-default',
+        negatable: false,
+        hide: true,
+        help: 'Child mode: inherit provider-default reasoning effort.',
+      )
+      ..addFlag(
         'child',
         negatable: false,
         help: 'Run as the child engine of an agent job (internal).',
@@ -483,10 +489,13 @@ class _RpcCommand extends _KehaiCommand {
 ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
   const childOnly = ['parent', 'job', 'role', 'role-digest'];
   if (!results.flag('child')) {
-    for (final name in [...childOnly, 'yolo']) {
+    for (final name in [...childOnly, 'yolo', 'effort-default']) {
       if (results.wasParsed(name)) usage('--$name needs --child');
     }
     return null;
+  }
+  if (results.flag('effort-default') && results.wasParsed('effort')) {
+    usage('--effort-default cannot be combined with --effort');
   }
   if (results.flag('resume') || results.option('session') != null) {
     usage('--child cannot be combined with --resume or --session');
@@ -500,5 +509,6 @@ ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
     role: results.option('role')!,
     roleDigest: results.option('role-digest')!,
     yolo: results.flag('yolo'),
+    effortDefault: results.flag('effort-default'),
   );
 }

@@ -47,6 +47,23 @@ final class AgentTool implements Tool {
   /// Variables added to the child's environment.
   final Map<String, String> extraEnvironment;
 
+  /// Builds child argv without launching a process or changing the tool roster.
+  ///
+  /// [rpcArgs] contains the child's identity and mapped model. The resolved
+  /// run inputs come from [context], not from configuration at launch time.
+  ({String executable, List<String> arguments}) buildChildCommand(
+    ToolContext context,
+    List<String> rpcArgs,
+  ) => (engine ?? engineCommand)([
+    ...rpcArgs,
+    if (context.effort case final effort?) ...[
+      '--effort',
+      effort,
+    ] else
+      '--effort-default',
+    if (context.yolo) '--yolo',
+  ]);
+
   @override
   Future<ToolOutcome> run(
     ToolContext context,
@@ -136,7 +153,7 @@ final class AgentTool implements Tool {
       call: context.callKey,
       channel: agentRun,
       launch: () async {
-        final command = (engine ?? engineCommand)([
+        final command = buildChildCommand(context, [
           '--child',
           '--parent',
           parentSession,
@@ -148,7 +165,6 @@ final class AgentTool implements Tool {
           role.digest,
           '--model',
           model,
-          if (context.yolo) '--yolo',
         ]);
         // On POSIX the child leads its own group, so the supervisor can end
         // its process tree; its own jobs are found as its descendants.

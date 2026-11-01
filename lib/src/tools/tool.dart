@@ -124,6 +124,7 @@ final class ToolContext {
     this.permission,
     this.capacity,
     this.model,
+    this.effort,
     this.yolo = false,
   });
 
@@ -138,6 +139,11 @@ final class ToolContext {
   /// The model slug the parent engine runs, which an agent without a model of
   /// its own inherits; null when the context has none.
   final String? model;
+
+  /// The immutable resolved effort inherited by child agents.
+  ///
+  /// Null selects provider default, independently of the loaded configuration.
+  final String? effort;
 
   /// Whether the engine skips permission prompts (`--yolo`); a child agent
   /// then runs the same way.

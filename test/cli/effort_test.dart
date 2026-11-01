@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:kehai/kehai.dart';
 import 'package:kehai/src/cli/cli.dart' as command;
 
@@ -16,16 +17,25 @@ import 'cli_test.dart' as cli;
 import '../rpc/process_test.dart' as rpc;
 import '../support/session_support.dart';
 
-Future<({int code, List<String>? clientArgs, int rpcStarts, String? effort})>
+Future<
+  ({
+    int code,
+    List<String>? clientArgs,
+    int rpcStarts,
+    String? effort,
+    String error,
+  })
+>
 captureStartup(List<String> args, TestHome home) async {
   List<String>? clientArgs;
   var rpcStarts = 0;
   String? effort;
+  final error = StringBuffer();
   final code = await command.runCli(
     args,
     environment: {'KEHAI_HOME': home.path},
     out: StringBuffer(),
-    err: StringBuffer(),
+    err: error,
     stdinIsTerminal: false,
     interrupts: const Stream<Object?>.empty(),
     engineStarter: (args) async {
@@ -54,6 +64,7 @@ captureStartup(List<String> args, TestHome home) async {
     clientArgs: clientArgs,
     rpcStarts: rpcStarts,
     effort: effort,
+    error: error.toString(),
   );
 }
 
@@ -124,6 +135,43 @@ void expectWireAndStep(FakeOpenAi fake, Directory session, String? effort) {
 }
 
 void main() {
+  test(
+    'internal effort default marker rejects misuse before startup',
+    () async {
+      for (final args in [
+        ['rpc', '--effort-default'],
+        [
+          'rpc',
+          '--child',
+          '--parent',
+          'unused',
+          '--job',
+          'j-1',
+          '--role',
+          'reviewer',
+          '--role-digest',
+          'unused',
+          '--effort-default',
+          '--effort',
+          'high',
+        ],
+      ]) {
+        final captured = await captureStartup(args, TestHome());
+        expect(captured.code, 64);
+        expect(captured.rpcStarts, 0);
+        expect(captured.clientArgs, isNull);
+        expect(
+          captured.error,
+          contains(
+            args.contains('--child')
+                ? 'cannot be combined with --effort'
+                : 'needs --child',
+          ),
+        );
+      }
+    },
+  );
+
   late TestHome home;
   late FakeOpenAi fake;
 
@@ -132,6 +180,147 @@ void main() {
     home.store.replace(loggedInRecord());
     fake = await FakeOpenAi.start();
   });
+
+  void expectNoStartupEffects() {
+    expect(Directory(p.join(home.path, 'sessions')).existsSync(), isFalse);
+    expect(fake.modelsRequests, isEmpty);
+    expect(fake.responsesRequests, isEmpty);
+    expect(fake.tokenRequests, isEmpty);
+  }
+
+  Future<({Directory workspace, List<String> args})> childFixture() async {
+    final workspace = await tempDir();
+    Directory(p.join(workspace.path, '.git')).createSync();
+    final roles = Directory(p.join(workspace.path, '.claude', 'agents'))
+      ..createSync(recursive: true);
+    const text = '---\nname: reviewer\ndescription: Reviews\n---\nReview.\n';
+    File(p.join(roles.path, 'reviewer.md')).writeAsStringSync(text);
+    final parentWriter = await SessionWriter.create(await tempDir());
+    final parent = parentWriter.sessionDir;
+    await parentWriter.close();
+    return (
+      workspace: workspace,
+      args: [
+        '--child',
+        '--parent',
+        parent.path,
+        '--job',
+        'j-1',
+        '--role',
+        'reviewer',
+        '--role-digest',
+        sha256.convert(utf8.encode(text)).toString(),
+      ],
+    );
+  }
+
+  for (final scenario in [
+    (
+      name: 'direct child without marker uses config effort',
+      config: 'low',
+      flags: <String>[],
+      expected: 'low',
+    ),
+    (
+      name: 'direct child without marker honors flag over config',
+      config: 'low',
+      flags: ['--effort=high'],
+      expected: 'high',
+    ),
+    (
+      name: 'direct child without marker falls back to provider default',
+      config: null,
+      flags: <String>[],
+      expected: null,
+    ),
+    (
+      name: 'child default marker bypasses config selection',
+      config: 'high',
+      flags: ['--effort-default'],
+      expected: null,
+    ),
+  ]) {
+    test(scenario.name, () async {
+      final fixture = await childFixture();
+      File(p.join(home.path, 'config.json')).writeAsStringSync(
+        jsonEncode({if (scenario.config != null) 'effort': scenario.config}),
+      );
+      // Child sessions live below the supplied parent, not the usual sessions root.
+      final engine = await rpc.startEngine(
+        ['--model', 'gpt-fake', ...fixture.args, ...scenario.flags],
+        home: home,
+        workspace: fixture.workspace,
+        fake: fake,
+      );
+      fake.responsesScripts.add(ResponsesScript.sse(sseTextTurn('done')));
+      try {
+        final hello = await engine.nextLine();
+        expect(hello['type'], 'hello', reason: '$hello');
+        final snapshot = await engine.nextLine();
+        engine.send({
+          'type': 'submit',
+          'id': 'direct',
+          'text': 'review',
+          'turn': snapshot['turn'],
+        });
+        await engine.lineWhere((event) {
+          final record = event['record'];
+          return record is Map &&
+              record['path'] == 'meta/requests/direct' &&
+              record['value'] is Map &&
+              (record['value'] as Map)['state'] == 'completed';
+        });
+        await engine.process.stdin.close();
+        expect(await engine.exitCode(), 0, reason: await engine.stderrText);
+        final parent = fixture.args[2];
+        final session = Directory(
+          p.join(parent, 'agents', hello['session']! as String),
+        );
+        expectWireAndStep(fake, session, scenario.expected);
+      } finally {
+        engine.process.kill();
+        await engine.process.exitCode;
+        await engine.lines.cancel();
+        await engine.stderrText;
+      }
+    });
+  }
+
+  test(
+    'invalid config is refused even with inherited default marker',
+    () async {
+      final fixture = await childFixture();
+      final path = p.join(home.path, 'config.json');
+      for (final bad in <Object?>[null, true, 1, '', 'HIGH', 'turbo']) {
+        File(path).writeAsStringSync(jsonEncode({'effort': bad}));
+        final engine = await rpc.startEngine(
+          [...fixture.args, '--effort-default'],
+          home: home,
+          workspace: fixture.workspace,
+          fake: fake,
+        );
+        try {
+          final fatal = await engine.nextLine();
+          expect(fatal['type'], 'fatal');
+          expect(
+            fatal['message'],
+            startsWith('$path: effort: must be one of '),
+          );
+          expect(await engine.exitCode(), 1, reason: await engine.stderrText);
+          expectNoStartupEffects();
+          expect(
+            Directory(p.join(fixture.args[2], 'agents')).existsSync(),
+            isFalse,
+          );
+        } finally {
+          engine.process.kill();
+          await engine.process.exitCode;
+          await engine.lines.cancel();
+          await engine.stderrText;
+        }
+      }
+    },
+  );
 
   for (final scenario in [
     (
@@ -195,13 +384,6 @@ void main() {
       expectWireAndStep(fake, session, 'low');
     },
   );
-
-  void expectNoStartupEffects() {
-    expect(Directory(p.join(home.path, 'sessions')).existsSync(), isFalse);
-    expect(fake.modelsRequests, isEmpty);
-    expect(fake.responsesRequests, isEmpty);
-    expect(fake.tokenRequests, isEmpty);
-  }
 
   test(
     'client and rpc accept effort including leading and equals forms',

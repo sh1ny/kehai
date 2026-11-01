@@ -40,6 +40,17 @@ effort default. With neither input, requests omit `reasoning.effort`; selecting
 estimates, tool follow-ups and existing permitted retries. Backend rejection is
 visible as a provider failure, with no silent downgrade or extra retry.
 
+Internal reviewer agents inherit the parent's resolved effort, even when a role
+selects a different model or user config changes before the child starts. Each
+child's requests and new steps use the inherited selection. Inherited provider
+default remains default; it does not pick up a newly configured effort. The
+launcher pins selected values with `--effort` and pins default with the internal
+`rpc --child --effort-default` marker. That marker cannot be used outside child
+mode or together with `--effort`, and it never bypasses config validation. A
+child started directly without the marker follows ordinary flag/config/default
+precedence. Child rosters still exclude `agent`; this inheritance contract does
+not enable nested agents.
+
 Resume uses the same current flag/config/default precedence, **not** the effort
 of an earlier step. Every new step records `effort` at admission, before any
 request, including locally stopped steps. A string records the selected input;
