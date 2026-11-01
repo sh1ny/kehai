@@ -488,12 +488,27 @@ final class ExchangeDriver {
       workspace: runtime.workspace.path,
       kehaiHome: runtime.kehaiHome ?? _noHome,
     );
-    final text = loaded.contextText;
     final role = childRole;
-    // The role is part of the captured content: another role digest is
+    final value = <String, Object?>{
+      'text': loaded.contextText,
+      'files': [
+        for (final f in loaded.files)
+          {'path': f.path, 'bytes': f.size, 'truncated': f.truncated},
+      ],
+      'skills': loaded.skills.length,
+      'role': ?role?.toJson(),
+      'problems': [
+        for (final problem in loaded.problems)
+          {'path': problem.path, 'reason': problem.reason},
+      ],
+    };
+    // The key covers everything stored, not the text alone: a problem that
+    // appears or goes away without changing the text (an unreadable file, a
+    // broken skill) is another context, so no exchange reuses stale
+    // diagnostics. The role is part of it too: another role digest is
     // another context.
     final contextKey = sha256
-        .convert(utf8.encode(role == null ? text : '${role.digest}\n$text'))
+        .convert(utf8.encode(jsonEncode(value)))
         .toString()
         .substring(0, 16);
     final stored = writer.tree.get(
@@ -505,19 +520,7 @@ final class ExchangeDriver {
           turn: first,
           path: 'body/contexts/$contextKey',
           op: Op.set,
-          value: {
-            'text': text,
-            'files': [
-              for (final f in loaded.files)
-                {'path': f.path, 'bytes': f.size, 'truncated': f.truncated},
-            ],
-            'skills': loaded.skills.length,
-            'role': ?role?.toJson(),
-            'problems': [
-              for (final problem in loaded.problems)
-                {'path': problem.path, 'reason': problem.reason},
-            ],
-          },
+          value: value,
         ),
       );
     }

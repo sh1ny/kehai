@@ -105,6 +105,39 @@ void main() {
       },
     );
 
+    test('a changed problem with the same context text gives the next '
+        'exchange its own context, and each keeps its problems', () async {
+      final provider = FakeProvider.steps([
+        [const TextDelta('one'), _endTurn],
+        [const TextDelta('two'), _endTurn],
+        [const TextDelta('three'), _endTurn],
+      ]);
+      final rig = await _rig(provider);
+
+      await rig.run('a', 'r1');
+      // A skill folder with no SKILL.md frontmatter: not a skill (the
+      // rendered text is unchanged) but a recorded problem.
+      final skill = Directory(p.join(rig.ws.path, '.claude', 'skills', 'bad'))
+        ..createSync(recursive: true);
+      File(p.join(skill.path, 'SKILL.md'))
+          .writeAsStringSync('no frontmatter\n');
+      await rig.run('b', 'r2');
+      skill.deleteSync(recursive: true);
+      await rig.run('c', 'r3');
+
+      Map<String, Object?> stored(int turn) =>
+          rig.contexts()[rig.exchange(turn)['context']]!
+              as Map<String, Object?>;
+      expect(stored(1)['text'], stored(2)['text']);
+      expect(stored(1)['problems'], isEmpty);
+      expect(
+        (stored(2)['problems']! as List).single,
+        containsPair('path', '.claude/skills/bad/SKILL.md'),
+      );
+      expect(stored(3)['problems'], isEmpty);
+      expect(rig.exchange(3)['context'], rig.exchange(1)['context']);
+    });
+
     test('an edit during exchange 1 gives exchange 2 a new key and keeps '
         'exchange 1\'s', () async {
       late _Rig rig;

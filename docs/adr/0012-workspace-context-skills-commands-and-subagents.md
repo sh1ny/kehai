@@ -13,8 +13,8 @@ Supersedes: none
 
 ### Workspace context keyed by content: `body/contexts/<key>`
 
-- At exchange start, after admission and before the first step, the engine loads the workspace (applicable `AGENTS.md` files, skill catalog and, in a child, its role) and renders the context text. `key = sha256(text)[0:16]`.
-- If `body/contexts/<key>` is absent, one `set` stores `{text, files: [{path, bytes, truncated}], skills, problems}`. The exchange's `merge` then records `context: <key>`. Both carry the exchange's turn.
+- At exchange start, after admission and before the first step, the engine loads the workspace (applicable `AGENTS.md` files, skill catalog and, in a child, its role) and renders the context text. It builds the record `{text, files: [{path, bytes, truncated}], skills, role (in a child), problems}`; `key = sha256(JSON of that record)[0:16]`, so a change in the files or problems alone is a new context.
+- If `body/contexts/<key>` is absent, one `set` stores that record. The exchange's `merge` then records `context: <key>`. Both carry the exchange's turn.
 - Requests are built from the exchange's stored context, never from the files, so they are rebuildable and byte-identical (cache-stable) while the content is unchanged.
 - The context lives under `body`, not `meta`: a rewind removes a context only together with the first exchange that stored it, and every exchange sharing its key is later, so no live exchange loses its context. Exchanges written before this ADR have no `context` and are never rebuilt with the new instructions.
 - Each step records `instructions: {version, context, role}`. A completed step's usage is a budget baseline only for a request with the same triple.
@@ -50,6 +50,6 @@ Every file the engine opens without a tool call (`AGENTS.md`, `SKILL.md`, comman
 ## Consequences
 
 - Later changes address workspace context by key and commands by the exchange `command` field. Moving them needs a journal migration under ADR 0008.
-- Context copies grow with distinct content (one per edit of an instruction file). This is visible in session size; dedupe across keys is not built.
+- Context copies grow with distinct content (one per edit of an instruction file or change in recorded problems). This is visible in session size; dedupe across keys is not built.
 - Child sessions are kept beside the parent session and never deleted automatically.
 - A change to the child command line or lineage form must keep older child sessions readable.
