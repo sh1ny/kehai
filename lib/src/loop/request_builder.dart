@@ -118,10 +118,14 @@ final class RequestBuilder {
     this.estimate = estimateItem,
     this.clock = DateTime.now,
     this.roleInstructions,
+    this.effort,
   });
 
   /// The role section of a child engine's instructions, or null.
   final String? roleInstructions;
+
+  /// The selected reasoning effort, or null for provider default.
+  final String? effort;
 
   /// The digest recorded for [roleInstructions], or null.
   String? get roleDigest => switch (roleInstructions) {
@@ -174,6 +178,7 @@ final class RequestBuilder {
 
     ModelRequest requestWith(String block) => ModelRequest(
       model: model,
+      reasoningEffort: effort,
       instructions: instructions,
       items: [for (final b in items) b.item, UserMessage(block)],
       tools: tools,

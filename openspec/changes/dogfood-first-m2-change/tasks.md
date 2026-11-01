@@ -9,18 +9,18 @@ All rows describe new behavior and start `red` as planning intent; no failing te
 | reasoning-effort → Effort selection and validation | CLI selection | `test/cli/effort_test.dart` | `client and rpc accept effort including leading and equals forms` | green |
 | reasoning-effort → Effort selection and validation | Invalid CLI value | `test/cli/effort_test.dart` | `invalid or missing effort exits 64 before engine startup` | green |
 | reasoning-effort → Effort selection and validation | Invalid configuration | `test/config/config_test.dart`; `test/cli/effort_test.dart` | `invalid effort names config path even with valid flag` | green |
-| reasoning-effort → Effort precedence and default | Flag overrides config | `test/cli/effort_test.dart` (new) | `flag effort overrides user config in rpc startup` | red |
-| reasoning-effort → Effort precedence and default | Config alone | `test/cli/effort_test.dart` (new) | `config effort reaches request without flag` | red |
-| reasoning-effort → Effort precedence and default | Resume without selection | `test/cli/effort_test.dart` (new) | `resume without effort does not inherit historical selection` | red |
-| reasoning-effort → Effort precedence and default | Explicit none | `test/cli/effort_test.dart` (new) | `explicit none reaches wire rather than omission` | red |
-| reasoning-effort → Consistent effort on requests | Tool round and safe retry | `test/loop/driver_test.dart` | `tool follow-up and permitted retry keep selected effort` | red |
-| reasoning-effort → Consistent effort on requests | Backend rejects selected effort | `test/loop/driver_test.dart` | `invalid request for effort fails without downgrade or resend` | red |
+| reasoning-effort → Effort precedence and default | Flag overrides config | `test/cli/effort_test.dart` | `flag effort overrides user config in rpc startup` | green |
+| reasoning-effort → Effort precedence and default | Config alone | `test/cli/effort_test.dart` | `config effort reaches request without flag` | green |
+| reasoning-effort → Effort precedence and default | Resume without selection | `test/cli/effort_test.dart` | `resume without effort does not inherit historical selection` | green |
+| reasoning-effort → Effort precedence and default | Explicit none | `test/cli/effort_test.dart` | `explicit none reaches wire rather than omission` | green |
+| reasoning-effort → Consistent effort on requests | Tool round and safe retry | `test/loop/driver_test.dart` | `tool follow-up and permitted retry keep selected effort` | green |
+| reasoning-effort → Consistent effort on requests | Backend rejects selected effort | `test/loop/driver_test.dart` | `invalid request for effort fails without downgrade or resend` | green |
 | reasoning-effort → Internal agents inherit effort | Parent override reaches reviewer | `test/jobs/agent_effort_test.dart` (new) | `reviewer child inherits parent override across role model selection` | red |
 | reasoning-effort → Internal agents inherit effort | Config changes before launch | `test/jobs/agent_effort_test.dart` (new) | `child inherits provider default despite edited config` | red |
-| reasoning-effort → Effort recorded per step | Step persisted and replayed | `test/loop/driver_test.dart` | `each step records selected effort and replay preserves it` | red |
-| reasoning-effort → Effort recorded per step | Failure before sending | `test/loop/driver_test.dart` | `local overflow retains explicit null effort without request` | red |
-| reasoning-effort → Effort recorded per step | Interrupted step | `test/loop/driver_test.dart` | `resume finalization preserves admitted effort without resend` | red |
-| reasoning-effort → Effort recorded per step | Older session | `test/cli/effort_test.dart` (new) | `legacy steps remain unchanged and new steps record current effort` | red |
+| reasoning-effort → Effort recorded per step | Step persisted and replayed | `test/loop/driver_test.dart` | `each step records selected effort and replay preserves it` | green |
+| reasoning-effort → Effort recorded per step | Failure before sending | `test/loop/driver_test.dart` | `local overflow retains explicit null effort without request` | green |
+| reasoning-effort → Effort recorded per step | Interrupted step | `test/loop/driver_test.dart` | `resume finalization preserves admitted effort without resend` | green |
+| reasoning-effort → Effort recorded per step | Older session | `test/cli/effort_test.dart` | `legacy steps remain unchanged and new steps record current effort` | green |
 
 ## 1. Record the approved shared contract
 
@@ -33,9 +33,9 @@ All rows describe new behavior and start `red` as planning intent; no failing te
 
 ## 3. Startup resolution, request propagation and step persistence
 
-- [ ] 3.1 Write failing tests in `test/cli/effort_test.dart` using isolated user home and a local fake service for flag-over-config, config-only, default omission, explicit `none`, resume without historical fallback and legacy steps; assert actual request JSON and materialized step data. Verify failures correspond to the test-map rows Flag overrides config, Config alone, Resume without selection, Explicit none, Older session.
-- [ ] 3.2 Write failing builder/driver tests for selected/default request values (including estimate requests), tool-follow-up and existing safe retry, invalid-request failure without downgrade/resend, admission-time effort, replay, local overflow with explicit null and interrupted recovery without resend. Include generic fork/rewind preservation/removal checks for the additive field. Verify the remaining driver-owned test-map rows fail for missing propagation or recording, using existing writer/provider seams rather than real paid requests.
-- [ ] 3.3 Resolve effort once in RPC startup per design D2; pass it to `ExchangeDriver`, `RequestBuilder` and request construction, and record `effort` (including null) in the single step-admission set. Preserve old steps, completion/recovery merges, retry eligibility and the existing provider serializer. Verify group-3 tests pass, request values equal admitted step values, replay/fork/rewind preserve expected trees, and mark the corresponding test-map rows green. Run `mise run analyze`; document precedence, resume behavior and the meaning of recorded null beside the user-facing option/config documentation.
+- [x] 3.1 Write failing tests in `test/cli/effort_test.dart` using isolated user home and a local fake service for flag-over-config, config-only, default omission, explicit `none`, resume without historical fallback and legacy steps; assert actual request JSON and materialized step data. Verify failures correspond to the test-map rows Flag overrides config, Config alone, Resume without selection, Explicit none, Older session.
+- [x] 3.2 Write failing builder/driver tests for selected/default request values (including estimate requests), tool-follow-up and existing safe retry, invalid-request failure without downgrade/resend, admission-time effort, replay, local overflow with explicit null and interrupted recovery without resend. Include generic fork/rewind preservation/removal checks for the additive field. Verify the remaining driver-owned test-map rows fail for missing propagation or recording, using existing writer/provider seams rather than real paid requests.
+- [x] 3.3 Resolve effort once in RPC startup per design D2; pass it to `ExchangeDriver`, `RequestBuilder` and request construction, and record `effort` (including null) in the single step-admission set. Preserve old steps, completion/recovery merges, retry eligibility and the existing provider serializer. Verify group-3 tests pass, request values equal admitted step values, replay/fork/rewind preserve expected trees, and mark the corresponding test-map rows green. Run `mise run analyze`; document precedence, resume behavior and the meaning of recorded null beside the user-facing option/config documentation.
 
 ## 4. Internal-agent inheritance
 

@@ -86,6 +86,7 @@ Future<_Rig> _rig(
   Map<String, Tool> tools = const {},
   CallStage? gate,
   int? window,
+  String? effort,
   DriverSeams seams = const DriverSeams(),
   bool skipFlush = false,
 }) async {
@@ -108,6 +109,7 @@ Future<_Rig> _rig(
     runtime: runtime,
     provider: provider,
     model: 'gpt-5.5',
+    effort: effort,
     contextWindow: window,
     clock: () => DateTime(2026, 10, 30, 9, 5),
     seams: seams,
@@ -135,6 +137,148 @@ ProviderFailure _failure(
 }) => ProviderFailure(kind: kind, message: 'it failed', code: code, sent: sent);
 
 void main() {
+  group('Reasoning effort', () {
+    test('tool follow-up and permitted retry keep selected effort', () async {
+      for (final effort in <String?>['high', null]) {
+        final provider = FakeProvider.steps([
+          [_call('effort', 'read'), _toolUse],
+          [Failed(_failure(ProviderFailureKind.network, sent: false))],
+          [const TextDelta('ok'), _endTurn],
+        ]);
+        final rig = await _rig(
+          provider,
+          effort: effort,
+          tools: {'read': const _Tool.ok()},
+          seams: DriverSeams(sleep: (_) async {}),
+        );
+        expect((await rig.run('go')).state, 'done');
+        expect(provider.requests, hasLength(3));
+        expect(
+          provider.requests.map((r) => r.reasoningEffort),
+          everyElement(effort),
+        );
+        expect(identical(provider.requests[1], provider.requests[2]), isTrue);
+        expect(rig.step(1), containsPair('effort', effort));
+        expect(rig.step(2), containsPair('effort', effort));
+      }
+    });
+
+    test(
+      'invalid request for effort fails without downgrade or resend',
+      () async {
+        final provider = FakeProvider.steps([
+          [Failed(_failure(ProviderFailureKind.invalidRequest))],
+        ]);
+        final rig = await _rig(provider, effort: 'high');
+        final result = await rig.run('go');
+        expect(result.state, 'failed');
+        expect(result.reason, isNotEmpty);
+        expect(rig.step(1)['failure'], containsPair('kind', 'invalid_request'));
+        expect(provider.requests, hasLength(1));
+        expect(provider.requests.single.reasoningEffort, 'high');
+        expect(rig.step(1), containsPair('effort', 'high'));
+      },
+    );
+
+    test('each step records selected effort and replay preserves it', () async {
+      late _Rig rig;
+      final admitted = <Map<String, Object?>>[];
+      final provider = FakeProvider((request, cancel, call) {
+        admitted.add(rig.step(call + 1));
+        return Stream.fromIterable(
+          call == 0
+              ? <ProviderEvent>[_call('effort', 'read'), _toolUse]
+              : <ProviderEvent>[const TextDelta('ok'), _endTurn],
+        );
+      });
+      rig = await _rig(
+        provider,
+        effort: 'high',
+        tools: {'read': const _Tool.ok()},
+      );
+      await rig.run('go');
+      expect(admitted, hasLength(2));
+      for (final step in admitted) {
+        expect(step, containsPair('state', 'running'));
+        expect(step, containsPair('effort', 'high'));
+      }
+      final replay = scanJournal(journalOf(rig.writer.sessionDir)).state
+          .combined();
+      expect(replay.toJson(), rig.writer.tree.toJson());
+      final fork = await rig.writer.fork(1);
+      final forked = await SessionWriter.open(fork.childDir);
+      addTearDown(forked.close);
+      expect(
+        forked.tree.get(SessionPath.parse('body/steps/s-00000001')),
+        containsPair('effort', 'high'),
+      );
+      expect(
+        forked.tree.get(SessionPath.parse('body/steps/s-00000002')),
+        isNull,
+      );
+      await rig.writer.rewind(1);
+      expect(rig.step(1), containsPair('effort', 'high'));
+      expect(rig.at('body/steps/s-00000002'), isNull);
+    });
+
+    test(
+      'local overflow retains explicit null effort without request',
+      () async {
+        final provider = FakeProvider.steps(const [], estimator: (_) => 280000);
+        final rig = await _rig(provider, window: 272000);
+        expect((await rig.run('big')).state, 'stopped');
+        expect(provider.requests, isEmpty);
+        expect(rig.step(1), containsPair('effort', null));
+      },
+    );
+
+    test('resume finalization preserves admitted effort without resend', () async {
+      late _Rig rig;
+      late Map<String, Object?> admission;
+      final provider = FakeProvider((request, cancel, call) {
+        admission = rig.step(1);
+        return Stream.fromIterable([const TextDelta('ok'), _endTurn]);
+      });
+      rig = await _rig(provider, effort: 'medium');
+      await rig.run('go');
+      // Restore exactly the admission snapshot to simulate an interrupted run.
+      await rig.writer.apply(
+        rec(1, 'body/steps/s-00000001', Op.set, admission),
+      );
+      await rig.writer.apply(
+        rec(1, 'body/exchanges/x-00000001', Op.merge, {'state': 'running'}),
+      );
+      await rig.runtime.close();
+      await rig.driver.close();
+      await rig.writer.close();
+      final writer = await SessionWriter.open(rig.writer.sessionDir);
+      addTearDown(writer.close);
+      final runtime = await ToolRuntime.attach(
+        writer,
+        ResultStore(writer.sessionDir),
+        workspace: rig.ws,
+        gate: const AllowAllStage(),
+      );
+      addTearDown(runtime.close);
+      final resumed = ExchangeDriver(
+        writer: writer,
+        runtime: runtime,
+        provider: provider,
+        model: 'gpt-5.5',
+      );
+      addTearDown(resumed.close);
+      expect(await resumed.finalizeUnfinished(), 1);
+      final step = writer.tree.get(SessionPath.parse('body/steps/s-00000001'));
+      expect(step, containsPair('effort', 'medium'));
+      expect(step, containsPair('state', 'cancelled'));
+      expect(provider.requests, hasLength(1), reason: 'recovery never resends');
+      expect(
+        scanJournal(journalOf(writer.sessionDir)).state.combined().toJson(),
+        writer.tree.toJson(),
+      );
+    });
+  });
+
   group('Exchanges and steps', () {
     test('prompt answered after one ls round records two steps on consecutive '
         'turns', () async {

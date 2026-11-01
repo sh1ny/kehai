@@ -33,6 +33,32 @@ Future<(SessionWriter, ResultStore)> _session() async {
 
 void main() {
   test(
+    'selected and default effort reach estimates and built requests',
+    () async {
+      final (writer, _) = await _session();
+      await seedExchange(writer, 1, 'go', state: 'running');
+      for (final effort in <String?>['high', 'none', null]) {
+        final estimates = <ModelRequest>[];
+        final builder = RequestBuilder(
+          sessionDir: writer.sessionDir,
+          model: 'gpt-5.5',
+          effort: effort,
+          workspaceName: 'proj',
+          tools: const [],
+          estimateRequest: (request) {
+            estimates.add(request);
+            return 10;
+          },
+        );
+        final built = await builder.build(writer.tree, turn: 1);
+        expect(estimates, isNotEmpty);
+        expect(estimates.map((r) => r.reasoningEffort), everyElement(effort));
+        expect(built.request.reasoningEffort, effort);
+      }
+    },
+  );
+
+  test(
     'rewind to an exchange\'s first turn drops later steps from the request',
     () async {
       final (writer, store) = await _session();

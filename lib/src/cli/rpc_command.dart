@@ -99,6 +99,8 @@ typedef RpcRunner = Future<int> Function({
 /// With [resume] the latest session of the workspace is reopened, with
 /// [sessionId] that one; otherwise a new session is created. The model is
 /// [modelFlag], else the configured one, else the resumed session's last.
+/// Effort is [effortFlag], else user config, else provider default; resume
+/// never inherits effort from historical steps.
 Future<int> runRpc({
   required KehaiSettings settings,
   required Directory workspace,
@@ -128,6 +130,7 @@ Future<int> runRpc({
     } on ConfigError catch (e) {
       throw _StartupFailure(e.message);
     }
+    final effort = effortFlag ?? config.effort;
     final role = child == null
         ? null
         : _childRole(child, real, Directory(settings.home));
@@ -191,6 +194,7 @@ Future<int> runRpc({
       runtime: runtime,
       provider: adapter,
       model: model,
+      effort: effort,
       contextWindow: resolveContextWindow(config, model, models),
       childRole: role == null
           ? null

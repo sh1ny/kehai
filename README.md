@@ -33,6 +33,22 @@ A missing file or omitted `effort` key leaves the configured selection unset
 it is not an alias for omission. These values describe selectable inputs, not a
 promise that every model supports every level.
 
+The engine resolves effort **once at startup**: `--effort` overrides user config,
+which otherwise overrides provider default. Repository content cannot supply an
+effort default. With neither input, requests omit `reasoning.effort`; selecting
+`none` sends the literal wire value `none`. The same selection is used for request
+estimates, tool follow-ups and existing permitted retries. Backend rejection is
+visible as a provider failure, with no silent downgrade or extra retry.
+
+Resume uses the same current flag/config/default precedence, **not** the effort
+of an earlier step. Every new step records `effort` at admission, before any
+request, including locally stopped steps. A string records the selected input;
+explicit `null` records that provider default was requested, not a known internal
+backend reasoning level. Completion, failure, cancellation and interrupted-run
+recovery retain that value. Replay and fork carry it with the step; rewind removes
+it with a removed step. Historical steps missing `effort` remain unchanged: absence
+is legacy/unknown evidence, not a backfilled claim of provider default.
+
 An invalid or missing CLI value prints a usage diagnostic to standard error and
 exits **64**, before starting the engine or making session/provider changes.
 Configuration is validated strictly at engine startup, even when a valid
