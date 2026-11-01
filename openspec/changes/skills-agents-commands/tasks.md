@@ -34,7 +34,7 @@
 | skills: Skills delivered whole | Whole skill plus parallel results over a known window | test/loop/context_test.dart | parallel results after a whole skill stop the next step before sending | green |
 | skills: Skills delivered whole | Unknown window | test/tools/skill_tool_test.dart | with an unknown window a skill is delivered whole and the request is sent | green |
 | skills: Skills delivered whole | Skill directory outside the project | test/workspace/containment_test.dart | a junctioned skill folder outside the root is not a skill | green |
-| skills: Inventory in doctor | Healthy workspace | test/qualification/installed_workflow_test.dart | doctor lists every installed command, skill and role with only shadowed problems | red |
+| skills: Inventory in doctor | Healthy workspace | test/qualification/installed_workflow_test.dart | doctor lists every installed command, skill and role with only shadowed problems | green |
 | skills: Inventory in doctor | Broken skill reported | test/cli/doctor_inventory_test.dart | a broken SKILL.md is listed under problems and doctor's exit code is unchanged | green |
 | slash-commands: Command definitions | Namespaced command | test/workspace/commands_test.dart | opsx/propose.md is the command opsx:propose without its frontmatter | green |
 | slash-commands: Command definitions | Broken frontmatter | test/workspace/commands_test.dart | an unclosed frontmatter is not a command and is a problem | green |
@@ -150,9 +150,9 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 8. Qualification
 
-- [ ] 8.1 Write `test/qualification/installed_workflow_test.dart` over this repository's real `.claude/` and `.agents/` folders: every `/opsx:*` command, every `specwright-*` and `openspec-*` skill and the three roles resolve, substitutions apply, the only problems are shadowed `.agents` copies, and `kehai doctor` lists them. Turns green: *Healthy workspace*.
-- [ ] 8.2 Write `test/qualification/workflow_e2e_test.dart` (D14): with the loopback fake provider, `/opsx:apply` expands, the model calls `skill specwright-commit`, then `agent specwright-implementer` (a real child) edits a file after a relayed prompt is answered, then `agent specwright-reviewer` writes a scratch file; both typed results reach the parent. Verify it passes locally with `-j 1` on Windows.
-- [ ] 8.3 Live qualification in Kehai on Windows with the ChatGPT login: in a scratch copy of this repository set `review.cross_model: false`, run `review-run.sh select` (route `subagent`) and have Kehai's `specwright-reviewer` role review this change's diff through `review-run.sh record`; record the session ids, the receipt and every gap under **Dogfood record**. The change's configured pre-ship review still runs separately.
+- [x] 8.1 Write `test/qualification/installed_workflow_test.dart` over this repository's real `.claude/` and `.agents/` folders: every `/opsx:*` command, every `specwright-*` and `openspec-*` skill and the three roles resolve, substitutions apply, the only problems are shadowed `.agents` copies, and `kehai doctor` lists them. Turns green: *Healthy workspace*.
+- [x] 8.2 Write `test/qualification/workflow_e2e_test.dart` (D14): with the loopback fake provider, `/opsx:apply` expands, the model calls `skill specwright-commit`, then `agent specwright-implementer` (a real child) edits a file after a relayed prompt is answered, then `agent specwright-reviewer` writes a scratch file; both typed results reach the parent. Verify it passes locally with `-j 1` on Windows.
+- [x] 8.3 Live qualification in Kehai on Windows with the ChatGPT login: in a scratch copy of this repository set `review.cross_model: false`, run `review-run.sh select` (route `subagent`) and have Kehai's `specwright-reviewer` role review this change's diff through `review-run.sh record`; record the session ids, the receipt and every gap under **Dogfood record**. The change's configured pre-ship review still runs separately.
 - [ ] 8.4 Push the branch and confirm the full suite passes on GitHub Actions (Linux and Windows); record the run in the PR description. Verify with `mise run check` locally (analyze and format only) and the CI conclusion.
 
 ## Workflow follow-up

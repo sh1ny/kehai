@@ -394,3 +394,17 @@ Filled in during apply. From task group 7 on, each task group is first attempted
   - A Ctrl-D byte sent to the line client through Orca's terminal input echoed `^D` without ending the session, and the Enter after it submitted it as a message; `/exit` ended it. To check whether a typed Ctrl-D behaves the same on the Windows console.
   - The child reported the branch as `hey-greeting`: Orca had renamed the scratch worktree's branch during the run, not Kehai.
   - Child steps reported cached input on some steps only (3712 and 34048 tokens among mostly 0).
+
+### Live review qualification, task 8.3 (2026-11-01)
+
+- **Setup:** the scratch worktree reset to the group 7 head (`2775d3a`), with `review.cross_model: false` set there only. Kehai built from that head; Windows, ChatGPT login, model `gpt-6.1-sol`, line client. The user typed `/specwright-review` with a brief asking for the pre-ship review only, through the subagent route, without fixes or commits. Parent session `20261101T103231Z-36e933a8`, child session `20261101T103332Z-f4422e37` (job `j-baf08780`, `specwright-reviewer`, model inherited). From 10:32 to 10:53 UTC.
+- **Could do:**
+  - `/specwright-review` expanded to the skill, and the parent followed its subagent route: `review-run.sh select --runtime other` (route `subagent`, nothing skipped, `review.cross_model is false`) and `preflight` (470 129 diff bytes, under `max_diff_kb`), both saved under `build/`.
+  - It dispatched `agent specwright-reviewer` with file paths. The child read the brief, the findings schema and the change artifacts, read the 470 KB diff through `git diff` slices and `read_more`/`search_result` paging, wrote `build/preship-findings.json`, and checked it against the schema itself.
+  - Every child `bash` and `write` call was relayed and answered by the user (11 answered, 41 autoapproved, none denied); the parent's own calls asked 3 times.
+  - The parent ran `review-run.sh record --kind preship --route subagent --preflight … --selection …`, which validated the findings and wrote the record for heads `2775d3a` (base `b55904a`). Receipt: route `subagent`, skipped none, requested model and thinking `default`, actual `unknown`, process group `session`; P0 0, P1 2, P2 0, P3 0.
+  - Findings: F1 (P1) the qualification tests were not in the reviewed commit. True at that head: the group 8 tests were uncommitted; they land with group 8. F2 (P1) workspace discovery calls `listSync` unguarded in the skill, command and role loaders, so an unreadable or vanishing discovery directory throws out of `_captureContext` after the exchange node is written. Confirmed in `lib/src/workspace/skills.dart`; it is handled in the pre-ship fix round.
+- **Could not do:** nothing in the qualification path. The reviewer ran no tests (read-only role, as briefed), and the receipt cannot name the actual model, since the subagent route has no CLI to report it.
+- **Friction to keep in view:**
+  - Progress lines from the child's parallel reads printed after a relayed `answer>` prompt and scrolled it off the screen, so the run looked stuck while it waited for an answer.
+  - The record for heads `2775d3a` sits in the shared review state directory. The change's configured pre-ship review runs at the final head, so it does not reuse this record.
