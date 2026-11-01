@@ -192,7 +192,7 @@ The setting adds constant space per runtime and step, no growing side collection
 
 ## Dogfood evidence and friction
 
-Planning runs in Kehai. Branch prerequisite evidence and first routing commit are recorded in Context/D5. No apply attempt has occurred yet; implementation, pre-ship review, PR and merge receipts remain pending until separately authorized.
+Planning and the authorized apply attempt run in Kehai on `feat/dogfood-first-m2-change`. Groups 1–4 were committed before the group-5 attempt (starting HEAD `ab5fa1d`). Group 5 added local integration coverage and attempted qualification on 2026-11-01. After the user clarified the standing local/CI validation policy, the orchestrator's single-file local checks passed. Task 5.2's validation-policy amendment is recorded in `534face`; fresh internal design approval remains required before recording group 5 complete. Pre-ship review, delivery PR, remote full-suite CI, archive and merge are separate outstanding delivery gates, not claimed complete here.
 
 Observed planning friction to seed M2 (not implementation scope):
 - A chained gate command prompted/was interrupted. User requires exactly one command per bash call; subsequent calls comply, using tool working-directory parameters instead of shell `cd` prefixes.
@@ -200,7 +200,43 @@ Observed planning friction to seed M2 (not implementation scope):
 - A commit message under `.git/` was denied by repository guard; `.git/kehai-scratch/` was accepted. The protected path was not modified.
 - Generic `explore` agent role was unavailable; only installed Specwright roles are runnable. Discovery continued read-only in the parent; no alternate harness launched.
 
-During apply append actual unsupported steps or `none observed`, test/check receipts, reviewer route evidence and PR/merge identifiers. These receipts do not substitute for Nikolay's user-verified milestone acceptance.
+Group-5 apply/test/platform receipts (2026-11-01):
+- Added `test/client/effort_process_test.dart`, using the existing line-client subprocess fixture, isolated `TestHome`/workspace/role/session and loopback `FakeOpenAi` only. It launches the public line client with leading `--effort high` (config `low`), and separately without an effort selection. Each case reads a local file, approves the existing `agent` permission prompt, launches a real `specwright-reviewer` child mapped to `gpt-fake-mini`, and completes the parent's follow-up. All four actual request bodies and all four replayed steps (three parent, one child) must agree with the selected scalar or explicit null. Config is edited after startup in both cases; the child's tools must still exclude `agent`. This fake reviewer execution tests inheritance, not design approval or review quality. No paid backend was used; no production behavior was changed for group 5.
+- Native Windows, pinned Dart 3.13.7, no WSL: the implementer's focused integration run passed **2 tests** in 27 seconds. Its initial run failed because the fixture did not answer the line client's existing agent permission prompt; this was a fixture failure, **not** a missing-effort red confirmation. The fixture now answers `1` and closes/awaits the client so it shuts down its engine/jobs. The orchestrator independently reran this file with `-j 1`: **2 passed** in 26 seconds.
+- Historical failed local full-suite attempt: `mise run check` exited 1 after format and analysis passed. `test/hooks/hooks_test.dart: a slow job settle does not hold the call past the grace` exceeded its 3-second wall-time assertion at **3.480569 seconds**. Last captured progress was `+1001 ~24 -1`, not a final suite receipt. On resume, the orchestrator first ran `mise exec -- dart test test/hooks/hooks_test.dart -j 1 --reporter expanded` alone: **11 passed**, exit 0, in 11 seconds, including the unchanged assertion. Per the user's instruction, the earlier overrun is treated as load-induced and recorded as observed under local full-suite load, not a feature regression. No unrelated code or assertion was changed, weakened or skipped.
+- **Standing validation split:** the full test suite runs on GitHub Actions only, never locally. Local tests run one named test file per call with `-j 1`, sequentially; local quality gates are `mise run format:check` and `mise run analyze`. The repository guard now refuses `mise run check`, `mise run test`, and `dart test` without a test file. No full-suite command was retried after the user clarified this policy. Before merge, require both ordinary delivery PR CI on Linux/Windows and an explicit full-suite Actions run against the delivery revision: manually dispatch the existing Nightly workflow on the delivery branch, verify its checked-out head SHA, and record its run URL and both platform matrix outcomes. Nightly runs unfiltered `dart test`; ordinary PR CI excludes slow tests and cannot alone discharge full-suite qualification. Rerun qualification if later delivery changes invalidate that revision. Both remote gates remain pending, not claimed satisfied by these local receipts.
+- Orchestrator quality gates: `mise run format:check` passed (277 files, 0 changed); `mise run analyze` passed (`No issues found!`). Each file below was independently run as its own `mise exec -- dart test <file> -j 1 --reporter expanded` call, never as a multi-file invocation or in parallel with another local test run:
+
+| Local test file | Passed | Skipped |
+|---|---:|---:|
+| `test/hooks/hooks_test.dart` | 11 | 0 |
+| `test/client/effort_process_test.dart` | 2 | 0 |
+| `test/config/config_test.dart` | 16 | 0 |
+| `test/loop/request_builder_test.dart` | 12 | 0 |
+| `test/loop/driver_test.dart` | 21 | 0 |
+| `test/tools/agent_tool_test.dart` | 3 | 0 |
+| `test/jobs/agent_effort_test.dart` | 3 | 0 |
+| `test/cli/effort_test.dart` | 15 | 0 |
+| `test/tools/runtime_test.dart` | 24 | 0 |
+| `test/cli/cli_test.dart` | 17 | 0 |
+| `test/rpc/process_test.dart` | 6 | 1 (Unix-only SIGINT case on Windows) |
+| `test/client/process_test.dart` | 6 | 0 |
+| `test/tools/attach_config_test.dart` | 4 | 0 |
+| `test/jobs/agent_job_test.dart` | 13 | 0 |
+| `test/jobs/agent_run_test.dart` | 16 | 0 |
+| `test/jobs/agent_resume_test.dart` | 4 | 0 |
+
+- These **173 passing tests across 16 single-file runs**, plus one platform skip, cover every effort test-map row and nearby CLI/runtime/child-process regressions. They are targeted local receipts, **not** a full-suite pass.
+- The implementer separately ran `mise run openspec:validate` (23 items passed, 0 failed) and `mise run secrets` (no leaks found, approximately 63.20 MB scanned). The orchestrator independently repeated both after the evidence update: OpenSpec validation passed **23 items, 0 failed**, exit 0; secrets passed with **no leaks found**, exit 0 (approximately 63.13 MB scanned).
+- CI inclusion inspected, **not remotely executed**: `.github/workflows/ci.yml` runs `dart test --exclude-tags slow` on `ubuntu-latest` and `windows-latest` for PRs/main; `.github/workflows/nightly.yml` supports manual dispatch and runs unfiltered `dart test` on the same matrix. The new ordinary `test/client/*_test.dart` file has no slow tag or platform skip, so both existing workflows discover both cases without workflow changes. Linux was unavailable locally and remains **unverified**. Ordinary PR CI and the explicit Nightly full-suite run against the delivery revision are **pending**. Scheduled default-branch results are not qualification of the delivery revision; the run URL, verified head SHA and both matrix results must be captured before merge.
+
+Additional apply friction / unsupported or outstanding steps:
+- The earlier prefixed temporary-directory `mise run check` call was denied; it was not repeated unchanged. Before the standing-rule clarification, the literal `mise run check` then ran and produced the timing failure above. After clarification no prohibited local full-suite command was run.
+- The initial fixture timeout killed the line client before its owned engine had shut down, producing Windows directory-deletion errors. Normal/error cleanup now closes input and awaits the client. The implementer's final process inventory found no remaining test/client/engine processes from that attempt; unrelated existing MCP/editor/Flutter processes were left alone. All orchestrator single-file commands completed in the foreground.
+- Groups 1–4 supplied feature-red evidence. Group 5 adds integration qualification of existing behavior; its fixture timeout is not counted as feature-red evidence. The isolated hooks rerun resolves the reported local blocker without an unrelated fix.
+- This evidence edit invalidates the earlier design approval. Task 5.2 requires a fresh validated Kehai-internal design review of the updated artifacts before the group commit; `review.md` records its verdict. No external reviewer CLI substitutes for it. No local result or internal review claims remote CI, a delivery PR/merge, or Nikolay's user-verified milestone acceptance.
+
+These receipts do not substitute for Nikolay's user-verified milestone acceptance.
 
 ## Open Questions
 
