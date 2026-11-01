@@ -13,7 +13,7 @@ import 'dart:typed_data';
 import '../client/mirror.dart';
 import '../client/render.dart' show agentProgressLine;
 import '../session/record.dart';
-import '../rpc/protocol.dart' show protocolVersion;
+import '../rpc/protocol.dart' show maxLineBytes, protocolVersion;
 import 'supervisor.dart';
 
 /// Called with a child's `prompt` item (the relay, design D10).
@@ -99,6 +99,8 @@ final class AgentRun implements JobChannel {
   String? _startFailure;
   String? _fatal;
   String? _refused;
+  String? _oversized;
+  bool _exchangeSeen = false;
 
   /// The child's session id, once its `hello` arrived.
   String? get session => _session;
@@ -209,12 +211,24 @@ final class AgentRun implements JobChannel {
         _check();
         if (!_submitted && !_ended) {
           _submitted = true;
-          _send({
+          final submit = {
             'type': 'submit',
             'id': agentRequestId,
             'text': prompt,
             'turn': _mirror.turn,
-          });
+          };
+          // The child reads one line of at most maxLineBytes; a longer one
+          // is refused with an unaddressed error and the exchange never
+          // starts.
+          final size = utf8.encode(jsonEncode(submit)).length;
+          if (size > maxLineBytes) {
+            _oversized =
+                'agent prompt is too large: $size bytes as a protocol line; '
+                'the limit is $maxLineBytes';
+            _closeStdin();
+          } else {
+            _send(submit);
+          }
         }
       case 'update':
         final offset = event['offset'];
@@ -246,7 +260,12 @@ final class AgentRun implements JobChannel {
       case 'withdraw':
         if (event['key'] case final String key) onWithdraw?.call(key);
       case 'error':
-        if (event['to'] == agentRequestId && !_ended) {
+        final to = event['to'];
+        // An unaddressed error before the exchange starts is the child
+        // rejecting the submit line itself (too long, invalid UTF-8): the
+        // exchange would never start.
+        final lost = to == null && _submitted && !_exchangeSeen;
+        if ((to == agentRequestId || lost) && !_ended) {
           _refused = '${event['message']}';
           _closeStdin();
         }
@@ -294,6 +313,7 @@ final class AgentRun implements JobChannel {
           exchange['request'] != agentRequestId) {
         continue;
       }
+      _exchangeSeen = true;
       final state = exchange['state'];
       if (state is String && state != 'running') {
         _ended = true;
@@ -414,6 +434,9 @@ final class AgentRun implements JobChannel {
     } else if (end.failReason case final reason?) {
       status = 'failed';
       reasonLine = reason;
+    } else if (_oversized case final message?) {
+      status = 'failed';
+      reasonLine = message;
     } else if (_refused case final message?) {
       status = 'failed';
       reasonLine = 'child refused the prompt: $message';

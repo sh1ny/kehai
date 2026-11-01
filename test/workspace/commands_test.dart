@@ -5,6 +5,8 @@ import 'package:kehai/src/workspace/skills.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'link_support.dart';
+
 void main() {
   late Directory tmp;
   late String root;
@@ -48,6 +50,23 @@ void main() {
     expect(found.commands.map((c) => c.name), ['opsx:good']);
     expect(found.problems.single.path, '.claude/commands/opsx/bad.md');
     expect(found.problems.single.reason, contains('not closed'));
+  });
+
+  test('a directory link back to an ancestor is not entered again and is a '
+      'problem', () {
+    command('opsx/apply.md', 'apply\n');
+    final base = p.join(root, '.claude', 'commands');
+    linkDirectory(p.join(base, 'opsx', 'loop'), base);
+    linkDirectory(p.join(base, 'opsx', 'self'), p.join(base, 'opsx'));
+    final found = discoverCommands(root: root, kehaiHome: home);
+    expect(found.commands.map((c) => c.name), ['opsx:apply']);
+    expect(
+      {for (final problem in found.problems) problem.path: problem.reason},
+      {
+        '.claude/commands/opsx/loop': 'directory link cycle',
+        '.claude/commands/opsx/self': 'directory link cycle',
+      },
+    );
   });
 
   Skill skill(String name, {bool invocable = true}) => Skill(

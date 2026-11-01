@@ -71,10 +71,19 @@ CommandDiscovery discoverCommands({
     return const CommandDiscovery(commands: [], problems: []);
   }
 
+  // The resolved directories on the walk's current path: a link back to one
+  // of them is a cycle and is not entered again.
+  final walking = <String>{};
+
   void walk(String dir) {
     final real = realPath(dir);
     if (realRoot == null || real == null || !isInside(realRoot, real)) {
       problems.add(Problem(displayPath(root, dir), 'outside the project root'));
+      return;
+    }
+    final key = Platform.isWindows ? real.toLowerCase() : real;
+    if (!walking.add(key)) {
+      problems.add(Problem(displayPath(root, dir), 'directory link cycle'));
       return;
     }
     List<FileSystemEntity> entries;
@@ -87,6 +96,7 @@ CommandDiscovery discoverCommands({
           'cannot be listed: ${e.osError?.message ?? e.message}',
         ),
       );
+      walking.remove(key);
       return;
     }
     entries.sort((a, b) => a.path.compareTo(b.path));
@@ -104,6 +114,7 @@ CommandDiscovery discoverCommands({
         if (command != null) commands.add(command);
       }
     }
+    walking.remove(key);
   }
 
   walk(base);

@@ -125,10 +125,15 @@ Future<void> _feed(AgentRun run, String text, {int size = 1 << 16}) async {
   }
 }
 
-AgentRun _run(_Host host, {int? lineLimit, String? modelNote}) {
+AgentRun _run(
+  _Host host, {
+  int? lineLimit,
+  String? modelNote,
+  String prompt = 'review it',
+}) {
   final run = AgentRun(
     role: _role,
-    prompt: 'review it',
+    prompt: prompt,
     modelNote: modelNote,
     lineLimit: lineLimit ?? maxChildLineBytes,
   );
@@ -491,5 +496,48 @@ void main() {
       'agent $_role done (0 steps, session $_session)',
       'model haiku is not configured; used m',
     ]);
+  });
+  test('a prompt over the line limit once JSON-encoded is not sent and fails '
+      'the run at once', () async {
+    final host = _Host();
+    // 600 000 quotes are 1.2 MB encoded: under the limit raw, over it escaped.
+    final run = _run(host, prompt: '"' * 600000);
+
+    await _feed(run, _line(_hello()));
+    await _feed(run, _line(_snapshot()));
+
+    expect(host.commands, isEmpty);
+    expect(host.stdinClosed, isTrue);
+    final end = await run.finish(const JobEnd(exit: 0));
+    expect(end.fields['status'], 'failed');
+    expect(
+      end.result,
+      contains(
+        'agent prompt is too large: 1200049 bytes as a protocol line; '
+        'the limit is 1048576',
+      ),
+    );
+  });
+
+  test('an unaddressed child error before the exchange starts fails the '
+      'run', () async {
+    final host = _Host();
+    final run = _run(host);
+
+    await _feed(run, _line(_hello()));
+    await _feed(run, _line(_snapshot()));
+    expect(host.commands.single['type'], 'submit');
+    await _feed(
+      run,
+      _line({'type': 'error', 'message': 'line too long (limit 1 MiB)'}),
+    );
+
+    expect(host.stdinClosed, isTrue);
+    final end = await run.finish(const JobEnd(exit: 0));
+    expect(end.fields['status'], 'failed');
+    expect(
+      end.result,
+      contains('child refused the prompt: line too long (limit 1 MiB)'),
+    );
   });
 }
