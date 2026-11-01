@@ -257,6 +257,38 @@ void main() {
       expect(output.output, endsWith('\n[diag hooks] heads up'));
     });
 
+    test('a notrunc node without model text is recomposed whole', () async {
+      final (writer, store) = await _session();
+      await seedExchange(writer, 1, 'go', state: 'running');
+      await seedStep(
+        writer,
+        1,
+        exchange: 1,
+        output: [callEntry('c1', 'skill')],
+      );
+      final body = [for (var i = 1; i <= 2000; i++) 'line $i of the skill'];
+      await seedCall(
+        writer,
+        store,
+        callId: 'c1',
+        tool: 'skill',
+        resultText: '${body.join('\n')}\n',
+        summary: 'loaded big',
+        extra: {'notrunc': true},
+      );
+
+      final built = await _builder(writer).build(writer.tree, turn: 2);
+
+      final output = built.request.items.whereType<ToolOutputItem>().single;
+      expect(output.output, startsWith('[skill ok] loaded big'));
+      expect(output.output, endsWith('line 2000 of the skill'));
+      expect(output.output, isNot(contains('truncated')));
+      expect(
+        RegExp('line \\d+ of the').allMatches(output.output),
+        hasLength(2000),
+      );
+    });
+
     test('a storage failure is rebuilt from reason and accepted', () async {
       final (writer, store) = await _session();
       await seedExchange(writer, 1, 'go', state: 'running');

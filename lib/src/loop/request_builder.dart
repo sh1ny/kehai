@@ -391,6 +391,8 @@ final class RequestBuilder {
           descriptor,
           file,
           policy: ResultPolicy.forTool(tool),
+          // A whole delivery passed its capacity check when it settled.
+          notrunc: node['notrunc'] == true,
         );
         return text + diag;
       } on Object catch (e) {

@@ -186,6 +186,9 @@ void main() {
     expect(item.output, isNot(contains('truncated')));
     expect(item.output, isNot(contains('read_more')));
     expect(RegExp('line \\d+ of the').allMatches(item.output), hasLength(2000));
+    // Kept on the node, so a recomposition without the cached model text
+    // still delivers the skill whole.
+    expect(rig.node()['notrunc'], isTrue);
   });
 
   test('a 300 KiB SKILL.md is refused with the read hint', () async {

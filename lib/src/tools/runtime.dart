@@ -845,6 +845,8 @@ final class ToolRuntime {
         'summary': summary,
         'result': {'handle': descriptor.handle, 'complete': whole},
         'model': ?_modelRef(model),
+        // Kept so a recomposition without the model text stays uncut.
+        'notrunc': ?(notrunc ? true : null),
         'reason': ?reason,
         ...live.takeExtra(),
       },
