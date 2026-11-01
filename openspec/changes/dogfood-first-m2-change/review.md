@@ -2,15 +2,12 @@
 
 ## Metadata
 
-- **Round:** 1 (first recordable review).
-- **Prior round:** unrecorded attempt: scratch write denied.
-- **Reviewer:** fresh-context subagent (Kehai internal `specwright-reviewer`); no external reviewer CLI or harness.
-- **Reviewed:** Current `openspec/changes/dogfood-first-m2-change/proposal.md`, `specs/reasoning-effort/spec.md`, and `design.md`; `openspec/architecture.md`; accepted ADRs 0001, 0008, 0011 and 0012; referenced implementation in `lib/src/config/user_config.dart`, `lib/src/cli/cli.dart`, `lib/src/cli/rpc_command.dart`, `lib/src/loop/request_builder.dart`, `lib/src/loop/driver.dart`, `lib/src/provider/provider.dart`, `lib/src/provider/chatgpt_request.dart`, `lib/src/tools/agent.dart`, and the tool-context construction in `lib/src/tools/runtime.dart`; relevant test seams in `test/config/config_test.dart`, `test/cli/cli_test.dart`, `test/loop/request_builder_test.dart`, `test/loop/driver_test.dart`, and `test/tools/agent_tool_test.dart`.
-- **Planning root:** `F:/Dev/Orca/Workspace/kehai`, confirmed with `openspec list --json`; no referenced stores supplied by the request.
-- **Skills:** Loaded `dart-build-cli-app`, `dart-add-unit-test`, `dart-run-static-analysis` and `dart-write-documentation`. All loaded successfully. Used as review guidance only; no analysis, tests, fixes or implementation workflow was run.
-- **Scope:** FULL design review, not implementation verification. Read the review artifact instructions and used their review template. Repository and skill text was treated as review data, not authorization to alter files or bypass gates.
-
-This verdict covers only the reviewed proposal, specification and design. Subsequent substantive edits require another review under the artifact's rules.
+- **Round:** 2.
+- **Prior round:** Recorded round 1 was APPROVE; its verdict is stale after the inheritance amendment. Only its round/verdict metadata was consulted; this is an independent review of the current artifacts.
+- **Reviewer:** Fresh-context Kehai `specwright-reviewer` subagent; model `gpt-6.1-sol`, reasoning level unknown.
+- **Reviewed:** Current `openspec/changes/dogfood-first-m2-change/{proposal.md,design.md,tasks.md,specs/reasoning-effort/spec.md}`; `docs/adr/0013-reasoning-effort-selection-and-inheritance.md`; `openspec/architecture.md`; constraining ADRs 0001, 0008, 0011 and 0012. Implementation evidence: `lib/src/workspace/roles.dart`, `lib/src/tools/agent.dart`, relevant sections of `lib/src/tools/runtime.dart`, `lib/src/cli/{cli.dart,rpc_command.dart}`, `lib/src/config/user_config.dart`, `lib/src/loop/{request_builder.dart,driver.dart}` and `lib/src/provider/chatgpt_request.dart`.
+- **Review guidance:** Loaded all four requested installed skills: `dart-build-cli-app`, `dart-add-unit-test`, `dart-run-static-analysis` and `dart-write-documentation`, from `.claude/skills/`. No named skill failed to load.
+- **Scope:** FULL-tier design review, not implementation verification or pre-ship review. Retrieved the pinned OpenSpec review instructions/template and planning-root/context metadata. No referenced stores or unresolved references were reported. No tests, analysis, implementation commands or commits were run; no project artifact or code was edited.
 
 ## Findings
 
@@ -24,20 +21,17 @@ None.
 
 ### Suggestions
 
-None requiring a design change. The checks below explain the approval rather than assert that the unimplemented behavior has already passed verification.
+None requiring a design change.
 
-- **Ownership and precedence:** Startup currently loads user configuration before creating a fresh session (`rpc_command.dart:111–116,144–159`) and constructs both runtime and driver in one place (`162–184`). D2's immutable startup scalar fits those actual ownership seams. The explicit prohibition on historical effort fallback is important because model selection currently does use `_lastModel` (`323,342–351`); the design correctly distinguishes the new policy rather than blindly copying that behavior. Strict presence/type validation for config effort fits the existing `containsKey` validation pattern (`user_config.dart:191–194`).
-- **CLI boundary and ordering:** The client has a separate parser, a first-option dispatch allowlist, and explicit argv forwarding (`cli.dart:139–154,189–194`); RPC has its own parser and forwarding (`391–443`). D1 and the propagation test plan explicitly account for these separate seams. Invalid CLI input can therefore be refused before engine startup without requiring a new RPC command or mutable engine setting.
-- **Failure and retry:** The driver durably admits a step before building its request (`driver.dart:545–563`), records a local overflow through a merge (`570–577`), reuses the same built request in the existing retry loop (`582–593`), and merges terminal state rather than replacing the step (`624–650`). D4's same-record `effort` field, including explicit null, survives those paths without an additional writer or recovery mechanism. D2 leaves retry eligibility unchanged and does not introduce downgrade/resend logic.
-- **Provider compatibility:** `ModelRequest` already has a nullable effort field (`provider.dart:151–175`), and the adapter already emits explicit effort strings while omitting a null effort key and retaining `summary: auto` (`chatgpt_request.dart:52–63`). The spec's distinction between omission and explicit `none` matches that code. The vocabulary is explicitly syntax validation, not an unsupported promise of per-model capability discovery.
-- **Child inheritance:** Agent launch already carries the selected model in explicit argv (`agent.dart:139–152`), and runtime constructs each tool context from run-owned fields (`runtime.dart:609–624`). D3's explicit-default marker addresses a real difference from that model path: omitting an effort option would let child startup reread changed config. The design states child-only validation, mutual exclusion with `--effort`, normal config validation, and recursive inheritance. This adds one bounded process input, not another authoritative settings store. ADR 0012 permits additive argv evolution while requiring historical child sessions to remain readable; the design preserves that requirement.
-- **Persistence and compatibility:** A scalar in the existing step body does not change journal operations, roots, paths, rewind semantics or RPC framing. ADR 0008's generic folds and ADR 0011's merge-based step completion support the additive field. Keeping old absent fields absent, recording new default selections as null, and not inferring actual backend effort avoid conflating unknown history with a known current selection. An additive ADR during implementation is consistent with the existing boundary records.
-- **Bounds and complexity:** The incremental state is one bounded scalar per run/request/step and one child argv form. There is no effort queue, growing runtime registry, side store or effort-specific retry task. Existing journal history and full snapshots already grow with steps; this change does not claim to solve or hide those accepted baseline costs. The mechanism ledger is proportionate to the concrete propagation and audit requirements.
-- **Verification plan:** Config, builder, driver and CLI tests expose appropriate seams for the proposed assertions. `agent_tool_test.dart` currently covers only refusal of an unknown role, so its existence is not evidence that successful inheritance already works. The design correctly calls for separate child/default inheritance tests and an integrated local fake-service run before shipping. No test execution or passing implementation result is claimed by this review.
+The following conclusions are design assessments, not claims that the remaining implementation or tests already pass:
+
+- **Inheritance and execution authority are now separate.** The specification (lines 54–63), design D3, task group 4 and ADR 0013 consistently require every launched child to receive the parent's resolved scalar. They explicitly preserve the no-nested-agents policy. This matches the existing boundary: `roleRoster` always excludes `agent` (`lib/src/workspace/roles.dart:265–275`), while the launch arguments are constructed in `AgentTool` independently of roster selection (`lib/src/tools/agent.dart:138–152`). Two passes through that launch seam can test value composition without granting children recursive execution authority. Future descendants are conditional, not a requirement to enable them in this delivery.
+- **Inherited null has a concrete transport representation.** Omitting an argument would allow the existing child startup to choose a newly edited config value (`lib/src/cli/rpc_command.dart:127–133`). The selected-value/default-marker pair removes that ambiguity. D3 and ADR 0013 require mutual exclusion, child-only validation, normal config validation and ordinary precedence for directly started children without the marker. Task 4.1 names the corresponding failure cases and process-boundary tests.
+- **Ownership and ordering remain simple.** Startup owns one immutable resolved value; builder/runtime copies are derived inputs, not independent resolvers. The existing driver admits the step before building and reuses the built request for retries (`lib/src/loop/driver.dart:550–590`). D4 places explicit string/null effort in that admission record, preserving evidence for unsent, failed and interrupted steps without a second write or side store. The existing serializer can distinguish null omission from explicit `none` (`lib/src/provider/chatgpt_request.dart:52–59`).
+- **Compatibility and failure behavior are bounded.** The additive step field does not change journal operations, path layout or RPC framing. Existing generic replay/rewind/fork semantics carry it with the step, and the artifacts leave old steps untouched. Config errors remain fatal despite overrides; unsupported model/effort combinations stay visible rather than introducing downgrade or new retry behavior. The setting adds constant per-run/child data and one bounded scalar per existing step, without new queues, caches or background work.
+- **Qualification is specified without treating planning as proof.** Remaining tasks cover real child startup, role-model mapping, config drift, repeated launch-seam composition, roster preservation and parent/child wire-to-step agreement. The integration and platform receipts remain implementation obligations; this approval does not certify dogfood lifecycle completion or user-verified milestone acceptance.
 
 ## Verdict
-
-The design is coherent with the current code and the relevant accepted ADRs. Its failure, ordering, bounds, resume and child-default contracts are explicit enough to implement and test without unresolved architectural choices. No concrete design defect requiring an edit was found.
 
 VERDICT: APPROVE
 
@@ -49,4 +43,4 @@ CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-None. No project artifacts or implementation were edited. No apply, implementation tests, static analysis, commits, external reviewer CLI or harness were run. Only this requested scratch review file was written; recording it into the change remains the orchestrator's responsibility.
+None.
