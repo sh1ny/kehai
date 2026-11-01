@@ -102,8 +102,19 @@ SkillDiscovery discoverSkills({
       problems.add(Problem(rootDir, 'outside the project root'));
       continue;
     }
-    final entries = Directory(dir).listSync(followLinks: false)
-      ..sort((a, b) => a.path.compareTo(b.path));
+    List<FileSystemEntity> entries;
+    try {
+      entries = Directory(dir).listSync(followLinks: false);
+    } on FileSystemException catch (e) {
+      problems.add(
+        Problem(
+          displayPath(root, dir),
+          'cannot be listed: ${e.osError?.message ?? e.message}',
+        ),
+      );
+      continue;
+    }
+    entries.sort((a, b) => a.path.compareTo(b.path));
     for (final entry in entries) {
       final name = p.basename(entry.path);
       if (!FileSystemEntity.isDirectorySync(entry.path)) continue;

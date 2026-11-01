@@ -93,8 +93,19 @@ RoleDiscovery discoverRoles({
       problems: [Problem('.claude/agents', 'outside the project root')],
     );
   }
-  final entries = Directory(dir).listSync(followLinks: false)
-    ..sort((a, b) => a.path.compareTo(b.path));
+  List<FileSystemEntity> entries;
+  try {
+    entries = Directory(dir).listSync(followLinks: false);
+  } on FileSystemException catch (e) {
+    problems.add(
+      Problem(
+        displayPath(root, dir),
+        'cannot be listed: ${e.osError?.message ?? e.message}',
+      ),
+    );
+    return RoleDiscovery(roles: const [], problems: problems);
+  }
+  entries.sort((a, b) => a.path.compareTo(b.path));
   for (final entry in entries) {
     if (!entry.path.endsWith('.md') ||
         FileSystemEntity.isDirectorySync(entry.path)) {
