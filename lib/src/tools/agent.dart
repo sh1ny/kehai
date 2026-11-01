@@ -149,14 +149,18 @@ final class AgentTool implements Tool {
           model,
           if (context.yolo) '--yolo',
         ]);
+        // On POSIX the child leads its own group, so the supervisor can end
+        // its process tree; its own jobs are found as its descendants.
+        final setsid = Platform.isWindows ? null : context.shell?.shell?.setsid;
         final process = await startProcess(
           command.executable,
           command.arguments,
           workingDirectory: cwd,
           environment: environment,
+          setsid: setsid,
           keepStdin: true,
         );
-        return ShellProcess(process, groupKnown: false);
+        return ShellProcess(process, groupKnown: setsid != null);
       },
     );
 

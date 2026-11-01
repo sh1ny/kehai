@@ -238,6 +238,59 @@ void main() {
     skip: skip,
   );
 
+  test(
+    'cancel ends a stubborn child and the jobs it runs in their own sessions',
+    () async {
+      final setsid = posixShell()?.setsid;
+      final h = await JobHarness.create(timings: fast);
+      final channel = _Channel(h);
+      final pidFile = File(p.join(h.cwd, 'grandchild.pid'));
+      // The child ignores its soft stop and SIGTERM, and runs a job the way a
+      // child engine does: under setsid, in a session of its own.
+      final handle = h.supervisor.start(
+        JobRequest(
+          kind: JobKind.agent,
+          cmd: 'agent fake',
+          cwd: h.cwd,
+          deadline: const Duration(seconds: 60),
+          channel: channel,
+          launch: () async {
+            final process = await startProcess(
+              'bash',
+              [
+                '-c',
+                'trap "" TERM; $setsid sleep 300 & echo \$! > ${pidFile.path}; '
+                    'while :; do sleep 1; done',
+              ],
+              workingDirectory: h.cwd,
+              environment: Platform.environment,
+              setsid: setsid,
+              keepStdin: true,
+            );
+            return ShellProcess(process, groupKnown: true);
+          },
+        ),
+      );
+      await waitFor(
+        () => pidFile.existsSync() && pidFile.readAsStringSync().trim() != '',
+      );
+      final grandchild = int.parse(pidFile.readAsStringSync().trim());
+      expect(Process.killPid(grandchild, ProcessSignal.sigcont), isTrue);
+
+      final outcome = await h.supervisor.cancelJob(handle.id);
+
+      final result = (outcome as JobCancelled).result;
+      expect(result.state, 'cancelled');
+      expect(result.cleanup, 'confirmed');
+      expect(
+        Process.killPid(grandchild, ProcessSignal.sigcont),
+        isFalse,
+        reason: 'the job in its own session ended with the child',
+      );
+    },
+    skip: skipUnlessUnix(),
+  );
+
   test('the deadline takes the same soft-stop path', () async {
     final h = await JobHarness.create(timings: fast);
     final channel = _Channel(h);

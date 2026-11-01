@@ -113,6 +113,7 @@ final class _Fixture {
     };
     if (login) home.store.replace(loggedInRecord());
     Directory(home.path).createSync(recursive: true);
+    if (!Platform.isWindows) Process.runSync('chmod', ['700', home.path]);
     File(p.join(home.path, 'config.json')).writeAsStringSync(
       jsonEncode({
         'model': 'gpt-fake',
@@ -505,6 +506,55 @@ void main() {
       expect(text, contains('agent $_reviewer timeout'));
       expect(text, contains('partial words'));
       expect(f.h.lastCall['envelope'], 'timeout');
+    });
+
+    test('a timed-out child returns its latest partial text, not an earlier '
+        "step's commentary", () async {
+      final f = await _Fixture.create();
+      f.writeRole(_reviewer, tools: 'read');
+      File(p.join(f.workspace.path, 'notes.txt')).writeAsStringSync('notes');
+      f.fake.responsesScripts.add(
+        ResponsesScript.sse([
+          SseEvent.json('response.created', {
+            'response': {'id': 'resp_1'},
+          }),
+          SseEvent.json('response.output_text.delta', {
+            'delta': 'early commentary',
+          }),
+          SseEvent.json('response.output_item.done', {
+            'item': {
+              'type': 'message',
+              'role': 'assistant',
+              'content': [
+                {'type': 'output_text', 'text': 'early commentary'},
+              ],
+            },
+          }),
+          SseEvent.json('response.output_item.done', {
+            'item': {
+              'type': 'function_call',
+              'call_id': 'call_read',
+              'name': 'read',
+              'arguments': jsonEncode({'path': 'notes.txt'}),
+            },
+          }),
+          SseEvent.json('response.completed', {
+            'response': {'id': 'resp_1'},
+          }),
+        ]),
+      );
+      f.stall('latest answer so far');
+
+      final text = await f.h.call('agent', {
+        'role': _reviewer,
+        'prompt': 'review',
+        'timeout_s': 15,
+      });
+
+      expect((f.job['agent']! as Map<String, Object?>)['status'], 'timeout');
+      expect(f.fake.responsesRequests, hasLength(2));
+      expect(text, contains('latest answer so far'));
+      expect(text, isNot(contains('early commentary')));
     });
   });
 }

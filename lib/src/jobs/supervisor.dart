@@ -996,6 +996,88 @@ final class JobSupervisor {
       final left = timings.softStop - clock.elapsed;
       if (left > Duration.zero) await _within(process.exitCode, left);
     }
+    // A child engine runs its own jobs in their own sessions, outside its
+    // group. When it did not end by itself, those groups are read while they
+    // are still its descendants and ended after it (subagents: the process
+    // tree ends after the grace). `taskkill /T` already covers them on Windows.
+    final owned =
+        !_windows && job.request.kind == JobKind.agent && job.exitCode == null
+        ? await _descendantGroups(process.pid)
+        : const <int>[];
+    final cleanup = await _terminateMain(job);
+    if (owned.isEmpty) return cleanup;
+    for (final group in owned) {
+      _signal(group, _sigterm);
+    }
+    var remaining = owned;
+    final waited = Stopwatch()..start();
+    while (remaining.isNotEmpty && waited.elapsed < timings.grace) {
+      await Future<void>.delayed(timings.poll);
+      remaining = [
+        for (final group in remaining)
+          if (_signal(group, 0) != _esrch) group,
+      ];
+    }
+    if (remaining.isNotEmpty) {
+      job.forcedKill = true;
+      for (final group in remaining) {
+        _signal(group, _sigkill);
+      }
+      for (final group in remaining) {
+        if (!await _groupGone(group, timings.probe)) {
+          return 'uncertain: descendant group still present';
+        }
+      }
+    }
+    return cleanup;
+  }
+
+  /// The process groups led by descendants of [root], other than its own.
+  ///
+  /// Only a group whose leader descends from [root] is returned, so no group
+  /// the engine itself belongs to is ever signalled. Empty when `ps` cannot
+  /// be read.
+  Future<List<int>> _descendantGroups(int root) async {
+    final ProcessResult listing;
+    try {
+      listing = await Process.run(
+        File('/bin/ps').existsSync() ? '/bin/ps' : '/usr/bin/ps',
+        const ['-A', '-o', 'pid=,ppid=,pgid='],
+      );
+    } on ProcessException {
+      return const [];
+    }
+    if (listing.exitCode != 0) return const [];
+    final children = <int, List<int>>{};
+    final groupOf = <int, int>{};
+    for (final line in LineSplitter.split(listing.stdout as String)) {
+      final fields = line.trim().split(RegExp(r'\s+'));
+      if (fields.length != 3) continue;
+      final [pid, ppid, pgid] = [for (final f in fields) int.tryParse(f)];
+      if (pid == null || ppid == null || pgid == null) continue;
+      (children[ppid] ??= []).add(pid);
+      groupOf[pid] = pgid;
+    }
+    final descendants = <int>{};
+    final queue = [root];
+    while (queue.isNotEmpty) {
+      for (final child in children[queue.removeLast()] ?? const <int>[]) {
+        if (descendants.add(child)) queue.add(child);
+      }
+    }
+    return {
+      for (final pid in descendants)
+        if (groupOf[pid] case final group?
+            when group != root && descendants.contains(group))
+          group,
+    }.toList();
+  }
+
+  /// Ends [job]'s own process (its group when known) and returns the
+  /// `cleanup` text.
+  Future<String> _terminateMain(_Job job) async {
+    final started = job.proc!;
+    final process = started.process;
     if (_windows) {
       try {
         await Process.run(_taskkill(), ['/PID', '${process.pid}', '/T', '/F']);

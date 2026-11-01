@@ -332,21 +332,20 @@ final class AgentRun implements JobChannel {
     return total;
   }
 
-  /// The text of the last step that produced any; an unfinished step's
-  /// `partial` text when none did.
+  /// The text of the latest step that produced any: its committed output
+  /// text, else its unfinished `partial` text. A later step's partial text
+  /// wins over an earlier step's committed commentary.
   String _finalText(List<Map<String, Object?>> steps) {
     for (final step in steps.reversed) {
-      final output = step['output'];
-      if (output is! List<Object?>) continue;
       final text = StringBuffer();
-      for (final item in output) {
-        if (item case {'type': 'text', 'text': final String part}) {
-          text.write(part);
+      if (step['output'] case final List<Object?> output) {
+        for (final item in output) {
+          if (item case {'type': 'text', 'text': final String part}) {
+            text.write(part);
+          }
         }
       }
       if (text.isNotEmpty) return text.toString();
-    }
-    for (final step in steps.reversed) {
       if (step['partial'] case final String partial when partial.isNotEmpty) {
         return partial;
       }
