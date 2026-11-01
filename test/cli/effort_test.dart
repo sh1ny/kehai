@@ -495,6 +495,7 @@ void main() {
           [...prefix, ...option],
           home: home,
           fake: fake,
+          executable: executable,
         );
         expect(run.exitCode, 64, reason: cli.allOutput(run));
         expect(run.stdout, isEmpty);
@@ -528,6 +529,7 @@ void main() {
           [...prefix, '--effort', 'high', '--model', 'gpt-fake'],
           home: home,
           fake: fake,
+          executable: executable,
         );
         expect(run.exitCode, 1, reason: cli.allOutput(run));
         if (prefix.isEmpty) {
