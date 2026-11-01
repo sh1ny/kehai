@@ -102,6 +102,10 @@
 | tool-permissions: User configuration file | Invalid agent settings | test/config/config_test.dart | bad agents settings refuse naming the path | green |
 | tool-permissions: Repository content never widens approval | Role lists Bash | test/permissions/repository_frontmatter_test.dart | a child's bash call is prompted like the parent's | green |
 | tool-permissions: Repository content never widens approval | Yolo not inherited from repository | test/permissions/repository_frontmatter_test.dart | a child of a non-yolo parent is not yolo whatever the role says | green |
+| line-client: Ctrl-C | Interrupt a running exchange | test/client/client_test.dart | two Ctrl-C while running send exactly one interrupt | green |
+| line-client: Ctrl-C | Engine stuck on exit | test/client/client_test.dart | engine still alive 15 s after stdin closes is killed | green |
+| line-client: Ctrl-C | Engine ending its agents on exit | test/jobs/supervisor_channel_test.dart | shutdown with the default timings ends a stubborn child and its own jobs within the client exit grace | green |
+| line-client: Ctrl-C | Engine ending its agents on exit | test/client/client_test.dart | the exit grace outlasts the shutdown of an agent job | green |
 
 Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`, `test/jobs/agent_job_test.dart`, `test/qualification/`) run the real `kehai` through `engineCommand` against the loopback fake provider (`test/support/fake_openai.dart`). Locally run only single test files with `-j 1`; the full suite runs on GitHub Actions (Linux and Windows).
 

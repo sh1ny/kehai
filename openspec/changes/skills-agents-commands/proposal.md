@@ -31,6 +31,7 @@ This is entry 5 of milestone **M1 — self-hosting skeleton**. It serves the exi
 - `agent-loop`: request instructions are the built-in text followed by the exchange's captured workspace context.
 - `engine-rpc`: submit expands commands and refuses unknown ones; prompts relayed from a child name their agent; a child engine mode.
 - `tool-permissions`: an `agents` key in the user configuration; repository frontmatter never widens approval.
+- `line-client`: the exit grace grows from 5 s to 15 s, so the engine ends its agent children before the client kills it.
 
 ## Impact
 
