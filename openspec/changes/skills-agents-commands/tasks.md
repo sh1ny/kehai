@@ -65,9 +65,9 @@
 | subagents: Parent follows the child's state | Malformed child output | test/jobs/agent_run_test.dart | a non-JSON line fails the job with child protocol error | green |
 | subagents: Typed agent result | Done | test/jobs/agent_run_test.dart | a done child gives the header line and its final text | green |
 | subagents: Typed agent result | Child exchange failed | test/jobs/agent_run_test.dart | a child stopped on overflow gives status failed with its reason | green |
-| subagents: Child prompts relayed | Permission relayed | test/rpc/relay_test.dart | a child permission prompt reaches the client with its agent and allow runs it | red |
-| subagents: Child prompts relayed | Prompt withdrawn on cancel | test/rpc/relay_test.dart | interrupting a foreground child withdraws its prompt | red |
-| subagents: Child prompts relayed | Background child's prompt survives an unrelated interrupt | test/rpc/relay_test.dart | a background child's prompt stays answerable across an interrupt | red |
+| subagents: Child prompts relayed | Permission relayed | test/rpc/relay_test.dart | a child permission prompt reaches the client with its agent and allow runs it | green |
+| subagents: Child prompts relayed | Prompt withdrawn on cancel | test/rpc/relay_test.dart | interrupting a foreground child withdraws its prompt | green |
+| subagents: Child prompts relayed | Background child's prompt survives an unrelated interrupt | test/rpc/relay_test.dart | a background child's prompt stays answerable across an interrupt | green |
 | subagents: Bounded agent jobs | Fifth agent refused | test/jobs/agent_job_test.dart | a fifth live agent is refused until one ends | green |
 | subagents: Bounded agent jobs | Shared job bound | test/jobs/agent_job_test.dart | agents count toward the sixteen-job bound | green |
 | subagents: Agent cancellation and deadline | Interrupt during a child | test/jobs/agent_job_test.dart | interrupt soft-stops the child and records cancelled | green |
@@ -76,8 +76,8 @@
 | subagents: Agent jobs on resume | Crash before the handoff intent | test/jobs/agent_resume_test.dart | resume before the intent cancels the job with the interrupted text | green |
 | subagents: Agent jobs on resume | Typed result written but no intent | test/jobs/agent_resume_test.dart | an uncommitted result spool is discarded and counted | green |
 | subagents: Agent jobs on resume | Engine crashed during a child | test/jobs/agent_resume_test.dart | a running agent job is finalized interrupted and never relaunched | green |
-| subagents: Child progress shown | Progress lines | test/client/render_test.dart | agent stream events print as indented role lines | red |
-| subagents: Child progress shown | Slow client | test/rpc/pump_test.dart | agent stream events are droppable like other stream events | red |
+| subagents: Child progress shown | Progress lines | test/client/render_test.dart | agent stream events print as indented role lines | green |
+| subagents: Child progress shown | Slow client | test/rpc/pump_test.dart | agent stream events are droppable like other stream events | green |
 | tool-calls: Fixed versioned tool roster | Roster exposed as tool specs | test/tools/runtime_test.dart | specs list the thirteen tools with versioned names and JSON schemas | green |
 | tool-calls: Fixed versioned tool roster | Unknown tool | test/tools/runtime_test.dart | unknown tool settles failed with envelope error and a stored result | green |
 | tool-calls: Fixed versioned tool roster | Child roster | test/rpc/child_mode_test.dart | a child without role tools offers twelve tools and refuses agent | green |
@@ -91,7 +91,7 @@
 | agent-loop: Requests rebuilt from the tree | Session from before this change | test/loop/context_test.dart | a pre-change session captures context for its next exchange | green |
 | engine-rpc: Prompts reach the client | Permission prompt | test/rpc/server_test.dart | non-autoapproved bash sends a permission prompt and allow runs it | green |
 | engine-rpc: Prompts reach the client | Prompt withdrawn by interrupt | test/rpc/server_test.dart | interrupt withdraws the open question and a late answer is refused | green |
-| engine-rpc: Prompts reach the client | Relayed child prompt | test/rpc/relay_test.dart | a relayed prompt names its agent with a session-unique key | red |
+| engine-rpc: Prompts reach the client | Relayed child prompt | test/rpc/relay_test.dart | a relayed prompt names its agent with a session-unique key | green |
 | engine-rpc: Child engine mode | Child started | test/rpc/child_mode_test.dart | child mode hello names protocol 1, the child session and model | green |
 | engine-rpc: Child engine mode | Unknown role in child mode | test/rpc/child_mode_test.dart | child mode with an unknown role is fatal and creates no session | green |
 | tool-permissions: User configuration file | Missing configuration | test/config/config_test.dart | missing config.json uses defaults | green |
@@ -100,8 +100,8 @@
 | tool-permissions: User configuration file | Invalid model settings | test/config/config_test.dart | bad contextWindow or unknown model key refuses naming the path | green |
 | tool-permissions: User configuration file | Agent model aliases | test/config/config_test.dart | agents.models aliases parse | green |
 | tool-permissions: User configuration file | Invalid agent settings | test/config/config_test.dart | bad agents settings refuse naming the path | green |
-| tool-permissions: Repository content never widens approval | Role lists Bash | test/permissions/repository_frontmatter_test.dart | a child's bash call is prompted like the parent's | red |
-| tool-permissions: Repository content never widens approval | Yolo not inherited from repository | test/permissions/repository_frontmatter_test.dart | a child of a non-yolo parent is not yolo whatever the role says | red |
+| tool-permissions: Repository content never widens approval | Role lists Bash | test/permissions/repository_frontmatter_test.dart | a child's bash call is prompted like the parent's | green |
+| tool-permissions: Repository content never widens approval | Yolo not inherited from repository | test/permissions/repository_frontmatter_test.dart | a child of a non-yolo parent is not yolo whatever the role says | green |
 
 Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`, `test/jobs/agent_job_test.dart`, `test/qualification/`) run the real `kehai` through `engineCommand` against the loopback fake provider (`test/support/fake_openai.dart`). Locally run only single test files with `-j 1`; the full suite runs on GitHub Actions (Linux and Windows).
 
@@ -144,9 +144,9 @@ Child-process tests (`test/rpc/child_mode_test.dart`, `test/rpc/relay_test.dart`
 
 ## 7. Prompt relay and progress
 
-- [ ] 7.1 From this group on, first attempt the group inside Kehai (`/opsx:apply skills-agents-commands`, implementer subagent) and record what it could and could not do under **Dogfood record** in `design.md`. Verify the record has an entry for groups 7 and 8.
-- [ ] 7.2 Write the failing tests, then relay child prompts through the parent's prompt FIFO (D10: `<job>.<child key>`, `agent` field, withdrawal only with the job's cancellation or end, or the child's withdraw). Turns green: *Permission relayed*, *Prompt withdrawn on cancel*, *Background child's prompt survives an unrelated interrupt*, *Relayed child prompt*, *Role lists Bash*, *Yolo not inherited from repository*; re-run the green *Permission prompt* and *Prompt withdrawn by interrupt* rows.
-- [ ] 7.3 Write the failing tests, then emit `stream` kind `agent` per settled child call (D13) and print it indented in the line client, ignoring unknown stream kinds. Turns green: *Progress lines*, *Slow client*.
+- [x] 7.1 From this group on, first attempt the group inside Kehai (`/opsx:apply skills-agents-commands`, implementer subagent) and record what it could and could not do under **Dogfood record** in `design.md`. Verify the record has an entry for groups 7 and 8.
+- [x] 7.2 Write the failing tests, then relay child prompts through the parent's prompt FIFO (D10: `<job>.<child key>`, `agent` field, withdrawal only with the job's cancellation or end, or the child's withdraw). Turns green: *Permission relayed*, *Prompt withdrawn on cancel*, *Background child's prompt survives an unrelated interrupt*, *Relayed child prompt*, *Role lists Bash*, *Yolo not inherited from repository*; re-run the green *Permission prompt* and *Prompt withdrawn by interrupt* rows.
+- [x] 7.3 Write the failing tests, then emit `stream` kind `agent` per settled child call (D13) and print it indented in the line client, ignoring unknown stream kinds. Turns green: *Progress lines*, *Slow client*.
 
 ## 8. Qualification
 

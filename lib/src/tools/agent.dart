@@ -12,10 +12,12 @@ import '../client/engine_process.dart';
 import '../jobs/agent_run.dart';
 import '../jobs/supervisor.dart';
 import '../permissions/workspace_paths.dart';
+import '../provider/provider.dart' show CancelToken;
 import '../results/composer.dart';
 import '../shell/launch.dart';
 import '../workspace/inventory.dart';
 import 'child_env.dart';
+import 'ask.dart';
 import 'file_access.dart';
 import 'tool.dart';
 
@@ -111,13 +113,27 @@ final class AgentTool implements Tool {
     // Set once `start` returned; the launcher only runs after that, because
     // the supervisor reserves the job before it awaits anything.
     String? jobId;
+    // Ends with the job: its open relayed prompts are withdrawn (design D10).
+    final relayEnd = CancelToken();
+    late final AgentRun agentRun;
+    agentRun = AgentRun(
+      role: role.name,
+      prompt: prompt,
+      modelNote: note,
+      onPrompt: (item) => unawaited(
+        _relay(context, agentRun, role.name, jobId!, relayEnd, item),
+      ),
+      onWithdraw: (key) => context.prompts?.withdraw('${jobId!}.$key'),
+      onProgress: (line) => context.progress('agent', line),
+      onStop: relayEnd.cancel,
+    );
     final request = JobRequest(
       kind: JobKind.agent,
       cmd: role.name,
       cwd: cwd,
       deadline: deadline,
       call: context.callKey,
-      channel: AgentRun(role: role.name, prompt: prompt, modelNote: note),
+      channel: agentRun,
       launch: () async {
         final command = (engine ?? engineCommand)([
           '--child',
@@ -153,6 +169,11 @@ final class AgentTool implements Tool {
       return _refused(e.message);
     }
     jobId = handle.id;
+    unawaited(
+      handle.result.then<void>((_) {}, onError: (Object _) {}).then((_) {
+        relayEnd.cancel();
+      }),
+    );
 
     if (background) {
       return ToolOutcome(
@@ -183,6 +204,68 @@ final class AgentTool implements Tool {
     } finally {
       detach();
     }
+  }
+
+  /// Puts a child's prompt into the parent's prompt FIFO as `<job>.<key>`
+  /// (design D10) and passes the answer back to the child.
+  ///
+  /// The prompt is withdrawn when [relayEnd] is cancelled, which is when the
+  /// job is asked to stop or has ended; the child's own `withdraw` withdraws
+  /// it too. A prompt that arrives after [relayEnd] is dropped. The call's
+  /// own cancel token is not used: an interrupt reaches a prompt only through
+  /// the cancellation of its foreground job.
+  Future<void> _relay(
+    ToolContext context,
+    AgentRun run,
+    String role,
+    String jobId,
+    CancelToken relayEnd,
+    Map<String, Object?> item,
+  ) async {
+    if (relayEnd.isCancelled) return;
+    final key = item['key'];
+    final input = item['input'];
+    final kind = switch (item['kind']) {
+      'permission' => PromptKind.permission,
+      'question' => PromptKind.question,
+      _ => null,
+    };
+    final tool = item['tool'];
+    if (key is! String || kind == null || tool is! String) return;
+    final prompts = context.prompts;
+    if (prompts == null || !prompts.hasAnswerer) {
+      // Nobody to ask: a permission is refused, so the child goes on.
+      if (kind == PromptKind.permission) run.answer(key, 'deny');
+      return;
+    }
+    final fields = input is Map<String, Object?> ? input : <String, Object?>{};
+    final choices = kind == PromptKind.permission
+        ? const ['allow', 'deny']
+        : [
+            for (final c in (fields['choices'] as List<Object?>? ?? const []))
+              if (c is String) c,
+          ];
+    final String? answer;
+    try {
+      answer = await prompts.open(
+        PromptItem(
+          key: '$jobId.$key',
+          kind: kind,
+          tool: tool,
+          input: fields,
+          agent: {'role': role, 'job': jobId},
+        ),
+        relayEnd,
+        choices: choices,
+        acceptText:
+            kind == PromptKind.question &&
+            (fields['allow_text'] as bool? ?? choices.isEmpty),
+      );
+    } on StateError {
+      // The same child key twice: the first prompt stays the open one.
+      return;
+    }
+    if (answer != null) run.answer(key, answer);
   }
 
   Future<ToolOutcome> _settled(

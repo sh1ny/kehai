@@ -156,6 +156,41 @@ void main() {
       expect(rig.inputPaused, isFalse);
     });
 
+    test(
+      'agent stream events are droppable like other stream events',
+      () async {
+        final rig = await rpcRig(
+          FakeProvider.steps(const []),
+          limits: const PumpLimits(droppable: 4096, batch: 1024),
+        );
+        await rig.nextOfType('snapshot');
+
+        // A client that keeps up gets the event as a stream event of its kind.
+        const line = 'reviewer · read a.dart → ok';
+        rig.answerer.progress('agent', line);
+        final seen = await rig.nextOfType('stream');
+        expect(seen['kind'], 'agent');
+        expect(seen['delta'], line);
+        expect(seen['turn'], isA<int>());
+
+        // One that does not loses them, not the reliable replies.
+        rig.stallOutput();
+        for (var i = 0; i < 300; i++) {
+          rig.answerer.progress('agent', 'reviewer · read file$i ${'x' * 80}');
+        }
+        rig.send({'type': 'status', 'id': 'tail'});
+        rig.resumeOutput();
+
+        final tail = await rig.answerTo('tail');
+        expect(tail['state'], 'not-admitted');
+        expect(
+          rig.ofType('stream').where((e) => e['kind'] == 'agent').length,
+          lessThan(300),
+        );
+        expect(rig.ofType('resync'), hasLength(1));
+      },
+    );
+
     test('prompt reader never gets resync', () async {
       final rig = await rpcRig(
         FakeProvider.steps(const []),

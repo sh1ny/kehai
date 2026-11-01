@@ -11,6 +11,7 @@ final class OpenPrompt {
     required this.kind,
     required this.tool,
     required this.input,
+    this.agent,
   });
 
   /// Reads a `prompt` event's `item`, or null when it is malformed.
@@ -26,6 +27,13 @@ final class OpenPrompt {
       kind: kind,
       tool: tool,
       input: input is Map<String, Object?> ? input : const {},
+      agent: switch (json['agent']) {
+        {'role': final String role, 'job': final String job} => (
+          role: role,
+          job: job,
+        ),
+        _ => null,
+      },
     );
   }
 
@@ -40,6 +48,9 @@ final class OpenPrompt {
 
   /// The call's arguments.
   final Map<String, Object?> input;
+
+  /// The child agent that asks, for a prompt relayed from one.
+  final ({String role, String job})? agent;
 }
 
 /// The active prompt and the ones waiting behind it.

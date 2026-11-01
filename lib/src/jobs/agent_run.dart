@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../client/mirror.dart';
+import '../client/render.dart' show agentProgressLine;
 import '../session/record.dart';
 import '../rpc/protocol.dart' show protocolVersion;
 import 'supervisor.dart';
@@ -20,6 +21,10 @@ typedef AgentPromptHandler = void Function(Map<String, Object?> item);
 
 /// Called with the key of a child's `withdraw`.
 typedef AgentWithdrawHandler = void Function(String key);
+
+/// Called with the one-line progress of a child call that settled (design
+/// D13).
+typedef AgentProgressHandler = void Function(String line);
 
 /// The longest child output line the parent buffers: 64 MiB.
 const int maxChildLineBytes = 64 * 1024 * 1024;
@@ -40,6 +45,8 @@ final class AgentRun implements JobChannel {
     this.lineLimit = maxChildLineBytes,
     this.onPrompt,
     this.onWithdraw,
+    this.onProgress,
+    this.onStop,
   });
 
   /// The role's name.
@@ -60,7 +67,15 @@ final class AgentRun implements JobChannel {
   /// Where relayed withdrawals go (group 7).
   final AgentWithdrawHandler? onWithdraw;
 
+  /// Where the progress line of each settled child call goes.
+  final AgentProgressHandler? onProgress;
+
+  /// Called when the job is asked to stop (cancellation or deadline), before
+  /// the child is, so the relay can stop taking prompts.
+  final void Function()? onStop;
+
   final TreeMirror _mirror = TreeMirror();
+  final Set<String> _reported = {};
   final BytesBuilder _line = BytesBuilder(copy: false);
   late JobHost _host;
   bool _dead = false;
@@ -104,6 +119,7 @@ final class AgentRun implements JobChannel {
   /// closed at once.
   @override
   Future<void> softStop() async {
+    onStop?.call();
     if (_stdinClosed) return;
     if (!_submitted || _ended) {
       _closeStdin();
@@ -258,7 +274,9 @@ final class AgentRun implements JobChannel {
   /// Decides from the mirror whether the exchange ended; closes the child's
   /// stdin when it did, so the child exits.
   void _check() {
-    if (_ended || !_mirror.isValid) return;
+    if (!_mirror.isValid) return;
+    _reportCalls();
+    if (_ended) return;
     final exchanges = _mirror.get('body/exchanges');
     if (exchanges is! Map<String, Object?>) return;
     for (final exchange in exchanges.values) {
@@ -272,6 +290,21 @@ final class AgentRun implements JobChannel {
         _exchangeState = state;
         _exchangeReason = exchange['reason'] as String?;
         _closeStdin();
+      }
+    }
+  }
+
+  /// Reports each child call that settled, once, in call order.
+  void _reportCalls() {
+    final report = onProgress;
+    final calls = _mirror.get('body/calls');
+    if (report == null || calls is! Map<String, Object?>) return;
+    for (final key in calls.keys.toList()..sort()) {
+      final node = calls[key];
+      if (node is! Map<String, Object?> || _reported.contains(key)) continue;
+      if (node['status'] case 'settled' || 'failed' || 'cancelled') {
+        _reported.add(key);
+        report(agentProgressLine(role, node));
       }
     }
   }

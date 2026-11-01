@@ -67,7 +67,14 @@ export 'src/tools/search.dart'
         RgUnavailable,
         resolveRg;
 export 'src/tools/ask.dart'
-    show Answerer, AskTool, PromptChannel, PromptItem, PromptKind, askRules;
+    show
+        Answerer,
+        AskTool,
+        ProgressSink,
+        PromptChannel,
+        PromptItem,
+        PromptKind,
+        askRules;
 export 'src/permissions/credentials.dart'
     show isCredentialPath, isCredentialTarget;
 export 'src/permissions/gate.dart'

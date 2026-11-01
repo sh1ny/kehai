@@ -352,3 +352,45 @@ None that change specs, approach or tasks. The exact `agents.models` slugs for `
 ## Dogfood record
 
 Filled in during apply. From task group 7 on, each task group is first attempted inside Kehai with `/opsx:apply`, using its implementer subagent; each step Kehai could not do, and why, is listed here.
+
+### Group 7 (2026-10-31)
+
+- **Setup:** Kehai built from the group 6 head (a45be50) in a scratch worktree (`bristleworm`, a branch fast-forwarded to that head). It ran on Windows with the ChatGPT login, model `gpt-6.1-sol`, through the line client and `/opsx:apply skills-agents-commands`. Parent session `20261031T232727Z-6e2bcd51`, child session `20261031T233330Z-e059c0b6` (job `j-8860e241`).
+- **Could do:**
+  - `/opsx:apply` expanded at submit.
+  - The parent loaded skills and ran Specwright's `task-cover.sh` through `bash` after approval.
+  - It called `agent specwright-implementer` with `background: true` and a self-contained brief for 7.2 and 7.3.
+  - The child engine started under the parent session with lineage `{parent, job}` and the role digest on every step. It captured its context and loaded four skills (autoapproved, through containment).
+  - The role's `sonnet` alias was unmapped, so the child ran on the parent's model.
+  - The parent kept working (`read`, `ls`, `skill`) while the child ran, and polled it with `job output` ("is running; its result is not ready").
+- **Could not do:**
+  - The child's first command (`pwd; git status --short; mise install`) needed approval. Its prompt reached the parent but not the user, since prompt relay does not exist before 7.2. The call stayed `pending`, and the parent blocked in `job wait` (600 s) on a child that could not progress until its 1 h deadline. The user saw only `busy`. Group 7 was implemented outside Kehai.
+- **Friction to keep in view:**
+  - `job` on an agent job asks for approval like any non-read tool.
+  - Nothing shows that a background child is waiting on a prompt (7.3 progress lines cover settled calls, not waits).
+  - Child steps reported `cachedInput: 0` while the parent's later steps reported cached input. To check with longer child runs.
+- **Stop:** Ctrl-C cancelled only the parent's `job wait` call (`cancelled: user`); the background job kept running, as D10 says. Ending the client (EOF) shut the engine down, and the lifecycle held:
+  - The child got the soft stop. Its pending `bash` call and its exchange ended `cancelled`, and it exited 0.
+  - The job settled `cancelled`, reason `shutdown`, with agent status `cancelled`, 5 steps, its usage and a stored `result`.
+  - `cleanup` was `uncertain: descendants not verifiable`, because the child is not started as a known process group on Windows.
+  - No `kehai` process was left running.
+
+### Group 8 (2026-11-01)
+
+- **Setup:** Kehai built from the group 6 head plus the uncommitted group 7 diff (prompt relay and agent progress), in the same scratch worktree. Windows, ChatGPT login, model `gpt-6.1-sol`, line client, `/opsx:apply skills-agents-commands` for 8.1 and 8.2. Parent session `20261101T002209Z-e9097365`, child session `20261101T003243Z-7020aa4f` (job `j-b8f78a73`, `specwright-implementer`, background). About 31 minutes end to end; the child ran about 19.
+- **Could do:**
+  - The parent dispatched the implementer in the background and waited with `job wait`, re-issuing it when the 600 s wait ran out.
+  - Every child permission prompt was relayed to the user as `agent specwright-implementer (job j-b8f78a73) asks:` with the call shown in full (edit diffs, write previews, bash commands), and the answer reached the child. The child made 19 answered calls and 68 autoapproved ones, none denied.
+  - Progress lines tagged `specwright-implementer ·` showed each settled child call while the parent waited.
+  - The child wrote both qualification tests, fixed two Windows path problems and an analyzer type error from its own test runs, and finished with both files passing (`-j 1`), format and analyze clean, and a read-only `git status`/`diff` check. It made no production edits. Both tests pass when rerun outside Kehai.
+- **Could not do:**
+  - Before the dispatch, one parent exchange failed with `model request failed: the backend stopped responding` (an idle timeout after the request was sent, so not retried automatically). Another client failed at the same time, so it was likely server side; a follow-up message resumed the work.
+  - After the job settled, the parent moved on to Specwright's commit steps (`vcs.sh state`); that was denied and the run stopped there by choice. Ticking and committing group 8 happened outside Kehai.
+- **Friction to keep in view:**
+  - While the model writes a long tool call (a whole test file) nothing is shown; the client sat on `busy` for about 4 minutes before the idle timeout above.
+  - Progress and tool lines lose their `·` and `→` to mojibake when the console code page is not UTF-8.
+  - Allow rules cannot name `skill` or `agent` (the configuration roster lacks them), and `bash` rules match only simple commands, so chained `format; analyze` commands always prompt.
+  - `job wait` on an agent job still prompts each time.
+  - A Ctrl-D byte sent to the line client through Orca's terminal input echoed `^D` without ending the session, and the Enter after it submitted it as a message; `/exit` ended it. To check whether a typed Ctrl-D behaves the same on the Windows console.
+  - The child reported the branch as `hey-greeting`: Orca had renamed the scratch worktree's branch during the run, not Kehai.
+  - Child steps reported cached input on some steps only (3712 and 34048 tokens among mostly 0).

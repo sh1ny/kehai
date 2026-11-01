@@ -94,6 +94,24 @@ String callLine({
   return cutTo(line, maxLineLength);
 }
 
+/// `<role> · <tool> <summary>: <argument> → <status>` for a settled child
+/// call [node] (design D13), on one line and cut to [maxLineLength].
+String agentProgressLine(String role, Map<String, Object?> node) {
+  final envelope = node['envelope'];
+  final summary = node['summary'];
+  final detail = [
+    if (summary is String && summary.isNotEmpty) oneLine(summary),
+    argumentSummary(node['input']),
+  ].where((part) => part.isNotEmpty).join(': ');
+  final label = envelope is String ? envelope : '${node['status']}';
+  final head = '${oneLine(role)} · ${oneLine('${node['tool']}')}';
+  final tail = ' → ${oneLine(label)}';
+  // The status stays whole; the detail gives way.
+  final room = maxLineLength - head.runes.length - tail.runes.length - 1;
+  final shown = detail.isEmpty || room < 2 ? '' : ' ${cutTo(detail, room)}';
+  return cutTo('$head$shown$tail', maxLineLength);
+}
+
 /// One line of a permission prompt's body (spec *Permission prompt body*):
 /// a lead such as `  content: 2 lines, 22 bytes`, or a line of text marked
 /// `|` (written content), `-` (a line an edit removes) or `+` (edit text).

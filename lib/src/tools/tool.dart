@@ -127,6 +127,14 @@ final class ToolContext {
     this.yolo = false,
   });
 
+  /// Sends one ephemeral progress line of [kind] to the client, when the
+  /// answerer takes progress; it is not recorded (design D13).
+  void progress(String kind, String delta) {
+    if (prompts?.answerer case final ProgressSink sink) {
+      sink.progress(kind, delta);
+    }
+  }
+
   /// The model slug the parent engine runs, which an agent without a model of
   /// its own inherits; null when the context has none.
   final String? model;

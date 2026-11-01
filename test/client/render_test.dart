@@ -4,7 +4,48 @@ library;
 import 'package:kehai/src/client/render.dart';
 import 'package:test/test.dart';
 
+import '../support/client_support.dart';
+
 void main() {
+  group('agent progress', () {
+    test('agent stream events print as indented role lines', () async {
+      final rig = clientRig();
+      await rig.start();
+      rig.type('review it');
+      await rig.settle();
+
+      await rig.stream(
+        1,
+        'specwright-implementer · read lib/a.dart → ok',
+        kind: 'agent',
+      );
+      await rig.stream(
+        1,
+        'specwright-implementer · bash dart test → ok',
+        kind: 'agent',
+      );
+      await rig.stream(
+        1,
+        'specwright-implementer · edit\u{1B}[2J x → error',
+        kind: 'agent',
+      );
+      await rig.stream(1, 'ignored', kind: 'someday');
+
+      final lines = rig.out.text.split('\n');
+      expect(
+        lines,
+        contains('  specwright-implementer · read lib/a.dart → ok'),
+      );
+      expect(lines, contains('  specwright-implementer · bash dart test → ok'));
+      expect(
+        lines.where((line) => line.startsWith('  specwright-implementer')),
+        hasLength(3),
+      );
+      expect(rig.out.text, isNot(contains('\u{1B}')));
+      expect(rig.out.text, isNot(contains('ignored')));
+    });
+  });
+
   group('exactLines', () {
     test('a backslash escapes only where it starts \\u{', () {
       expect(exactLines(r'a\u{1} b\u c\'), [r'a\u{5C}u{1} b\u c\']);
