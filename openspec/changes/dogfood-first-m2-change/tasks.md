@@ -24,7 +24,7 @@ All rows describe new behavior and start `red` as planning intent; no failing te
 
 ## 1. Record the approved shared contract
 
-- [ ] 1.1 Write additive `docs/adr/0013-reasoning-effort-selection-and-inheritance.md` from approved design D1–D4, including selection/default semantics, additive step field and child argv inheritance; update `openspec/architecture.md` index and relevant boundary text without editing accepted ADRs. Verify the delivered ADR matches the reviewed spec/design, leaves journal/RPC versions unchanged, and `mise run openspec:validate` passes.
+- [x] 1.1 Write additive `docs/adr/0013-reasoning-effort-selection-and-inheritance.md` from approved design D1–D4, including selection/default semantics, additive step field and child argv inheritance; update `openspec/architecture.md` index and relevant boundary text without editing accepted ADRs. Verify the delivered ADR matches the reviewed spec/design, leaves journal/RPC versions unchanged, and `mise run openspec:validate` passes.
 
 ## 2. User config and CLI inputs
 
