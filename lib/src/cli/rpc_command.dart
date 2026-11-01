@@ -75,6 +75,19 @@ final class ChildSpec {
   final bool yolo;
 }
 
+/// The engine startup boundary, injectable by command-line input tests.
+typedef RpcRunner = Future<int> Function({
+  required KehaiSettings settings,
+  required Directory workspace,
+  required Stream<List<int>> input,
+  required IOSink output,
+  bool resume,
+  String? sessionId,
+  String? modelFlag,
+  String? effortFlag,
+  ChildSpec? child,
+});
+
 /// Runs `kehai rpc` for [workspace] and returns the exit code.
 ///
 /// With [child] the engine is an agent job's child: it creates a new session
@@ -94,6 +107,7 @@ Future<int> runRpc({
   bool resume = false,
   String? sessionId,
   String? modelFlag,
+  String? effortFlag,
   ChildSpec? child,
 }) async {
   SessionWriter? writer;

@@ -6,9 +6,9 @@ All rows describe new behavior and start `red` as planning intent; no failing te
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| reasoning-effort → Effort selection and validation | CLI selection | `test/cli/effort_test.dart` (new) | `client and rpc accept effort including leading and equals forms` | red |
-| reasoning-effort → Effort selection and validation | Invalid CLI value | `test/cli/effort_test.dart` (new) | `invalid or missing effort exits 64 before engine startup` | red |
-| reasoning-effort → Effort selection and validation | Invalid configuration | `test/config/config_test.dart`; `test/cli/effort_test.dart` (new) | `invalid effort names config path even with valid flag` | red |
+| reasoning-effort → Effort selection and validation | CLI selection | `test/cli/effort_test.dart` | `client and rpc accept effort including leading and equals forms` | green |
+| reasoning-effort → Effort selection and validation | Invalid CLI value | `test/cli/effort_test.dart` | `invalid or missing effort exits 64 before engine startup` | green |
+| reasoning-effort → Effort selection and validation | Invalid configuration | `test/config/config_test.dart`; `test/cli/effort_test.dart` | `invalid effort names config path even with valid flag` | green |
 | reasoning-effort → Effort precedence and default | Flag overrides config | `test/cli/effort_test.dart` (new) | `flag effort overrides user config in rpc startup` | red |
 | reasoning-effort → Effort precedence and default | Config alone | `test/cli/effort_test.dart` (new) | `config effort reaches request without flag` | red |
 | reasoning-effort → Effort precedence and default | Resume without selection | `test/cli/effort_test.dart` (new) | `resume without effort does not inherit historical selection` | red |
@@ -28,8 +28,8 @@ All rows describe new behavior and start `red` as planning intent; no failing te
 
 ## 2. User config and CLI inputs
 
-- [ ] 2.1 Write failing tests for all allowed config values, missing default, explicit null/wrong-type/empty/unknown values, and valid flag with invalid config; extend `test/config/config_test.dart` and add input-boundary cases in `test/cli/effort_test.dart`. Also write failing tests for both CLI parsers, leading `--effort`, `--effort=value`, missing/invalid values, and no session/engine/provider effects on CLI error. Verify each fails for the missing effort feature, not unrelated fixture setup (test-map rows CLI selection, Invalid CLI value, Invalid configuration).
-- [ ] 2.2 Implement the shared effort vocabulary/validation and optional `UserConfig.effort`; add `--effort` to both parsers, client dispatch and forwarding, and carry the flag into `runRpc`. Preserve strict config validation even with overrides. Verify the group-2 tests pass and mark only their covered test-map rows green; run `mise run analyze` and document CLI/config syntax, allowed values, omission versus `none`, and invalid-input behavior in the user-facing configuration/CLI documentation.
+- [x] 2.1 Write failing tests for all allowed config values, missing default, explicit null/wrong-type/empty/unknown values, and valid flag with invalid config; extend `test/config/config_test.dart` and add input-boundary cases in `test/cli/effort_test.dart`. Also write failing tests for both CLI parsers, leading `--effort`, `--effort=value`, missing/invalid values, and no session/engine/provider effects on CLI error. Verify each fails for the missing effort feature, not unrelated fixture setup (test-map rows CLI selection, Invalid CLI value, Invalid configuration).
+- [x] 2.2 Implement the shared effort vocabulary/validation and optional `UserConfig.effort`; add `--effort` to both parsers, client dispatch and forwarding, and carry the flag into `runRpc`. Preserve strict config validation even with overrides. Verify the group-2 tests pass and mark only their covered test-map rows green; run `mise run analyze` and document CLI/config syntax, allowed values, omission versus `none`, and invalid-input behavior in the user-facing configuration/CLI documentation.
 
 ## 3. Startup resolution, request propagation and step persistence
 

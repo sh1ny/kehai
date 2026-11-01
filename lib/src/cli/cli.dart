@@ -21,6 +21,8 @@ import '../auth/logout.dart';
 import '../client/client.dart';
 import '../client/console_codepage.dart';
 import '../client/console_input.dart';
+import '../client/engine_process.dart';
+import '../config/effort.dart';
 import '../config/user_config.dart';
 import '../provider/provider.dart' show CancelToken;
 import '../workspace/inventory.dart';
@@ -53,6 +55,8 @@ final class CliContext {
     this.stdinTerminalOverride,
     this.rpcInput,
     this.rpcOutput,
+    this.engineStarter = startEngineProcess,
+    this.rpcRunner = runRpc,
   }) : environment = environment ?? Platform.environment,
        out = out ?? stdout,
        err = err ?? stderr;
@@ -78,6 +82,12 @@ final class CliContext {
 
   /// The sink `kehai rpc` writes events to, or `null` for standard output.
   final IOSink? rpcOutput;
+
+  /// Starts the line client's engine process.
+  final EngineStarter engineStarter;
+
+  /// Starts the RPC engine after command-line validation.
+  final RpcRunner rpcRunner;
 
   /// Whether standard input is a terminal.
   bool get stdinIsTerminal {
@@ -105,6 +115,8 @@ Future<int> runCli(
   bool? stdinIsTerminal,
   Stream<List<int>>? rpcInput,
   IOSink? rpcOutput,
+  EngineStarter engineStarter = startEngineProcess,
+  RpcRunner rpcRunner = runRpc,
 }) async {
   final context = CliContext(
     environment: environment,
@@ -114,6 +126,8 @@ Future<int> runCli(
     stdinTerminalOverride: stdinIsTerminal,
     rpcInput: rpcInput,
     rpcOutput: rpcOutput,
+    engineStarter: engineStarter,
+    rpcRunner: rpcRunner,
   );
   if (_startsClient(args)) return _runClient(args, context);
   final runner =
@@ -143,13 +157,18 @@ final ArgParser _clientParser = ArgParser()
     help: "Reopen the workspace's latest session.",
   )
   ..addOption('session', help: 'Reopen the session with this id.')
-  ..addOption('model', help: 'The model id to use.');
+  ..addOption('model', help: 'The model id to use.')
+  ..addOption(
+    'effort',
+    allowed: effortValues,
+    help: 'The reasoning effort to select (omitted: provider default).',
+  );
 
 /// Whether [args] start the interactive client: no arguments, or only the
-/// session and model options.
+/// session, model and effort options.
 bool _startsClient(List<String> args) =>
     args.isEmpty ||
-    const ['--resume', '--session', '--model'].any(
+    const ['--resume', '--session', '--model', '--effort'].any(
       (option) => args.first == option || args.first.startsWith('$option='),
     );
 
@@ -191,11 +210,16 @@ Future<int> _runClient(List<String> args, CliContext context) async {
         if (results.flag('resume')) '--resume',
         if (results.option('session') case final id?) ...['--session', id],
         if (results.option('model') case final model?) ...['--model', model],
+        if (results.option('effort') case final effort?) ...[
+          '--effort',
+          effort,
+        ],
       ],
       input: input,
       out: context.out,
       err: context.err,
       interactive: context.stdinIsTerminal,
+      starter: context.engineStarter,
       interrupts: interrupts,
     );
   } finally {
@@ -398,6 +422,11 @@ class _RpcCommand extends _KehaiCommand {
       )
       ..addOption('session', help: 'Reopen the session with this id.')
       ..addOption('model', help: 'The model id to use.')
+      ..addOption(
+        'effort',
+        allowed: effortValues,
+        help: 'The reasoning effort to select (omitted: provider default).',
+      )
       ..addFlag(
         'child',
         negatable: false,
@@ -432,7 +461,7 @@ class _RpcCommand extends _KehaiCommand {
       usageException('use --resume or --session, not both');
     }
     final child = _childSpec(results, usageException);
-    return runRpc(
+    return context.rpcRunner(
       settings: settings,
       workspace: Directory.current,
       input: context.rpcInput ?? stdin,
@@ -440,6 +469,7 @@ class _RpcCommand extends _KehaiCommand {
       resume: results.flag('resume'),
       sessionId: results.option('session'),
       modelFlag: results.option('model'),
+      effortFlag: results.option('effort'),
       child: child,
     );
   }
