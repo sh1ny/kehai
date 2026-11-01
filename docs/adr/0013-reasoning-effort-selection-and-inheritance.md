@@ -26,7 +26,7 @@ Replay, rewind and fork preserve or remove effort with its step. Historical step
 
 - Each parent launch supplies exactly one form: `--effort <selected value>` or the internal child-only `--effort-default` flag for inherited null. Store the explicit-default boolean in `ChildSpec` to distinguish inherited null from missing input, without adding a public effort value.
 - Refuse `--effort-default` outside `--child` and refuse combining it with `--effort`. It skips config effort selection, not normal config validation. A directly started child without this marker follows ordinary flag/config/default precedence.
-- Child requests and new steps use and record the inherited value even if user config changes after the parent starts or a role selects a different model. Inheritance applies recursively to descendants; no per-role effort overrides, environment variable, repository setting, settings side file or new RPC handshake is introduced. Existing child sessions remain readable.
+- Every child a parent launches uses and records its inherited value in requests and new steps, even if user config changes after the parent starts or a role selects a different model. Keep `roles.dart` `roleRoster` and design D9's no-nested-agents policy unchanged: children are not offered `agent`. Descendants, if nested agents are ever allowed, must inherit identically through the same launch argv. Exercise that composition through two launch-seam passes, including a child-mode runtime using its own inherited selected value or default, not by enabling nested execution. No per-role effort overrides, environment variable, repository setting, settings side file or new RPC handshake is introduced. Existing child sessions remain readable.
 
 ## Consequences
 

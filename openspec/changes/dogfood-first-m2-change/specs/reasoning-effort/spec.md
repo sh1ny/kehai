@@ -52,7 +52,7 @@ Every model request of an engine run SHALL send the resolved effort as `reasonin
 - **THEN** the step and exchange fail visibly through the existing failure path, with no downgrade or automatic resend
 
 ### Requirement: Internal agents inherit effort
-An internal agent SHALL inherit its parent's resolved effort at launch, including provider default, independently of role/model selection. A later edit to user config SHALL NOT change that inherited effort. Every child request and new child step SHALL use and record that inherited value. This SHALL apply recursively without introducing per-role effort overrides.
+Every child a parent launches SHALL inherit its resolved effort, including provider default, independently of role/model selection or later config edits. Child requests and steps SHALL use and record it. The no-nested-agents roster policy SHALL remain unchanged. Descendants, if nested agents are ever allowed, SHALL inherit identically through the same launch argv, without per-role overrides.
 
 #### Scenario: Parent override reaches reviewer
 - **WHEN** a parent with config `low` and CLI effort `high` launches `specwright-reviewer`
