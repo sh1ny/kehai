@@ -29,17 +29,20 @@ typedef CliRun = ({int exitCode, String stdout, String stderr});
 /// Runs `dart run bin/kehai.dart [args]` against [home] and [fake].
 ///
 /// [environment] adds to (and may replace) the loopback overrides.
+/// [executable] runs a precompiled CLI instead of starting a fresh Dart JIT.
 Future<CliRun> runCli(
   List<String> args, {
   required TestHome home,
   FakeOpenAi? fake,
   Map<String, String> environment = const {},
+  String? executable,
 }) async {
   final process = await startCli(
     args,
     home: home,
     fake: fake,
     environment: environment,
+    executable: executable,
   );
   await process.stdin.close();
   final out = process.stdout.transform(utf8.decoder).join();
@@ -55,15 +58,21 @@ Future<CliRun> runCli(
 }
 
 /// Starts the CLI process and kills it at test teardown.
+///
+/// Uses [executable] when supplied, otherwise runs `dart run bin/kehai.dart`.
 Future<Process> startCli(
   List<String> args, {
   required TestHome home,
   FakeOpenAi? fake,
   Map<String, String> environment = const {},
+  String? executable,
 }) async {
   final process = await Process.start(
-    Platform.resolvedExecutable,
-    ['run', 'bin/kehai.dart', ...args],
+    executable ?? Platform.resolvedExecutable,
+    [
+      if (executable == null) ...['run', 'bin/kehai.dart'],
+      ...args,
+    ],
     environment: {
       'KEHAI_HOME': home.path,
       if (fake != null) 'KEHAI_OPENAI_ISSUER': fake.issuer,

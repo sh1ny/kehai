@@ -175,6 +175,27 @@ void main() {
   late TestHome home;
   late FakeOpenAi fake;
 
+  late String executable;
+
+  setUpAll(() async {
+    // Keep every process-level form check without paying JIT startup 24 times.
+    final build = await Directory.systemTemp.createTemp('kehai-effort-cli-');
+    addTearDown(() => build.delete(recursive: true));
+    executable = p.join(build.path, Platform.isWindows ? 'kehai.exe' : 'kehai');
+    final compiled = await Process.run(Platform.resolvedExecutable, [
+      'compile',
+      'exe',
+      'bin/kehai.dart',
+      '-o',
+      executable,
+    ]);
+    expect(
+      compiled.exitCode,
+      0,
+      reason: '${compiled.stdout}\n${compiled.stderr}',
+    );
+  });
+
   setUp(() async {
     home = TestHome();
     home.store.replace(loggedInRecord());
@@ -434,6 +455,7 @@ void main() {
               [...prefix, ...option, '--model', 'gpt-fake'],
               home: home,
               fake: fake,
+              executable: executable,
             );
             expect(
               run.exitCode,
