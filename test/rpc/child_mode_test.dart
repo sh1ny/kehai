@@ -140,6 +140,9 @@ void main() {
     final sessions = Directory(
       p.join(home.path, 'sessions', workspaceKey(workspace.path)),
     )..createSync(recursive: true);
+    // The sessions folder created the home with the default mode; the
+    // credential store refuses a home others can read.
+    if (!Platform.isWindows) Process.runSync('chmod', ['700', home.path]);
     final writer = await SessionWriter.create(sessions);
     parentId = p.basename(writer.sessionDir.path);
     parent = writer.sessionDir;

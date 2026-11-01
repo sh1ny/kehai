@@ -6,7 +6,15 @@ import 'package:test/test.dart';
 
 void main() {
   late Directory tmp;
-  setUp(() => tmp = Directory.systemTemp.createTempSync('kehai_root_'));
+  // Resolved, so a temp path with an 8.3 short name (a Windows CI runner's
+  // RUNNER~1) compares equal to the resolved root.
+  setUp(
+    () => tmp = Directory(
+      Directory.systemTemp
+          .createTempSync('kehai_root_')
+          .resolveSymbolicLinksSync(),
+    ),
+  );
   tearDown(() => tmp.deleteSync(recursive: true));
 
   test('the nearest ancestor with .git or .jj is the root', () {

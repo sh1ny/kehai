@@ -10,7 +10,13 @@ void main() {
   late Directory home;
 
   setUp(() {
-    tmp = Directory.systemTemp.createTempSync('kehai_enumeration_');
+    // Resolved: the loaders list resolved paths, and the override below
+    // must match them even under a temp path with an 8.3 short name.
+    tmp = Directory(
+      Directory.systemTemp
+          .createTempSync('kehai_enumeration_')
+          .resolveSymbolicLinksSync(),
+    );
     root = p.join(tmp.path, 'repo');
     Directory(p.join(root, '.git')).createSync(recursive: true);
     home = Directory(p.join(tmp.path, 'home'))..createSync();
