@@ -763,7 +763,7 @@ final class ExchangeDriver {
       return _End('stopped', _nativeMessage(nativeStop));
     }
     if (built.overflow ||
-        (calibration &&
+        (built.used == null &&
             contextWindow != null &&
             built.retained > contextWindow!)) {
       final message = _overflowMessage(built.used);

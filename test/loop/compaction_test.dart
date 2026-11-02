@@ -1244,6 +1244,51 @@ void group5Tests() {
     },
   );
   test(
+    'off recovery refuses an oversized retained suffix with unknown usage',
+    () async {
+      final w = await createWriter(await tempDir());
+      await driveNative(
+        w,
+        NativeFake([
+          [CompactionItem(opaque('A'), outputIndex: 0), done],
+        ]),
+      );
+      final p = NativeFake([
+        [done],
+      ]);
+      const config = UserConfig(
+        providers: {
+          'openai': ProviderConfig(
+            compaction: CompactionSettings(strategy: CompactionStrategy.off),
+            routes: {
+              'chatgpt-account': RouteConfig(
+                models: {'gpt-5.5': RouteModelConfig(contextWindow: 4000)},
+              ),
+            },
+          ),
+        },
+      );
+      final result = await driveNative(
+        w,
+        p,
+        config: config,
+        text: 'oversized suffix ' * 4000,
+      );
+      expect(result.state, 'stopped');
+      expect(result.reason, contains('context overflow'));
+      expect(p.requests, isEmpty);
+      final step = lastStep(w);
+      expect(step['boundary'], isNotNull);
+      expect(step['policy'], containsPair('strategy', 'off'));
+      final context = step['context'] as Map;
+      expect(context['used'], isNull);
+      expect(context['retained'], greaterThan(context['window'] as int));
+      expect(context['calibration'], isFalse);
+      expect(step['nativeStop'], isNull);
+      expect(step['calibration'], isNot(true));
+    },
+  );
+  test(
     'death before calibration completion preserves the admitted allowance',
     () async {
       final (w, io) = await createHooked(await tempDir());
