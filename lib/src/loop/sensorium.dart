@@ -20,6 +20,9 @@ int estimateItem(ConversationItem item) => switch (item) {
     estimateText(name) + estimateText(argumentsJson),
   ToolOutputItem(:final output) => estimateText(output),
   OpaqueReasoningItem(:final json) => estimateText(jsonEncode(json)),
+  OpaqueCompactionItem() => throw UnsupportedError(
+    'opaque compaction token accounting is unknown',
+  ),
 };
 
 /// Renders a token count as `41k` below a million and `1.2M` above.

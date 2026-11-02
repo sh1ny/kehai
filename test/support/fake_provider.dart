@@ -68,4 +68,7 @@ int _size(ConversationItem item) => switch (item) {
   ToolCallItem(:final argumentsJson) => argumentsJson.length,
   ToolOutputItem(:final output) => utf8.encode(output).length,
   OpaqueReasoningItem(:final json) => jsonEncode(json).length,
+  OpaqueCompactionItem() => throw UnsupportedError(
+    'opaque compaction token accounting is unknown',
+  ),
 };

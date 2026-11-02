@@ -13,6 +13,7 @@ int _estimate(ConversationItem item) => switch (item) {
   UserMessage(:final text) || AssistantMessage(:final text) => text.length,
   ToolOutputItem(:final output) => output.length,
   ToolCallItem() || OpaqueReasoningItem() => 5000,
+  OpaqueCompactionItem() => throw UnsupportedError('unknown opaque size'),
 };
 
 RequestBuilder _builder(

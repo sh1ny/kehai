@@ -24,6 +24,7 @@ const Set<String> chatGptBodyKeys = {
   'store',
   'stream',
   'prompt_cache_key',
+  'context_management',
 };
 
 /// Builds the request body for [request].
@@ -60,6 +61,10 @@ Map<String, Object?> buildChatGptBody(ModelRequest request) {
     'store': false,
     'stream': true,
     'prompt_cache_key': request.sessionId,
+    if (request.nativeCompaction case final policy?)
+      'context_management': [
+        {'type': 'compaction', 'compact_threshold': policy.threshold},
+      ],
   };
 }
 
@@ -90,6 +95,7 @@ Object? _inputItem(ConversationItem item) => switch (item) {
     'output': output,
   },
   OpaqueReasoningItem(:final json) => json,
+  OpaqueCompactionItem(:final json) => json,
 };
 
 /// Serializes [body] to UTF-8 JSON, or returns `null` when it exceeds

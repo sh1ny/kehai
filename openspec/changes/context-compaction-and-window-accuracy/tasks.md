@@ -47,15 +47,15 @@
 | model-provider → Normalized turn stream | Text answer | `test/provider/chatgpt_adapter_test.dart` | `normalized stream text deltas then usage then completed end_turn` | green |
 | model-provider → Normalized turn stream | Stream ends early | `test/provider/chatgpt_adapter_test.dart` | `normalized stream early close ends with protocol failure` | green |
 | model-provider → Token-sharing request rules | Token-sharing body | `test/provider/chatgpt_adapter_test.dart` | `plan backend body follows token-sharing rules with allowlisted keys` | green |
-| model-provider → Token-sharing request rules | Compacted token-sharing body | `test/provider/compaction_test.dart` | `model-provider: Compacted token-sharing body` | red |
+| model-provider → Token-sharing request rules | Compacted token-sharing body | `test/provider/compaction_test.dart` | `model-provider: Compacted token-sharing body` | green |
 | model-provider → Model listing | Models listed | `test/provider/models_test.dart` | `listed models exclude non-list visibility and unsupported` | green |
 | model-provider → Model listing | Context window reported | `test/provider/models_test.dart` | `context_window is read only when an integer above 1` | green |
 | model-provider → Model listing | Models endpoint fails | `test/provider/models_test.dart` | `503 fails server with no list` | green |
 | model-provider → Model listing | Oversized models response | `test/provider/models_test.dart` | `body over 4 MiB fails protocol` | green |
-| model-provider → Model listing | Generic metadata is not route capacity | `test/provider/compaction_test.dart` | `model-provider: Generic metadata is not route capacity` | red |
-| model-provider → Opaque compaction stream continuity | Headerless completion with empty output | `test/provider/compaction_test.dart` | `model-provider: Headerless completion with empty output` | red |
-| model-provider → Opaque compaction stream continuity | Compaction before interrupted stream | `test/provider/compaction_test.dart` | `model-provider: Compaction before interrupted stream` | red |
-| model-provider → Opaque compaction stream continuity | Duplicate or conflicting item | `test/provider/compaction_test.dart` | `model-provider: Duplicate or conflicting item` | red |
+| model-provider → Model listing | Generic metadata is not route capacity | `test/provider/compaction_test.dart` | `model-provider: Generic metadata is not route capacity` | green |
+| model-provider → Opaque compaction stream continuity | Headerless completion with empty output | `test/provider/compaction_test.dart` | `model-provider: Headerless completion with empty output` | green |
+| model-provider → Opaque compaction stream continuity | Compaction before interrupted stream | `test/provider/compaction_test.dart` | `model-provider: Compaction before interrupted stream` | green |
+| model-provider → Opaque compaction stream continuity | Duplicate or conflicting item | `test/provider/compaction_test.dart` | `model-provider: Duplicate or conflicting item` | green |
 | model-provider → Route-qualified capacity configuration | Qualified window | `test/config/compaction_config_test.dart` | `model-provider: Qualified window` | green |
 | model-provider → Route-qualified capacity configuration | Legacy misleading window | `test/config/compaction_config_test.dart` | `model-provider: Legacy misleading window` | green |
 | model-provider → Route-qualified capacity configuration | Invalid qualified capacity | `test/config/compaction_config_test.dart` | `model-provider: Invalid qualified capacity` | green |
@@ -83,8 +83,8 @@ Green rows are unchanged regressions passed individually on 2026-11-02; red rows
 
 ## 3. Provider request and stream boundary
 
-- [ ] 3.1 Add failing `test/provider/compaction_test.dart` cases for compacted token-sharing body, raw-versus-effective model capacity, headerless/empty-terminal streams, interruption and duplicate/conflicting items. Include malformed/unindexed compaction, text-done without deltas, delta/done deduplication and encrypted output caps. Verify each fails for the intended missing native behavior.
-- [ ] 3.2 Add typed native request policy and opaque compaction item/event; serialize inline context_management and collect indexed output-item-done items without Content-Type/terminal-array assumptions. Preserve existing limits, tool holding, error sanitization and retry rules. Document observed-versus-guaranteed route support. Verify new provider rows pass and rerun green provider/model-listing rows one file at a time; turn implemented rows green.
+- [x] 3.1 Add failing `test/provider/compaction_test.dart` cases for compacted token-sharing body, raw-versus-effective model capacity, headerless/empty-terminal streams, interruption and duplicate/conflicting items. Include malformed/unindexed compaction, text-done without deltas, delta/done deduplication and encrypted output caps. Verify each fails for the intended missing native behavior.
+- [x] 3.2 Add typed native request policy and opaque compaction item/event; serialize inline context_management and collect indexed output-item-done items without Content-Type/terminal-array assumptions. Preserve existing limits, tool holding, error sanitization and retry rules. Document observed-versus-guaranteed route support. Verify new provider rows pass and rerun green provider/model-listing rows one file at a time; turn implemented rows green.
 
 ## 4. Journal projection and complete call recovery
 

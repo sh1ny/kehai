@@ -177,6 +177,8 @@ Future<_TurnResult> _turn(
       case OpaqueItem(:final json):
         result.reasoning.add(OpaqueReasoningItem(json));
         stdout.writeln('  OpaqueItem type=${json['type']}');
+      case CompactionItem():
+        throw UnsupportedError('this smoke tool does not project compaction');
       case Usage():
         stdout.writeln(
           '  Usage input=${event.input} cached=${event.cachedInput} '

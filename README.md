@@ -140,5 +140,31 @@ Move the setting to that route-qualified path only with an intentionally chosen
 estimate. Without a qualified value, effective capacity is unknown. Other routes
 retain legacy override/backend-metadata fallback behavior.
 
-These are configuration and resolution APIs; request, status/migration-notice
-presentation, and captured child-policy launch wiring are delivered separately.
+Configuration resolution and provider transport are available separately from
+loop request-policy selection, status/migration-notice presentation, and captured
+child-policy launch wiring; those integrations are delivered in later groups.
+
+### Native provider transport
+
+The provider API accepts an optional typed native policy and sends inline
+`context_management: [{"type":"compaction","compact_threshold":100000}]`
+when enabled. It retains `store:false`, `stream:true`, top-level instructions,
+`additional_tools` first in input, encrypted reasoning inclusion, and no
+`previous_response_id`. Opaque compaction items are forwarded as complete JSON.
+
+Compaction on the ChatGPT-account route is **observed, not guaranteed**. An
+owner-approved check on 2026-11-02 observed successful compaction and continuity
+on `gpt-6.1-sol`; the public token-sharing documentation does not promise route
+support. That response had no Content-Type and empty terminal output, so the
+adapter collects indexed `response.output_item.done` events instead. It keeps
+all compaction items, rejects malformed or conflicting identities/positions
+with sanitized errors, and deduplicates identical copies. Done-message text is
+used only when that message has no streamed text deltas.
+
+Encrypted items and repeated copies count toward the existing 4 MiB aggregate
+output cap; the 8 MiB SSE-event and 1 MiB serialized-request caps are unchanged.
+Interrupted or failed responses release no held tool calls. Provider items are
+only boundary candidates: durable completed-step eligibility and conversation
+projection belong to the loop integration, not the adapter. Until that
+integration is delivered, the loop fails closed on a compaction event rather
+than treating it as reasoning or silently losing continuity.

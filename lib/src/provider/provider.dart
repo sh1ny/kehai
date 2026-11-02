@@ -46,7 +46,10 @@ final class ModelInfo {
   /// The display name.
   final String name;
 
-  /// The context window in tokens the backend reports, or null when unknown.
+  /// The backend-reported context window in tokens, or `null` when unknown.
+  ///
+  /// This is generic metadata, not a verified route limit. ChatGPT-account
+  /// effective capacity requires separate route-qualified configuration.
   final int? contextWindow;
 }
 
@@ -147,6 +150,27 @@ final class OpaqueReasoningItem extends ConversationItem {
   final Map<String, Object?> json;
 }
 
+/// An opaque native compaction item forwarded as complete JSON.
+final class OpaqueCompactionItem extends ConversationItem {
+  /// Creates an item holding the provider's complete [json].
+  const OpaqueCompactionItem(this.json);
+
+  /// The complete item, including uninterpreted encrypted content.
+  final Map<String, Object?> json;
+}
+
+/// A request to compact inline during an ordinary Responses turn.
+///
+/// Observed ChatGPT-account behavior is not a documented route guarantee.
+final class NativeCompactionPolicy {
+  /// Creates a policy with a provider threshold of at least 1000 tokens.
+  const NativeCompactionPolicy({required this.threshold})
+    : assert(threshold >= 1000);
+
+  /// The input-token threshold submitted to the provider.
+  final int threshold;
+}
+
 /// A request for one model turn.
 final class ModelRequest {
   /// Creates a request.
@@ -157,6 +181,7 @@ final class ModelRequest {
     required this.tools,
     required this.sessionId,
     this.reasoningEffort,
+    this.nativeCompaction,
   });
 
   /// The model slug.
@@ -173,6 +198,9 @@ final class ModelRequest {
 
   /// The reasoning effort, or `null` for the model default.
   final String? reasoningEffort;
+
+  /// The optional inline native compaction policy; `null` omits the field.
+  final NativeCompactionPolicy? nativeCompaction;
 
   /// The session identifier used for cache affinity.
   final String sessionId;
@@ -240,6 +268,20 @@ final class OpaqueItem extends ProviderEvent {
 
   /// The backend's output index of the item this belongs to, if it sent one.
   final int? outputIndex;
+}
+
+/// A candidate compaction item with a validated response output position.
+///
+/// Only a durably completed step may make this an active boundary.
+final class CompactionItem extends ProviderEvent {
+  /// Creates a candidate holding complete opaque [json] at [outputIndex].
+  const CompactionItem(this.json, {required this.outputIndex});
+
+  /// The complete item, without interpretation of encrypted content.
+  final Map<String, Object?> json;
+
+  /// The non-negative response output position.
+  final int outputIndex;
 }
 
 /// Token usage for the turn; `null` means unknown.

@@ -711,6 +711,9 @@ final class ExchangeDriver {
             _deltas.add(StreamDelta(turn, 'reasoning', text));
           case OpaqueItem(:final json, :final outputIndex):
             streamed.add(_ReasoningPart(json, outputIndex));
+          case CompactionItem():
+            // Group 4 owns durable boundary collection; never drop continuity.
+            throw UnsupportedError('compaction commit is not implemented yet');
           case ToolCall(
             :final callId,
             :final name,

@@ -23,6 +23,7 @@ List<String> _describe(ModelRequest request) => [
       ToolCallItem(:final callId, :final name) => 'call:$callId:$name',
       ToolOutputItem(:final callId, :final output) => 'output:$callId:$output',
       OpaqueReasoningItem(:final json) => 'reasoning:${json['id']}',
+      OpaqueCompactionItem(:final json) => 'compaction:${json['id']}',
     },
 ];
 
