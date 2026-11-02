@@ -2,14 +2,14 @@
 
 ## Metadata
 
-- **Round:** 2 (fresh-context FULL-tier design review and Required Change 1 recheck).
-- **Prior round:** Round 1 approved with changes: specify an executable, delivery-revision full-suite GitHub Actions gate, distinct from ordinary PR CI.
-- **Reviewer:** Fresh-context Kehai `specwright-reviewer` subagent; model `gpt-6.1-sol`; reasoning level unknown. No external reviewer CLI used.
-- **Reviewed:** Current `openspec/changes/dogfood-first-m2-change/{proposal.md,specs/reasoning-effort/spec.md,design.md,tasks.md,review.md}`; `docs/adr/0013-reasoning-effort-selection-and-inheritance.md`; `openspec/architecture.md`; constraining ADRs 0001, 0008, 0011 and 0012; `lib/src/cli/rpc_command.dart:81–256`, `lib/src/loop/driver.dart:529–656`, `lib/src/loop/request_builder.dart:145–224`, `lib/src/tools/agent.dart:1–80,97–208`; `test/client/effort_process_test.dart`; `.github/workflows/{ci.yml,nightly.yml}`; task amendment in commit `810badf0ae2726fefd6255ef863da4881d784864`. Obtained review instructions/template and planning root through pinned `mise exec -- openspec`; context reported no referenced stores or unresolved references.
-- **Review guidance:** Loaded all four requested installed `.claude/skills/` guidance skills: `dart-build-cli-app`, `dart-add-unit-test`, `dart-run-static-analysis`, and `dart-write-documentation`. No named skill failed to load. Used for review guidance only.
-- **Scope:** Design review/recheck, not pre-ship review or implementation acceptance. Test and quality-check receipts were read, not rerun. No test, analyzer, formatter, fix, commit, authenticated operation, or artifact/code edit was performed. Only this allocated scratch review was written.
+- **Round:** 4.
+- **Prior round:** Round 3 approved with changes; Required Change M1 reconciled the remaining review-routing policy contradictions.
+- **Reviewer:** Fresh-context isolated Codex reviewer; model and reasoning level not independently verified.
+- **Reviewed:** Current proposal, reasoning-effort spec, FULL-tier design, tasks and round-3 review; refreshed instructions/template; `AGENTS.md`; `openspec/config.yaml`, `openspec/roadmap.md`, `openspec/specwright.yaml`, `openspec/architecture.md`; ADR 0013; relevant CLI, RPC startup, request-builder, driver, child-launch and engine-command boundaries; requested test-source boundaries; CI and Nightly workflows; policy amendment commit `d9aca34159ce908f9e046a6233336b07efd42245`.
+- **Review guidance:** Installed `.agents/skills/{dart-build-cli-app,dart-add-unit-test,dart-use-path-package,dart-write-documentation}/SKILL.md`, plus reviewer workflow instructions.
+- **Scope:** Independent recheck of M1 and coherence with owner-approved D5, proposal and tasks. Read-only inspection; no tests, formatting, analysis, fixes, writes, authenticated operations or pub-cache access.
 
-This verdict covers only the contents reviewed. Subsequent proposal/spec/design edits outside application of Required Changes (or an edit confined to proposal Release Notes) invalidate it.
+This verdict covers only the reviewed contents. Subsequent proposal/spec/design edits invalidate it except application of Required Changes or edits confined to proposal Release Notes.
 
 ## Findings
 
@@ -19,21 +19,11 @@ None.
 
 ### Moderate
 
-None outstanding. Prior finding M1 is resolved by the current task and design evidence.
-
-The workflow distinction is independently confirmed: ordinary CI runs on PRs/main with Linux and Windows matrix jobs, but its test command excludes `slow` (`.github/workflows/ci.yml:5–8,25–26,60–61`). Nightly supports manual dispatch, checks out the selected ref through the existing checkout action, and runs unfiltered `dart test` on both platforms (`.github/workflows/nightly.yml:4–7,19–28,43–44`). Thus the specified manual branch dispatch is an existing executable mechanism, not an assumed PR check or a new workflow dependency.
-
-Current task 5.2 (`tasks.md:48`, amended in `810badf`) now requires both ordinary Linux/Windows PR CI and a manually dispatched Nightly full-suite run against the delivery branch/revision before merge. It requires the full-suite run URL, verified head SHA, both matrix outcomes, and repeat qualification if later changes invalidate the tested revision. It explicitly leaves both gates pending and preserves the local full-suite prohibition and separate single-file `-j 1` policy.
-
-The current design evidence agrees (`design.md:207,231`): ordinary PR CI alone is insufficient; the Nightly checkout SHA must be verified; scheduled default-branch results do not qualify the delivery revision; both remote gates remain pending. No remote run is necessary for this design approval, and none is claimed here.
+None outstanding. Round-3 M1 is fully applied.
 
 ### Suggestions
 
-None requiring additional design changes or mechanisms.
-
-The reviewed feature design remains coherent with the spec and ADR 0013: startup owns one immutable nullable scalar rather than historical policy; driver admission records explicit effort/null before request construction (`rpc_command.dart:134–147,193–213`; `driver.dart:550–569`); estimates and final requests use the same builder input, and retries reuse the built request (`request_builder.dart:179–185,199–213`; `driver.dart:586–599`). Child argv pins either a selected value or explicit provider-default inheritance rather than reselecting from changed configuration (`agent.dart:50–65`). This adds no second durable writer, side store, effort-specific retry, capability registry, or nested-agent authority. The constant-size propagation and per-step field have clear ownership and bounded incremental cost.
-
-The integration source asserts actual parent/child wire values and replayed step fields, config-edit resistance, role-model independence and exclusion of `agent` from the child's tools (`test/client/effort_process_test.dart:88–181`). This supports the planned qualification seam, not a claim that these tests passed during this review. The evidence correctly keeps fake reviewer execution distinct from design approval, targeted local receipts distinct from full-suite success, and remote/platform/milestone acceptance outstanding.
+None.
 
 ## Verdict
 
@@ -41,10 +31,21 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. **Applied and independently rechecked:** Prior Required Change 1 requested an explicit delivery-revision full-suite Actions gate in task 5.2 and the corresponding design evidence. `tasks.md:48` and `design.md:207,231` now require successful ordinary Linux/Windows PR CI plus manual Nightly full-suite qualification on the delivery revision, with run URL, verified checkout/head SHA, both platform outcomes, and rerun on invalidating changes. Both gates remain pending; local full-suite execution remains prohibited and local test files remain separate `-j 1` calls. This satisfies the prior required edit in full. No additional required design edits remain.
+1. **M1 — Applied and independently rechecked.** Both `openspec/config.yaml`’s dogfood design rule and `openspec/roadmap.md`’s M1 entry 6 now:
+   - Retain Kehai as lifecycle orchestrator.
+   - Permit configured external reviewer CLIs through validated Specwright routing.
+   - Retain repository-wide cross-model review and required pre-ship review.
+   - Describe earlier internal-only reviews as historical delivery-only evidence.
+   - Require successful Linux/Windows delivery PR CI and manually dispatched delivery-head Nightly before archive/merge.
+
+The current text matches commit `d9aca34159ce908f9e046a6233336b07efd42245` and is coherent with amended D5, the proposal, tasks, `AGENTS.md`, and `review.cross_model: true` / `review.preship: true`. No further edit is required for M1.
 
 CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-Prior M1 / Required Change 1: fixed in the current task and design evidence; accepted by reviewer after checking both descriptions against the actual CI/Nightly workflows. This closes the design condition only. It does not discharge the future remote full-suite gate, pre-ship review, PR/archive/merge gates, or Nikolay's user-verified milestone acceptance.
+**M1: fixed; accepted by reviewer.** The two active policy sources no longer instruct future continuations to disable cross-model review or prohibit external reviewer CLIs launched by Kehai.
+
+The inspected feature boundaries remain coherent with the design: startup resolves one immutable nullable effort, request construction and step admission use it, and child argv pins either the selected value or inherited provider default. This policy amendment introduces no additional runtime mechanism.
+
+CI excludes slow tests; manually dispatchable Nightly runs the unfiltered suite on Linux and Windows. Workflow inspection establishes available qualification paths only. This design recheck establishes no successful CI/Nightly receipt, final-head pre-ship pass, archive, merge or Nikolay’s user-verified milestone acceptance.
