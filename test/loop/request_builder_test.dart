@@ -23,6 +23,7 @@ List<String> _describe(ModelRequest request) => [
       ToolCallItem(:final callId, :final name) => 'call:$callId:$name',
       ToolOutputItem(:final callId, :final output) => 'output:$callId:$output',
       OpaqueReasoningItem(:final json) => 'reasoning:${json['id']}',
+      OpaqueCompactionItem(:final json) => 'compaction:${json['id']}',
     },
 ];
 
@@ -200,30 +201,56 @@ void main() {
     ]);
   });
 
-  test('a call without a terminal node is left out with its output', () async {
-    final (writer, store) = await _session();
-    await seedExchange(writer, 1, 'go', state: 'running');
-    await seedStep(
-      writer,
-      1,
-      exchange: 1,
-      output: [
-        callEntry('missing', 'ls'),
-        callEntry('pending', 'ls'),
-        callEntry('done', 'ls'),
-      ],
-    );
-    await seedCall(writer, store, callId: 'pending', status: 'pending');
-    await seedCall(writer, store, callId: 'done', modelText: 'listing');
+  test(
+    'a committed call without a terminal outcome blocks until recovery',
+    () async {
+      final (writer, store) = await _session();
+      await seedExchange(writer, 1, 'go', state: 'running');
+      await seedStep(
+        writer,
+        1,
+        exchange: 1,
+        output: [
+          callEntry('missing', 'ls'),
+          callEntry('pending', 'ls'),
+          callEntry('done', 'ls'),
+        ],
+      );
+      await seedCall(
+        writer,
+        store,
+        callId: 'pending',
+        tool: 'ls',
+        status: 'pending',
+      );
+      await seedCall(
+        writer,
+        store,
+        callId: 'done',
+        tool: 'ls',
+        modelText: 'listing',
+      );
 
-    final built = await _builder(writer).build(writer.tree, turn: 2);
-
-    expect(_describe(built.request), [
-      'user:go',
-      'call:done:ls',
-      'output:done:listing',
-    ]);
-  });
+      await expectLater(
+        _builder(writer).build(writer.tree, turn: 2),
+        throwsStateError,
+      );
+      await JobRecovery(writer, store).resume();
+      final built = await _builder(writer).build(writer.tree, turn: 2);
+      expect(
+        built.request.items.whereType<ToolCallItem>().map((c) => c.callId),
+        ['missing', 'pending', 'done'],
+      );
+      expect(
+        built.request.items.whereType<ToolOutputItem>().last.output,
+        'listing',
+      );
+      expect(
+        built.request.items.whereType<ToolOutputItem>().first.output,
+        contains('execution not recorded; not replayed'),
+      );
+    },
+  );
 
   test('items follow the step output order with reasoning unchanged', () async {
     final (writer, store) = await _session();

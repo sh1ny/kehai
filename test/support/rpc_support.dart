@@ -143,9 +143,12 @@ Future<RpcRig> rpcRig(
   PumpLimits limits = const PumpLimits(),
   Directory? resumeSession,
   String? model,
+  UserConfig config = const UserConfig(),
+  Directory? workspace,
+  int? backendWindow,
 }) async {
   final root = await tempDir();
-  final ws = Directory(p.join(root.path, 'ws'))..createSync();
+  final ws = workspace ?? (Directory(p.join(root.path, 'ws'))..createSync());
   final writer = resumeSession != null
       ? await SessionWriter.open(resumeSession)
       : await SessionWriter.create(Directory(p.join(root.path, 's')));
@@ -165,12 +168,14 @@ Future<RpcRig> rpcRig(
     kehaiHome: kehaiHome ? home : null,
     answerer: answerer,
     model: model,
+    config: config,
   );
   final driver = ExchangeDriver(
     writer: writer,
     runtime: runtime,
     provider: provider,
-    model: 'gpt-5.5',
+    model: model ?? 'gpt-5.5',
+    contextWindow: backendWindow,
     clock: () => DateTime(2026, 10, 30, 9, 5),
   );
   final input = StreamController<List<int>>();
@@ -185,7 +190,7 @@ Future<RpcRig> rpcRig(
     hello: HelloInfo(
       session: p.basename(writer.sessionDir.path),
       workspace: ws.path,
-      model: 'gpt-5.5',
+      model: model ?? 'gpt-5.5',
     ),
     limits: limits,
   );

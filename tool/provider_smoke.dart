@@ -166,6 +166,9 @@ Future<_TurnResult> _turn(
       case TextDelta(:final text):
         result._text.write(text);
         stdout.writeln('  TextDelta ${jsonEncode(text)}');
+      case TextDeltaPosition():
+        // Position updates do not deliver new text.
+        break;
       case ReasoningSummaryDelta(:final text):
         stdout.writeln('  ReasoningSummaryDelta ${jsonEncode(text)}');
       case ToolCall():
@@ -177,6 +180,8 @@ Future<_TurnResult> _turn(
       case OpaqueItem(:final json):
         result.reasoning.add(OpaqueReasoningItem(json));
         stdout.writeln('  OpaqueItem type=${json['type']}');
+      case CompactionItem():
+        throw UnsupportedError('this smoke tool does not project compaction');
       case Usage():
         stdout.writeln(
           '  Usage input=${event.input} cached=${event.cachedInput} '

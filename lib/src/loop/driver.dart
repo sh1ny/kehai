@@ -11,13 +11,16 @@ import 'package:path/path.dart' as p;
 
 import '../config/user_config.dart';
 import '../provider/provider.dart';
+import '../provider/chatgpt_request.dart';
 import '../session/path.dart';
 import '../session/record.dart';
 import '../session/requests.dart';
 import '../session/writer.dart';
+import '../session/tree.dart';
 import '../tools/runtime.dart';
 import '../workspace/inventory.dart';
 import '../workspace/load.dart';
+import 'compaction_state.dart';
 import 'instructions.dart';
 import 'request_builder.dart';
 import 'retry.dart';
@@ -164,26 +167,70 @@ final class ExchangeDriver {
   /// Creates a driver for [writer] and [runtime] that sends requests for
   /// [model] to [provider].
   ///
-  /// [contextWindow] is the model's window or null when unknown.
+  /// [contextWindow] is backend metadata; ChatGPT-account capacity is resolved
+  /// separately from route-qualified configuration.
   ExchangeDriver({
     required this.writer,
     required this.runtime,
     required this.provider,
     required this.model,
-    this.contextWindow,
+    int? contextWindow,
     DateTime Function()? clock,
     this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
     this.childRole,
     this.effort,
-  }) : _builder = RequestBuilder(
+  }) : capacity = runtime.config.resolveCapacity(
+         provider.id,
+         'chatgpt-account',
+         model,
+         backendContextWindow: contextWindow,
+       ),
+       contextWindow = runtime.config
+           .resolveCapacity(
+             provider.id,
+             'chatgpt-account',
+             model,
+             backendContextWindow: contextWindow,
+           )
+           .contextWindow,
+       _builder = RequestBuilder(
          sessionDir: writer.sessionDir,
          model: model,
          effort: effort,
+         providerId: provider.id,
+         nativeCompaction:
+             runtime.config
+                     .effectiveCompaction(provider.id, 'chatgpt-account', model)
+                     .strategy ==
+                 CompactionStrategy.providerNative
+             ? NativeCompactionPolicy(
+                 threshold: runtime.config
+                     .effectiveCompaction(provider.id, 'chatgpt-account', model)
+                     .threshold,
+               )
+             : null,
          workspaceName: p.basename(runtime.workspace.path),
          tools: runtime.specs,
          estimateRequest: (request) => provider.estimate(request).tokens,
-         window: contextWindow,
+         window: runtime.config
+             .resolveCapacity(
+               provider.id,
+               'chatgpt-account',
+               model,
+               backendContextWindow: contextWindow,
+             )
+             .contextWindow,
+         windowEstimated:
+             runtime.config
+                 .resolveCapacity(
+                   provider.id,
+                   'chatgpt-account',
+                   model,
+                   backendContextWindow: contextWindow,
+                 )
+                 .source ==
+             'user-configured estimate',
          clock: clock ?? DateTime.now,
        );
 
@@ -204,6 +251,9 @@ final class ExchangeDriver {
 
   /// The context window in tokens, or null when unknown.
   final int? contextWindow;
+
+  /// The effective route capacity and its distinct raw metadata/provenance.
+  final RouteCapacity capacity;
 
   /// Decides whether a failed request is sent again.
   final RetryPolicy retryPolicy;
@@ -235,6 +285,83 @@ final class ExchangeDriver {
 
   /// The running exchange's cancel token, or null when idle.
   CancelToken? get exchangeToken => _token;
+
+  /// Reconstructs scalar status from a committed snapshot and current inputs.
+  ///
+  /// This neither appends journal state nor makes provider requests. Opaque
+  /// contents and raw server errors are never included in this projection.
+  Future<Map<String, Object?>> compactionStatus(
+    SessionTree tree,
+    int turn,
+  ) async {
+    final (contextKey, value) = _contextSnapshot();
+    tree = SessionTree.fromJson(tree.toJson());
+    tree.apply(
+      JournalRecord(
+        turn: turn,
+        path: 'body/contexts/$contextKey',
+        op: Op.set,
+        value: value,
+      ),
+    );
+    final lineage = _builder.requestLineage(tree, contextKey: contextKey);
+    final policy = runtime.config.effectiveCompaction(
+      provider.id,
+      'chatgpt-account',
+      model,
+    );
+    final boundary = _builder.selectedBoundary(tree);
+    final evidence = CompactionState.fold(tree, lineage, policy, boundary);
+    final native = policy.strategy == CompactionStrategy.providerNative;
+    BuiltRequest? built;
+    var continuity = 'compatible';
+    try {
+      built = await _builder.build(tree, turn: turn, contextKey: contextKey);
+    } on StateError catch (e) {
+      // Do not expose arbitrary exception text from history or result files.
+      continuity = e.message.startsWith('incompatible continuity')
+          ? 'incompatible continuity'
+          : 'projection unavailable; reopen to recover or start a new session';
+    }
+    final calibration = native && boundary != null && built?.used == null;
+    return {
+      'provider': provider.id,
+      'route': 'chatgpt-account',
+      'model': model,
+      'instructions': lineage['instructions'],
+      'tools': lineage['tools'],
+      'strategy': policy.strategy.wireName,
+      'threshold': policy.threshold,
+      'strategySource': policy.strategySource,
+      'thresholdSource': policy.thresholdSource,
+      'capability': native ? evidence.state : 'disabled',
+      'capabilityReason': native
+          ? evidence.reason
+          : 'native compaction disabled',
+      'boundary': boundary,
+      'continuity': continuity,
+      'window': capacity.contextWindow,
+      'windowSource': capacity.source,
+      'windowConfigPath': capacity.configPath,
+      'backendWindow': capacity.backendContextWindow,
+      'legacyWindowHint': capacity.legacyHint,
+      'migrationNotice': capacity.migrationNotice,
+      'used': built?.used,
+      'budgetQuality': built?.quality ?? 'unknown; continuity blocked',
+      'retained': built?.retained,
+      'calibration': !native
+          ? 'disabled'
+          : continuity != 'compatible'
+          ? 'blocked'
+          : !calibration
+          ? 'not needed'
+          : evidence.calibrationConsumed
+          ? 'consumed'
+          : 'available',
+      'previousNativeStop': compactionStopReason(tree, lineage),
+      'recoveryNotice': compactionRecoveryNotice(tree, lineage),
+    };
+  }
 
   /// The reason a cancelled exchange records: `user` unless shut down.
   String _cancelReason = 'user';
@@ -485,10 +612,7 @@ final class ExchangeDriver {
     });
   }
 
-  /// Loads the workspace, stores its context text under a key of its content
-  /// unless already stored, and records the key on exchange [exchange]
-  /// (design D4). Both records carry the exchange's turn [first].
-  Future<void> _captureContext(String exchange, int first) async {
+  (String, Map<String, Object?>) _contextSnapshot() {
     final loaded = loadWorkspace(
       workspace: runtime.workspace.path,
       kehaiHome: runtime.kehaiHome ?? _noHome,
@@ -516,6 +640,12 @@ final class ExchangeDriver {
         .convert(utf8.encode(jsonEncode(value)))
         .toString()
         .substring(0, 16);
+    return (contextKey, value);
+  }
+
+  /// Captures the current workspace inputs for the admitted exchange.
+  Future<void> _captureContext(String exchange, int first) async {
+    final (contextKey, value) = _contextSnapshot();
     final stored = writer.tree.get(
       SessionPath.parse('body/contexts/$contextKey'),
     );
@@ -547,6 +677,11 @@ final class ExchangeDriver {
     String exchange,
     CancelToken token,
   ) async {
+    final policy = runtime.config.effectiveCompaction(
+      provider.id,
+      'chatgpt-account',
+      model,
+    );
     await _apply(
       JournalRecord(
         turn: turn,
@@ -556,6 +691,13 @@ final class ExchangeDriver {
           'exchange': exchange,
           'model': model,
           'effort': effort,
+          'lineage': _builder.requestLineage(writer.tree),
+          'policy': {
+            'strategy': policy.strategy.wireName,
+            'threshold': policy.threshold,
+            'strategySource': policy.strategySource,
+            'thresholdSource': policy.thresholdSource,
+          },
           'instructions': InstructionsIdentity(
             instructionsVersion,
             _contextKey,
@@ -566,14 +708,64 @@ final class ExchangeDriver {
         },
       ),
     );
-    final built = await _builder.build(writer.tree, turn: turn);
+    final BuiltRequest built;
+    try {
+      built = await _builder.build(writer.tree, turn: turn);
+    } on StateError catch (e) {
+      await _mergeStep(turn, {'state': 'failed', 'reason': e.message});
+      return _End('stopped', e.message);
+    }
+    await _mergeStep(turn, {'boundary': built.boundary});
     final context = {
       'used': built.used,
       'window': ?contextWindow,
       'block': built.block,
       'estimated': true,
+      'quality': built.quality,
+      'retained': built.retained,
+      'windowSource': capacity.source,
+      'backendWindow': ?capacity.backendContextWindow,
+      'legacyWindowHint': ?capacity.legacyHint,
+      'migrationNotice': ?capacity.migrationNotice,
     };
-    if (built.overflow) {
+    final native = policy.strategy == CompactionStrategy.providerNative;
+    final evidence = CompactionState.fold(
+      writer.tree,
+      built.lineage,
+      policy,
+      built.boundary,
+    );
+    final calibration = native && built.boundary != null && built.used == null;
+    context['calibration'] = calibration;
+    await _mergeStep(turn, {'capability': evidence.toJson()});
+    String? nativeStop;
+    if (native && evidence.state == 'unsupported') {
+      nativeStop = evidence.reason;
+    } else if (native &&
+        encodeChatGptBody(buildChatGptBody(built.request)) == null) {
+      nativeStop = 'serialized request exceeds 1 MiB';
+    } else if (calibration && evidence.calibrationConsumed) {
+      nativeStop = 'calibration allowance consumed';
+    } else if (calibration && built.retained * 2 > policy.threshold) {
+      nativeStop = 'retained-content calibration cap exceeded';
+    } else if (native &&
+        !calibration &&
+        built.used! > (policy.threshold * 5 + 3) ~/ 4) {
+      nativeStop = 'submission safety ceiling exceeded';
+    }
+    if (nativeStop != null) {
+      await _mergeStep(turn, {
+        'state': 'failed',
+        'reason': _nativeMessage(nativeStop),
+        'nativeStop': nativeStop,
+        'context': context,
+      });
+      return _End('stopped', _nativeMessage(nativeStop));
+    }
+    if (built.overflow ||
+        (built.used == null &&
+            contextWindow != null &&
+            built.retained > contextWindow!)) {
       final message = _overflowMessage(built.used);
       await _mergeStep(turn, {
         'state': 'failed',
@@ -583,6 +775,8 @@ final class ExchangeDriver {
       return _End('stopped', message);
     }
 
+    // Consumption is durable before the provider can observe the request.
+    if (calibration) await _mergeStep(turn, {'calibration': true});
     var attempts = 0;
     _Streamed streamed;
     while (true) {
@@ -592,6 +786,7 @@ final class ExchangeDriver {
       if (failure == null || failure.kind == ProviderFailureKind.cancelled) {
         break;
       }
+      if (calibration || (native && _fieldRejected(failure))) break;
       final delay = retryPolicy.delayFor(failure, attempts);
       if (delay == null) break;
       await _wait(delay, token);
@@ -613,6 +808,12 @@ final class ExchangeDriver {
         state = 'cancelled';
         reason = _cancelReason;
         end = _End('cancelled', _cancelReason);
+      } else if (native && _fieldRejected(failure!)) {
+        state = 'failed';
+        reason = 'context_management rejected';
+        evidence.state = 'unsupported';
+        evidence.reason = reason;
+        end = _End('stopped', _nativeMessage(reason));
       } else if (failure!.kind == ProviderFailureKind.contextOverflow) {
         state = 'failed';
         reason = 'context overflow';
@@ -631,12 +832,17 @@ final class ExchangeDriver {
         'state': state,
         'reason': reason,
         'attempts': attempts,
+        'capability': evidence.toJson(),
+        if (native && evidence.state == 'unsupported')
+          'nativeStop': evidence.reason,
         if (failure != null)
           'failure': {
             'kind': failure.kind.wire,
-            'message': failure.message,
+            'message': native && _fieldRejected(failure)
+                ? 'context_management rejected'
+                : failure.message,
             'status': ?failure.status,
-            'code': ?failure.code,
+            if (!(native && _fieldRejected(failure))) 'code': ?failure.code,
             'sent': failure.sent,
           },
         if (partial.isNotEmpty) 'partial': partial,
@@ -646,10 +852,29 @@ final class ExchangeDriver {
       return end;
     }
 
+    String? completionStop;
+    if (native) {
+      if (parts.any((part) => part is _CompactionPart)) {
+        evidence.state = 'observed-supported';
+        evidence.reason = 'compaction item observed';
+      } else if ((streamed.usage?.input ?? built.used ?? 0) >=
+          policy.threshold) {
+        evidence.state = 'unsupported';
+        evidence.reason = streamed.usage?.input == null
+            ? 'estimated input at threshold without compaction'
+            : 'no compaction item at threshold';
+        completionStop = evidence.reason;
+      } else if (calibration &&
+          (streamed.usage?.input == null || streamed.usage?.output == null)) {
+        completionStop = 'calibration usage unavailable';
+      }
+    }
     await seams.beforeStepCommit?.call(turn);
     await _mergeStep(turn, {
       'state': 'completed',
       'stop': streamed.stop!.wire,
+      'capability': evidence.toJson(),
+      'nativeStop': ?completionStop,
       'attempts': attempts,
       if (streamed.usage case final usage?) 'usage': _usageJson(usage),
       'context': context,
@@ -666,6 +891,9 @@ final class ExchangeDriver {
         ),
     ];
     if (calls.isEmpty) {
+      if (completionStop != null && !token.isCancelled) {
+        return _End('stopped', _nativeMessage(completionStop));
+      }
       // An interrupt during the commit still cancels the exchange; the step
       // arrived whole and stays committed.
       return token.isCancelled
@@ -683,6 +911,9 @@ final class ExchangeDriver {
     }
     final broken = errors.nonNulls.firstOrNull;
     if (broken != null) return _End('failed', 'tool runtime error: $broken');
+    if (completionStop != null) {
+      return _End('stopped', _nativeMessage(completionStop));
+    }
     return const _Continue();
   }
 
@@ -704,13 +935,17 @@ final class ExchangeDriver {
     try {
       await for (final event in provider.stream(request, cancel: token)) {
         switch (event) {
-          case TextDelta(:final text, :final outputIndex):
-            streamed.addText(text, outputIndex);
+          case TextDelta(:final text):
+            streamed.addText(event);
             _deltas.add(StreamDelta(turn, 'text', text));
+          case TextDeltaPosition(:final delta, :final outputIndex):
+            streamed.positionText(delta, outputIndex);
           case ReasoningSummaryDelta(:final text):
             _deltas.add(StreamDelta(turn, 'reasoning', text));
           case OpaqueItem(:final json, :final outputIndex):
             streamed.add(_ReasoningPart(json, outputIndex));
+          case CompactionItem(:final json, :final outputIndex):
+            streamed.add(_CompactionPart(json, outputIndex));
           case ToolCall(
             :final callId,
             :final name,
@@ -766,9 +1001,11 @@ final class ExchangeDriver {
         : base;
   }
 
-  String _overflowMessage(int used) {
+  String _overflowMessage(int? used) {
     final window = contextWindow;
-    final size = window == null
+    final size = used == null
+        ? 'unknown tokens in use'
+        : window == null
         ? '~${formatTokens(used)} tokens in use'
         : '~${formatTokens(used)} of ${formatTokens(window)} tokens';
     return 'context overflow: $size; rewind or start a new session';
@@ -822,6 +1059,7 @@ Map<String, Object?> _usageJson(Usage usage) => {
 Map<String, Object?>? _outputEntry(_Part part) => switch (part) {
   _TextPart(:final text) when text.isEmpty => null,
   _TextPart(:final text) => {'type': 'text', 'text': '$text'},
+  _CompactionPart(:final json) => {'type': 'compaction', 'item': json},
   _ReasoningPart(:final json) => {'type': 'reasoning', 'item': json},
   _CallPart(:final callId, :final name, :final arguments) => {
     'type': 'call',
@@ -855,7 +1093,7 @@ sealed class _Part {
   _Part(this.index);
 
   /// The backend's output index, or null when it sent none.
-  final int? index;
+  int? index;
 
   /// The arrival sequence, set by [_Streamed.add].
   int seq = 0;
@@ -865,6 +1103,11 @@ final class _TextPart extends _Part {
   _TextPart(super.index);
 
   final StringBuffer text = StringBuffer();
+}
+
+final class _CompactionPart extends _Part {
+  _CompactionPart(this.json, super.index);
+  final Map<String, Object?> json;
 }
 
 final class _ReasoningPart extends _Part {
@@ -884,6 +1127,7 @@ final class _CallPart extends _Part {
 /// What one response streamed.
 final class _Streamed {
   final List<_Part> _parts = [];
+  final Map<TextDelta, _TextPart> _textParts = Map.identity();
   Usage? usage;
   StopReason? stop;
   ProviderFailure? failure;
@@ -893,32 +1137,58 @@ final class _Streamed {
     _parts.add(part);
   }
 
-  /// Appends [text] to the text part of [index], or to the last unindexed text
-  /// part, or starts a new one.
-  void addText(String text, int? index) {
-    _TextPart? target;
-    if (index != null) {
-      target = _parts
-          .whereType<_TextPart>()
-          .where((t) => t.index == index)
-          .lastOrNull;
-    } else if (_parts.lastOrNull case _TextPart(index: null) && final last) {
-      target = last;
-    }
-    if (target == null) {
-      target = _TextPart(index);
-      add(target);
-    }
-    target.text.write(text);
+  void addText(TextDelta delta) {
+    final part = _TextPart(delta.outputIndex)..text.write(delta.text);
+    if (delta.outputIndex == null) _textParts[delta] = part;
+    add(part);
+  }
+
+  void positionText(TextDelta delta, int index) {
+    _textParts[delta]?.index = index;
   }
 
   /// The parts by output index, then the unindexed ones in arrival order.
   List<_Part> ordered() {
-    final indexed = _parts.where((part) => part.index != null).toList()
+    // Coalesce only after position updates, so anonymous deltas for distinct
+    // done messages cannot accidentally share an output position.
+    final grouped = <_Part>[];
+    for (final part in _parts) {
+      if (part is! _TextPart) {
+        grouped.add(part);
+        continue;
+      }
+      _TextPart? target;
+      if (part.index != null) {
+        target = grouped
+            .whereType<_TextPart>()
+            .where((text) => text.index == part.index)
+            .lastOrNull;
+      } else if (grouped.lastOrNull case _TextPart(index: null) && final last) {
+        target = last;
+      }
+      if (target == null) {
+        target = _TextPart(part.index)..seq = part.seq;
+        grouped.add(target);
+      }
+      target.text.write(part.text);
+    }
+    final indexed = grouped.where((part) => part.index != null).toList()
       ..sort((a, b) {
         final byIndex = a.index!.compareTo(b.index!);
         return byIndex != 0 ? byIndex : a.seq.compareTo(b.seq);
       });
-    return [...indexed, ..._parts.where((part) => part.index == null)];
+    return [...indexed, ...grouped.where((part) => part.index == null)];
   }
 }
+
+bool _fieldRejected(ProviderFailure failure) =>
+    (failure.kind == ProviderFailureKind.invalidRequest ||
+        failure.kind == ProviderFailureKind.notPermitted) &&
+    (failure.param == 'context_management' ||
+        ('${failure.code ?? ''} ${failure.message}').toLowerCase().contains(
+          'context_management',
+        ));
+
+String _nativeMessage(String reason) =>
+    'native compaction stopped: $reason; '
+    'explicitly select off or a different policy, rewind, or start a new session';

@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../results/descriptor.dart';
+import '../results/composer.dart';
 import '../results/live_result.dart' show checkSpoolName;
 import '../results/result_store.dart';
 import '../session/path.dart';
@@ -182,6 +183,7 @@ final class JobRecovery {
     Set<String> liveCalls = const {},
   }) async {
     final counts = _Counts();
+    _validateCommittedCalls(liveCalls);
     for (final launch in _keys('meta/handoffs')) {
       if (liveLaunches.contains(launch)) continue;
       await _launchRecord(launch, reason, counts);
@@ -202,7 +204,162 @@ final class JobRecovery {
       if (liveCalls.contains(entry.key)) continue;
       if (await _finalizeCall(entry.key, node, reason)) counts.calls++;
     }
+    counts.calls += await _recoverMissingCalls(liveCalls);
     return counts;
+  }
+
+  Iterable<
+    ({String step, Map<String, Object?> source, Map<String, Object?> call})
+  >
+  _committedCalls() sync* {
+    for (final entry in _map('body/steps').entries) {
+      final source = entry.value;
+      if (source is! Map<String, Object?> || source['state'] != 'completed') {
+        continue;
+      }
+      final output = source['output'];
+      if (output is! List<Object?>) continue;
+      for (final call in output) {
+        if (call is Map<String, Object?> && call['type'] == 'call') {
+          yield (step: entry.key, source: source, call: call);
+        }
+      }
+    }
+  }
+
+  Object _input(Map<String, Object?> call) {
+    final raw = call['arguments'];
+    if (raw is! String) throw StateError('invalid committed call arguments');
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, Object?>) return decoded;
+    } on FormatException {
+      /* Retain invalid input without executing it. */
+    }
+    return raw;
+  }
+
+  void _checkCall(
+    Map<String, Object?> call,
+    Object? node,
+    String step,
+    Object? model,
+  ) {
+    if (call['call'] is! String ||
+        call['callId'] is! String ||
+        call['name'] is! String) {
+      throw StateError('invalid committed call metadata');
+    }
+    if (node == null) return;
+    if (node is! Map<String, Object?> ||
+        node['callId'] != call['callId'] ||
+        node['tool'] != call['name'] ||
+        !_equalJson(node['input'], _input(call)) ||
+        (node['sourceStep'] != null && node['sourceStep'] != step) ||
+        (node['sourceModel'] != null && node['sourceModel'] != model) ||
+        (node['arguments'] != null && node['arguments'] != call['arguments'])) {
+      throw StateError('conflicting committed call metadata; recovery stopped');
+    }
+  }
+
+  void _validateCommittedCalls(Set<String> liveCalls) {
+    final seen = <String, String>{};
+    for (final position in _committedCalls()) {
+      final key = '${position.call['call']}';
+      if (liveCalls.contains(key)) continue;
+      if (seen.containsKey(key)) {
+        throw StateError(
+          'conflicting committed call positions; recovery stopped',
+        );
+      }
+      seen[key] = position.step;
+      _checkCall(
+        position.call,
+        _at('body/calls/$key'),
+        position.step,
+        position.source['model'],
+      );
+    }
+  }
+
+  Future<int> _recoverMissingCalls(Set<String> liveCalls) async {
+    var count = 0;
+    for (final position in _committedCalls().toList()) {
+      final (:step, :source, :call) = position;
+      final key = '${call['call']}';
+      if (liveCalls.contains(key) || _at('body/calls/$key') != null) continue;
+      const reason = 'interrupted_before_admission';
+      const summary = 'cancelled: interrupted_before_admission';
+      final write = await store.storeResult(
+        Stream.value(utf8.encode('execution not recorded; not replayed')),
+      );
+      if (write is! ResultComplete) {
+        throw StorageError('could not store missing-call cancellation', write);
+      }
+      final descriptor = write.descriptor;
+      final envelope = await composeResult(
+        '${call['name']}',
+        ResultStatus.error,
+        summary,
+        descriptor,
+        File(_resultPath(descriptor.sha256)),
+      );
+      final modelWrite = await store.storeResult(
+        Stream.value(utf8.encode(envelope)),
+      );
+      if (modelWrite is! ResultComplete) {
+        throw StorageError('could not store missing-call envelope', modelWrite);
+      }
+      for (var attempt = 0; attempt < _maxRetries; attempt++) {
+        await writer.recordResult(descriptor);
+        await writer.recordResult(modelWrite.descriptor);
+        final outcome = await writer.applyGuarded((read) {
+          // The source can disappear while immutable result bytes are stored.
+          final current = read('body/steps/$step');
+          if (!_equalJson(current, source)) {
+            return const GuardedRefusal('source changed');
+          }
+          final existing = read('body/calls/$key');
+          _checkCall(call, existing, step, source['model']);
+          if (existing != null) return const GuardedRefusal('exists');
+          return GuardedAppend(
+            _record('body/calls/$key', Op.set, {
+              'tool': call['name'],
+              'version': 0,
+              'callId': call['callId'],
+              'attempt': 'recovery:$step:$key',
+              'input': _input(call),
+              'arguments': call['arguments'],
+              'sourceStep': step,
+              'sourceModel': source['model'],
+              'status': 'cancelled',
+              'envelope': 'error',
+              'reason': reason,
+              'summary': summary,
+              'result': {'handle': descriptor.handle, 'complete': false},
+              'model': {
+                'handle': modelWrite.descriptor.handle,
+                'complete': true,
+              },
+            }),
+          );
+        });
+        if (outcome is Applied) {
+          count++;
+          break;
+        }
+        if (outcome is Refused && outcome.reason == 'descriptors missing') {
+          if (attempt == _maxRetries - 1) {
+            throw const StorageError(
+              'could not register missing-call cancellation',
+            );
+          }
+          continue;
+        }
+        break;
+      }
+    }
+    return count;
   }
 
   Future<void> _launchRecord(
@@ -669,3 +826,13 @@ bool _holds(File file, Object? bytes) {
 }
 
 String _now() => DateTime.now().toUtc().toIso8601String();
+
+Object? _orderedJson(Object? value) => switch (value) {
+  Map<String, Object?> map => {
+    for (final key in map.keys.toList()..sort()) key: _orderedJson(map[key]),
+  },
+  List<Object?> list => [for (final v in list) _orderedJson(v)],
+  _ => value,
+};
+bool _equalJson(Object? a, Object? b) =>
+    jsonEncode(_orderedJson(a)) == jsonEncode(_orderedJson(b));

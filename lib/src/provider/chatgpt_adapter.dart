@@ -251,6 +251,15 @@ final class _Turn {
   final List<ToolCall> _held = [];
   final Set<String> _heldIds = {};
   int _outputBytes = 0;
+  final Map<int, _DoneItem> _itemsByIndex = {};
+  final Map<String, _DoneItem> _itemsById = {};
+  final List<(_DoneItem, ProviderEvent)> _parts = [];
+  final List<_DoneItem> _messages = [];
+  final Set<int> _textDeltaIndexes = {};
+  final Set<String> _textDeltaIds = {};
+  bool _unidentifiedTextDelta = false;
+  final List<(TextDelta, String?)> _unindexedTextDeltas = [];
+  int _doneSequence = 0;
   void Function()? _detachCancel;
 
   Stream<ProviderEvent> get stream => _controller.stream;
@@ -517,7 +526,31 @@ final class _Turn {
       case 'response.output_text.delta':
         if (decoded['delta'] case final String delta when delta.isNotEmpty) {
           if (_count(utf8.encode(delta).length)) {
-            _emit(TextDelta(delta, outputIndex: index));
+            final itemId = decoded['item_id'];
+            if (index != null) _textDeltaIndexes.add(index);
+            if (itemId is String) _textDeltaIds.add(itemId);
+            if (index == null && itemId is! String) {
+              if (_messages.isNotEmpty) {
+                _fail(
+                  _local(
+                    FailureKind.protocol,
+                    'Anonymous text arrived after a message completed.',
+                  ),
+                );
+                return;
+              }
+              _unidentifiedTextDelta = true;
+            }
+            final resolved =
+                index ?? (itemId is String ? _itemsById[itemId]?.index : null);
+            final event = TextDelta(delta, outputIndex: resolved);
+            if (resolved == null) {
+              _unindexedTextDeltas.add((
+                event,
+                itemId is String ? itemId : null,
+              ));
+            }
+            _emit(event);
           }
         }
       case 'response.reasoning_summary_text.delta':
@@ -560,17 +593,63 @@ final class _Turn {
   }
 
   void _onItem(Object? item, int? index) {
+    if (item is! Map<String, Object?>) return;
+    // Charge every copy before deduplication, including opaque ciphertext.
+    // This also bounds the identity tables by the existing output byte cap.
+    if (!_count(utf8.encode(jsonEncode(item)).length)) return;
+    if (item['type'] == 'compaction' &&
+        (index == null ||
+            item['id'] is! String ||
+            (item['id'] as String).isEmpty ||
+            item['encrypted_content'] is! String ||
+            (item['encrypted_content'] as String).isEmpty)) {
+      _fail(_local(FailureKind.protocol, 'A compaction item was malformed.'));
+      return;
+    }
+    final id = item['id'] is String ? item['id'] as String : null;
+    final byIndex = index == null ? null : _itemsByIndex[index];
+    final byId = id == null ? null : _itemsById[id];
+    for (final previous in [byIndex, byId]) {
+      if (previous != null &&
+          (previous.index != index || !_sameJson(previous.json, item))) {
+        _fail(
+          _local(FailureKind.protocol, 'Response item identity conflicted.'),
+        );
+        return;
+      }
+    }
+    if (byIndex != null || byId != null) return;
+    // Without item identity, the next done message closes the streamed text
+    // in stable wire order; it must not suppress unrelated later messages.
+    final unidentifiedDelta =
+        item['type'] == 'message' && _unidentifiedTextDelta;
+    if (item['type'] == 'message') _unidentifiedTextDelta = false;
+    final done = _DoneItem(item, index, _doneSequence++, unidentifiedDelta);
+    if (index != null) _itemsByIndex[index] = done;
+    if (id != null) _itemsById[id] = done;
     switch (item) {
-      case {'type': 'reasoning'} when item is Map<String, Object?>:
-        if (_count(utf8.encode(jsonEncode(item)).length)) {
-          _emit(OpaqueItem(item, outputIndex: index));
-        }
+      case {'type': 'compaction'}:
+        _parts.add((done, CompactionItem(item, outputIndex: index!)));
+      case {'type': 'message'}:
+        // Bind the actual live events, not their text or a nullable item ID.
+        // Anonymous deltas belong to the next message in stable wire order.
+        _unindexedTextDeltas.removeWhere((pending) {
+          final (delta, deltaId) = pending;
+          if (deltaId != null && deltaId != id) return false;
+          if (index != null) {
+            _emit(TextDeltaPosition(delta, outputIndex: index));
+          }
+          return true;
+        });
+        _messages.add(done);
+      case {'type': 'reasoning'}:
+        _emit(OpaqueItem(item, outputIndex: index));
       case {
         'type': 'function_call',
         'call_id': final String callId,
         'name': final String name,
       }:
-        final arguments = (item as Map<String, Object?>)['arguments'];
+        final arguments = item['arguments'];
         final argumentsJson = arguments is String ? arguments : '';
         if (argumentsJson.length > openAiMaxToolCallArgumentBytes) {
           _fail(_local(FailureKind.protocol, 'Tool call arguments too large.'));
@@ -578,7 +657,7 @@ final class _Turn {
           return;
         } else if (_held.length >= openAiMaxHeldToolCalls) {
           _fail(_local(FailureKind.protocol, 'Too many tool calls.'));
-        } else if (_count(utf8.encode(argumentsJson).length)) {
+        } else {
           _held.add(
             ToolCall(
               callId: callId,
@@ -587,6 +666,7 @@ final class _Turn {
               outputIndex: index,
             ),
           );
+          _parts.add((done, _held.last));
         }
       case {'type': 'function_call'}:
         _fail(_local(FailureKind.protocol, 'A tool call was malformed.'));
@@ -594,7 +674,36 @@ final class _Turn {
   }
 
   void _onCompleted(Object? response) {
-    _held.forEach(_emit);
+    // The terminal output array is deliberately not an alternate item source.
+    // Done messages wait until here so even late deltas suppress the fallback.
+    for (final message in _messages) {
+      final index = message.index;
+      final id = message.json['id'];
+      if ((index != null && _textDeltaIndexes.contains(index)) ||
+          (id is String && _textDeltaIds.contains(id)) ||
+          message.unidentifiedDelta) {
+        continue;
+      }
+      final content = message.json['content'];
+      if (content is! List<Object?>) continue;
+      final fallback = StringBuffer();
+      for (final part in content) {
+        if (part case {'type': 'output_text', 'text': final String text}
+            when text.isNotEmpty) {
+          fallback.write(text);
+        }
+      }
+      if (fallback.isNotEmpty) {
+        _parts.add((
+          message,
+          TextDelta(fallback.toString(), outputIndex: index),
+        ));
+      }
+    }
+    _parts.sort((a, b) => _compareDoneItems(a.$1, b.$1));
+    for (final part in _parts) {
+      _emit(part.$2);
+    }
     _emit(_usage(response));
     _emit(Completed(_held.isEmpty ? StopReason.endTurn : StopReason.toolUse));
     _finish();
@@ -650,4 +759,37 @@ final class _Turn {
       reasoning: count(nested('output_tokens_details', 'reasoning_tokens')),
     );
   }
+}
+
+final class _DoneItem {
+  const _DoneItem(this.json, this.index, this.sequence, this.unidentifiedDelta);
+
+  final Map<String, Object?> json;
+  final int? index;
+  final int sequence;
+  final bool unidentifiedDelta;
+}
+
+int _compareDoneItems(_DoneItem a, _DoneItem b) {
+  final ai = a.index;
+  final bi = b.index;
+  if (ai != null && bi != null) return ai.compareTo(bi);
+  if (ai != null) return -1;
+  if (bi != null) return 1;
+  return a.sequence.compareTo(b.sequence);
+}
+
+bool _sameJson(Object? a, Object? b) {
+  if (a is Map<String, Object?> && b is Map<String, Object?>) {
+    return a.length == b.length &&
+        a.keys.every((key) => b.containsKey(key) && _sameJson(a[key], b[key]));
+  }
+  if (a is List<Object?> && b is List<Object?>) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_sameJson(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
 }
