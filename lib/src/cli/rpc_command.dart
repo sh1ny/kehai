@@ -56,6 +56,7 @@ final class ChildSpec {
     required this.role,
     required this.roleDigest,
     this.yolo = false,
+    this.effortDefault = false,
   });
 
   /// The parent session's directory; the child session is created under its
@@ -73,7 +74,25 @@ final class ChildSpec {
 
   /// Whether the parent runs with `--yolo`; the child's gate skips prompts.
   final bool yolo;
+
+  /// Whether the parent explicitly selected provider default.
+  ///
+  /// This bypasses config effort selection, not config validation.
+  final bool effortDefault;
 }
+
+/// The engine startup boundary, injectable by command-line input tests.
+typedef RpcRunner = Future<int> Function({
+  required KehaiSettings settings,
+  required Directory workspace,
+  required Stream<List<int>> input,
+  required IOSink output,
+  bool resume,
+  String? sessionId,
+  String? modelFlag,
+  String? effortFlag,
+  ChildSpec? child,
+});
 
 /// Runs `kehai rpc` for [workspace] and returns the exit code.
 ///
@@ -86,6 +105,9 @@ final class ChildSpec {
 /// With [resume] the latest session of the workspace is reopened, with
 /// [sessionId] that one; otherwise a new session is created. The model is
 /// [modelFlag], else the configured one, else the resumed session's last.
+/// Effort is [effortFlag], else user config, else provider default; resume
+/// never inherits effort from historical steps. [ChildSpec.effortDefault]
+/// pins inherited provider default while still validating user config.
 Future<int> runRpc({
   required KehaiSettings settings,
   required Directory workspace,
@@ -94,6 +116,7 @@ Future<int> runRpc({
   bool resume = false,
   String? sessionId,
   String? modelFlag,
+  String? effortFlag,
   ChildSpec? child,
 }) async {
   SessionWriter? writer;
@@ -114,6 +137,14 @@ Future<int> runRpc({
     } on ConfigError catch (e) {
       throw _StartupFailure(e.message);
     }
+    if (child?.effortDefault == true && effortFlag != null) {
+      throw const _StartupFailure(
+        '--effort-default cannot be combined with --effort',
+      );
+    }
+    final effort = child?.effortDefault == true
+        ? null
+        : effortFlag ?? config.effort;
     final role = child == null
         ? null
         : _childRole(child, real, Directory(settings.home));
@@ -168,6 +199,7 @@ Future<int> runRpc({
       answerer: answerer,
       yolo: child?.yolo ?? false,
       model: model,
+      effort: effort,
       roster: role == null
           ? null
           : roleRoster(role, toolDefinitions.map((d) => d.name)),
@@ -177,6 +209,7 @@ Future<int> runRpc({
       runtime: runtime,
       provider: adapter,
       model: model,
+      effort: effort,
       contextWindow: resolveContextWindow(config, model, models),
       childRole: role == null
           ? null

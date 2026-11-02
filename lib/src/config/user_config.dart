@@ -6,6 +6,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'effort.dart';
+
 /// The file name inside the Kehai home.
 const String configFileName = 'config.json';
 
@@ -115,6 +117,7 @@ final class UserConfig {
     this.rgPath,
     this.envPassthrough = const [],
     this.model,
+    this.effort,
     this.contextWindows = const {},
     this.agentModels = const {},
   });
@@ -161,6 +164,9 @@ final class UserConfig {
   /// The default model id, or null when the file sets none.
   final String? model;
 
+  /// The selected reasoning effort, or null for the provider default.
+  final String? effort;
+
   /// The `models.<id>.contextWindow` overrides, by model id.
   final Map<String, int> contextWindows;
 
@@ -178,6 +184,7 @@ UserConfig _parse(String path, Object? json) {
     'rgPath',
     'env',
     'model',
+    'effort',
     'models',
     'agents',
   });
@@ -191,6 +198,13 @@ UserConfig _parse(String path, Object? json) {
   final model = json['model'];
   if (json.containsKey('model') && (model is! String || model.isEmpty)) {
     throw ConfigError(path, 'model: must be a non-empty string');
+  }
+  final effort = json['effort'];
+  if (json.containsKey('effort') && !isValidEffort(effort)) {
+    throw ConfigError(
+      path,
+      'effort: must be one of ${effortValues.join(', ')}',
+    );
   }
   final rules = _list(
     path,
@@ -222,6 +236,7 @@ UserConfig _parse(String path, Object? json) {
     rgPath: rgPath as String?,
     envPassthrough: _env(path, json),
     model: model as String?,
+    effort: effort as String?,
     contextWindows: _models(path, json),
     agentModels: _agents(path, json),
   );

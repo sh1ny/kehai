@@ -37,6 +37,8 @@ typedef EngineStarter = Future<EngineLink> Function(List<String> args);
 /// `dart pub global activate` does), so its VM flags and the script come
 /// first. [executable], [executableArguments] and [script] default to this
 /// process's.
+/// Existing paths are resolved before comparison so Windows short names and
+/// symlink spellings still identify a compiled executable as its own script.
 ({String executable, List<String> arguments}) engineCommand(
   List<String> rpcArgs, {
   String? executable,
@@ -46,7 +48,7 @@ typedef EngineStarter = Future<EngineLink> Function(List<String> args);
   final vm = executable ?? Platform.resolvedExecutable;
   final source = script ?? Platform.script;
   final scriptPath = source.toFilePath();
-  final underVm = !p.equals(p.absolute(scriptPath), p.absolute(vm));
+  final underVm = !p.equals(_resolvedPath(scriptPath), _resolvedPath(vm));
   return (
     executable: vm,
     arguments: [
@@ -56,6 +58,16 @@ typedef EngineStarter = Future<EngineLink> Function(List<String> args);
       ...rpcArgs,
     ],
   );
+}
+
+String _resolvedPath(String path) {
+  final absolute = p.absolute(path);
+  try {
+    return File(absolute).resolveSymbolicLinksSync();
+  } on FileSystemException {
+    // Keep source/snapshot command construction usable for unavailable paths.
+    return absolute;
+  }
 }
 
 /// Starts `kehai rpc` as a child process in the current directory.

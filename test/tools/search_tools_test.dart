@@ -93,27 +93,23 @@ void main() {
       test('a relative PATH entry is skipped', () async {
         final inside = Directory(p.join(ws.path, 'bin'));
         copyRg(inside);
-        final before = Directory.current;
-        Directory.current = ws.path;
-        try {
-          for (final entry in ['.', 'bin', '']) {
-            final found = await resolveRg(
-              configPath: _configPath,
-              workspaceRoot: ws.path,
-              environment: {'PATH': entry},
-            );
-            expect(found, isA<RgMissing>(), reason: 'entry "$entry"');
-          }
-          copyRg(ws);
-          final dot = await resolveRg(
+        // PATH discovery must reject relative entries without changing the
+        // process-wide cwd shared by concurrently running test isolates.
+        for (final entry in ['.', 'bin', '']) {
+          final found = await resolveRg(
             configPath: _configPath,
             workspaceRoot: ws.path,
-            environment: {'PATH': '.'},
+            environment: {'PATH': entry},
           );
-          expect(dot, isA<RgMissing>());
-        } finally {
-          Directory.current = before;
+          expect(found, isA<RgMissing>(), reason: 'entry "$entry"');
         }
+        copyRg(ws);
+        final dot = await resolveRg(
+          configPath: _configPath,
+          workspaceRoot: ws.path,
+          environment: {'PATH': '.'},
+        );
+        expect(dot, isA<RgMissing>());
       });
 
       test('a workspace rg that shadows an outside one is skipped', () async {

@@ -148,6 +148,7 @@ final class ToolRuntime {
     this.writeGate,
     this.roster,
     this.model,
+    this.effort,
   );
 
   /// Attaches a runtime to [writer] and [store].
@@ -195,6 +196,7 @@ final class ToolRuntime {
     WriteGate? writeGate,
     Set<String>? roster,
     String? model,
+    String? effort,
   }) async {
     if (gate == null && kehaiHome == null) {
       throw ArgumentError.value(
@@ -279,6 +281,7 @@ final class ToolRuntime {
       writeGate,
       roster,
       model,
+      effort,
     );
     runtime.jobs
       ..liveCallKeys = (() => runtime._live.keys.toSet())
@@ -331,6 +334,9 @@ final class ToolRuntime {
   /// The model slug the engine runs, which an `agent` call without a model of
   /// its own gives its child; null when the runtime has none.
   final String? model;
+
+  /// The immutable resolved effort, or null for provider default.
+  final String? effort;
 
   /// What attach finalized before it admitted any call (design D12).
   ResumeReport resumed = ResumeReport.none;
@@ -620,6 +626,7 @@ final class ToolRuntime {
       permission: permission,
       capacity: () => _capacityOf(live),
       model: model,
+      effort: effort,
       yolo: yolo,
     );
     final tool = _invoke(_tools[live.tool]!, context, input);

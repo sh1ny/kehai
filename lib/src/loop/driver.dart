@@ -175,9 +175,11 @@ final class ExchangeDriver {
     this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
     this.childRole,
+    this.effort,
   }) : _builder = RequestBuilder(
          sessionDir: writer.sessionDir,
          model: model,
+         effort: effort,
          workspaceName: p.basename(runtime.workspace.path),
          tools: runtime.specs,
          estimateRequest: (request) => provider.estimate(request).tokens,
@@ -196,6 +198,9 @@ final class ExchangeDriver {
 
   /// The model slug sent in requests.
   final String model;
+
+  /// The selected reasoning effort, or null for provider default.
+  final String? effort;
 
   /// The context window in tokens, or null when unknown.
   final int? contextWindow;
@@ -550,6 +555,7 @@ final class ExchangeDriver {
         value: {
           'exchange': exchange,
           'model': model,
+          'effort': effort,
           'instructions': InstructionsIdentity(
             instructionsVersion,
             _contextKey,

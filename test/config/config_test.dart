@@ -31,6 +31,50 @@ void main() {
   }
 
   group('config', () {
+    test('effort accepts every exact allowed value', () {
+      for (final effort in [
+        'none',
+        'minimal',
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+      ]) {
+        write({'effort': effort});
+        final config = UserConfig.load(home.path);
+        expect(config.effort, effort);
+      }
+    });
+
+    test('missing effort defaults to null', () {
+      final missing = UserConfig.load(home.path);
+      expect(missing.effort, isNull);
+      write(<String, Object?>{});
+      final empty = UserConfig.load(home.path);
+      expect(empty.effort, isNull);
+    });
+
+    test('invalid effort names config path even with valid flag', () {
+      for (final bad in <Object?>[
+        null,
+        1,
+        true,
+        <Object?>[],
+        <String, Object?>{},
+        '',
+        'turbo',
+        'HIGH',
+        ' high',
+      ]) {
+        write({'effort': bad});
+        expect(
+          refused().message,
+          startsWith('${path()}: effort: must be one of '),
+          reason: jsonEncode(bad),
+        );
+      }
+    });
+
     test('missing config.json uses defaults', () {
       final config = UserConfig.load(home.path);
 
