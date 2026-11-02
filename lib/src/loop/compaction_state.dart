@@ -72,17 +72,23 @@ final class CompactionState {
   }
 }
 
-/// Derives one bounded, sanitized notice after an explicit recovery.
-String? compactionRecoveryNotice(
-  SessionTree tree,
-  Map<String, Object?> lineage,
-) {
+/// Derives the latest fixed stop reason for the current request lineage.
+String? compactionStopReason(SessionTree tree, Map<String, Object?> lineage) {
   String? reason;
   for (final step in _steps(tree)) {
     if (jsonEncode(step['lineage']) != jsonEncode(lineage)) continue;
     final stop = step['nativeStop'];
     if (stop is String && compactionNoticeReasons.contains(stop)) reason = stop;
   }
+  return reason;
+}
+
+/// Derives one bounded, sanitized notice after an explicit recovery.
+String? compactionRecoveryNotice(
+  SessionTree tree,
+  Map<String, Object?> lineage,
+) {
+  final reason = compactionStopReason(tree, lineage);
   return reason == null
       ? null
       : 'Previous native compaction stop: $reason. '

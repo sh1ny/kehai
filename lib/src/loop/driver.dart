@@ -16,6 +16,7 @@ import '../session/path.dart';
 import '../session/record.dart';
 import '../session/requests.dart';
 import '../session/writer.dart';
+import '../session/tree.dart';
 import '../tools/runtime.dart';
 import '../workspace/inventory.dart';
 import '../workspace/load.dart';
@@ -285,6 +286,83 @@ final class ExchangeDriver {
   /// The running exchange's cancel token, or null when idle.
   CancelToken? get exchangeToken => _token;
 
+  /// Reconstructs scalar status from a committed snapshot and current inputs.
+  ///
+  /// This neither appends journal state nor makes provider requests. Opaque
+  /// contents and raw server errors are never included in this projection.
+  Future<Map<String, Object?>> compactionStatus(
+    SessionTree tree,
+    int turn,
+  ) async {
+    final (contextKey, value) = _contextSnapshot();
+    tree = SessionTree.fromJson(tree.toJson());
+    tree.apply(
+      JournalRecord(
+        turn: turn,
+        path: 'body/contexts/$contextKey',
+        op: Op.set,
+        value: value,
+      ),
+    );
+    final lineage = _builder.requestLineage(tree, contextKey: contextKey);
+    final policy = runtime.config.effectiveCompaction(
+      provider.id,
+      'chatgpt-account',
+      model,
+    );
+    final boundary = _builder.selectedBoundary(tree);
+    final evidence = CompactionState.fold(tree, lineage, policy, boundary);
+    final native = policy.strategy == CompactionStrategy.providerNative;
+    BuiltRequest? built;
+    var continuity = 'compatible';
+    try {
+      built = await _builder.build(tree, turn: turn, contextKey: contextKey);
+    } on StateError catch (e) {
+      // Do not expose arbitrary exception text from history or result files.
+      continuity = e.message.startsWith('incompatible continuity')
+          ? 'incompatible continuity'
+          : 'projection unavailable; reopen to recover or start a new session';
+    }
+    final calibration = native && boundary != null && built?.used == null;
+    return {
+      'provider': provider.id,
+      'route': 'chatgpt-account',
+      'model': model,
+      'instructions': lineage['instructions'],
+      'tools': lineage['tools'],
+      'strategy': policy.strategy.wireName,
+      'threshold': policy.threshold,
+      'strategySource': policy.strategySource,
+      'thresholdSource': policy.thresholdSource,
+      'capability': native ? evidence.state : 'disabled',
+      'capabilityReason': native
+          ? evidence.reason
+          : 'native compaction disabled',
+      'boundary': boundary,
+      'continuity': continuity,
+      'window': capacity.contextWindow,
+      'windowSource': capacity.source,
+      'windowConfigPath': capacity.configPath,
+      'backendWindow': capacity.backendContextWindow,
+      'legacyWindowHint': capacity.legacyHint,
+      'migrationNotice': capacity.migrationNotice,
+      'used': built?.used,
+      'budgetQuality': built?.quality ?? 'unknown; continuity blocked',
+      'retained': built?.retained,
+      'calibration': !native
+          ? 'disabled'
+          : continuity != 'compatible'
+          ? 'blocked'
+          : !calibration
+          ? 'not needed'
+          : evidence.calibrationConsumed
+          ? 'consumed'
+          : 'available',
+      'previousNativeStop': compactionStopReason(tree, lineage),
+      'recoveryNotice': compactionRecoveryNotice(tree, lineage),
+    };
+  }
+
   /// The reason a cancelled exchange records: `user` unless shut down.
   String _cancelReason = 'user';
 
@@ -534,10 +612,7 @@ final class ExchangeDriver {
     });
   }
 
-  /// Loads the workspace, stores its context text under a key of its content
-  /// unless already stored, and records the key on exchange [exchange]
-  /// (design D4). Both records carry the exchange's turn [first].
-  Future<void> _captureContext(String exchange, int first) async {
+  (String, Map<String, Object?>) _contextSnapshot() {
     final loaded = loadWorkspace(
       workspace: runtime.workspace.path,
       kehaiHome: runtime.kehaiHome ?? _noHome,
@@ -565,6 +640,12 @@ final class ExchangeDriver {
         .convert(utf8.encode(jsonEncode(value)))
         .toString()
         .substring(0, 16);
+    return (contextKey, value);
+  }
+
+  /// Captures the current workspace inputs for the admitted exchange.
+  Future<void> _captureContext(String exchange, int first) async {
+    final (contextKey, value) = _contextSnapshot();
     final stored = writer.tree.get(
       SessionPath.parse('body/contexts/$contextKey'),
     );

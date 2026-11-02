@@ -31,7 +31,7 @@ Targets `lib/src/provider/`, `lib/src/loop/`, `lib/src/config/user_config.dart`,
 
 ## Release Notes
 
-Add native compaction configuration, protocol support, journal-derived continuity and no-effect call recovery. Native submissions now use durable capability evidence, bounded admission and one recorded calibration allowance per boundary. Budgets distinguish estimates, unknown compacted usage and route-qualified capacity; child and RPC/client integration follow in group 6.
+Add native compaction configuration, protocol support, journal-derived continuity and no-effect call recovery. Native submissions use durable capability evidence, bounded admission and one recorded calibration allowance per boundary. Children resolve their own model policy from a bounded captured snapshot. Reconstructed RPC/client status distinguishes estimates, unknown compacted usage and route-qualified capacity, with explicit recovery notices.
 
 ### Added
 - ADR 0015 defining opaque continuity, lineage validation, captured policy, call recovery and route-qualified capacity.
@@ -41,6 +41,8 @@ Add native compaction configuration, protocol support, journal-derived continuit
 - Guarded recovery of every committed call position, including missing runtime admissions, without replaying effects.
 - Journal-derived, policy-specific native capability evidence with explicit recovery notices and no silent fallback.
 - Bounded native submission and one admission-recorded calibration attempt per boundary, including interruption and partial-usage guards.
+- Bounded, strictly validated provider-policy snapshots for child launches, with complete native argv checks and child-local evidence.
+- Reconstructed scalar RPC/line-client policy, capability, boundary, capacity and budget status, including qualified explicit-recovery notices.
 
 ### Changed
 - ChatGPT-account capacity resolution uses route-qualified estimates; legacy windows remain hints with migration notices, separate from backend metadata.

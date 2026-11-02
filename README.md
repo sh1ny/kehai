@@ -140,10 +140,60 @@ Move the setting to that route-qualified path only with an intentionally chosen
 estimate. Without a qualified value, effective capacity is unknown. Other routes
 retain legacy override/backend-metadata fallback behavior.
 
-Configuration resolution, inline loop policy selection, journal projection and
-native admission/evidence are available. Capacity provenance and the legacy
-migration notice are recorded with each step's context. RPC/client status
-presentation and captured child-policy launch wiring follow in the next group.
+Configuration resolution, inline loop policy selection, journal projection,
+native admission/evidence, child capture and RPC/client status are available.
+Capacity provenance and the legacy migration notice are recorded with each
+step's context and exposed in reconstructed status.
+
+### Captured child policy
+
+An agent launch passes only the parent's validated provider/route/model settings,
+not the whole configuration or credentials. The child resolves the **launched
+model's** policy from that snapshot: a parent on model A at 100,000 can launch
+model B at its captured 80,000 even if `config.json` changes before startup.
+It does not inherit A's fixed threshold or replace the snapshot with a later
+provider-policy reread. Existing non-policy startup configuration validation and
+effort inheritance remain unchanged, including inherited provider default.
+Children still cannot launch nested agents; observations and calibration
+admissions belong only to the child's journal.
+
+The internal `rpc --child` launch requires `--compaction-policy`, a base64-encoded
+provider-only JSON object. Both launch and child startup validate its strict
+schema and the **8 KiB decoded UTF-8 JSON** maximum. Unknown keys, malformed
+encodings, missing snapshots and invalid settings fail visibly as configuration
+errors. Before spawning, the parent also bounds the complete native command line
+(executable, VM/script arguments, all options, quoting and terminator), using the
+Windows 32,767 UTF-16-unit ceiling conservatively on every platform. Oversized
+snapshots or argv are refused, never truncated or silently omitted.
+
+### Reconstructed status and explicit recovery
+
+RPC v1 snapshots include a separate scalar `compaction` projection. Additive
+`compaction_status` events refresh it after terminal exchanges, with journal
+`offset` and `turn`; resync/rewind reconstruct it with the authoritative snapshot.
+These projections do not alter the session tree or create a new history cache.
+Reconnect uses surviving evidence and current validated model, tool/instruction
+identity and captured configuration, not the last step's cached display values.
+
+The line client displays provider/route/model, policy and exact field sources,
+capability state/reason, selected boundary identity, continuity compatibility,
+capacity provenance, raw backend metadata separately from any legacy hint and
+migration notice, and budget quality. Estimated used/retained counts are marked
+`~`; unknown compacted usage is `?`, even with a configured window. Status also
+shows whether the boundary's one calibration allowance is available or consumed.
+No percentage or opaque token estimate is invented. Status contains no encrypted
+item JSON, ciphertext or raw server error text. The existing authoritative RPC
+`tree` still contains opaque items, just as it contains encrypted reasoning;
+this is not a redaction or a change to journal privacy.
+
+An unsupported native attempt stops without retrying with the field removed.
+The owner must explicitly select `off` or another policy, rewind before the
+incompatible/failed history, or start a new session. `off` disables **new** native
+compaction, not existing compatible opaque continuity or ordinary overflow
+guards. Status retains the lineage-qualified previous native stop after recovery;
+the next model request reconstructs the same bounded notice from committed
+history and explicitly warns not to assume native compaction succeeded.
+Returning to the old failed policy reuses its surviving unsupported evidence.
 
 ### Native provider transport
 

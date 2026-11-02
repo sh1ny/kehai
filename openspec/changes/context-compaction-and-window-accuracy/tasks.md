@@ -40,10 +40,10 @@
 | context-compaction → Durable capability evidence | Estimate-based missing compaction | `test/loop/compaction_test.dart` | `context-compaction: Estimate-based missing compaction` | green |
 | context-compaction → Durable capability evidence | Resume and policy change | `test/loop/compaction_test.dart` | `context-compaction: Resume and policy change` | green |
 | context-compaction → Durable capability evidence | Rewind removes evidence | `test/loop/compaction_test.dart` | `context-compaction: Rewind removes evidence` | green |
-| context-compaction → Captured child policy selection | Different child model and later config edit | `test/tools/agent_compaction_test.dart` | `context-compaction: Different child model and later config edit` | red |
-| context-compaction → Captured child policy selection | Invalid launch payload | `test/tools/agent_compaction_test.dart` | `context-compaction: Invalid launch payload` | red |
-| context-compaction → Reconstructed visible compaction status | Reconnect after observed compaction | `test/rpc/compaction_status_test.dart` | `context-compaction: Reconnect after observed compaction` | red |
-| context-compaction → Reconstructed visible compaction status | Recovery after unsupported route | `test/rpc/compaction_status_test.dart` | `context-compaction: Recovery after unsupported route` | red |
+| context-compaction → Captured child policy selection | Different child model and later config edit | `test/tools/agent_compaction_test.dart` | `context-compaction: Different child model and later config edit` | green |
+| context-compaction → Captured child policy selection | Invalid launch payload | `test/tools/agent_compaction_test.dart` | `context-compaction: Invalid launch payload` | green |
+| context-compaction → Reconstructed visible compaction status | Reconnect after observed compaction | `test/rpc/compaction_status_test.dart` | `context-compaction: Reconnect after observed compaction` | green |
+| context-compaction → Reconstructed visible compaction status | Recovery after unsupported route | `test/rpc/compaction_status_test.dart` | `context-compaction: Recovery after unsupported route` | green |
 | model-provider → Normalized turn stream | Text answer | `test/provider/chatgpt_adapter_test.dart` | `normalized stream text deltas then usage then completed end_turn` | green |
 | model-provider → Normalized turn stream | Stream ends early | `test/provider/chatgpt_adapter_test.dart` | `normalized stream early close ends with protocol failure` | green |
 | model-provider → Token-sharing request rules | Token-sharing body | `test/provider/chatgpt_adapter_test.dart` | `plan backend body follows token-sharing rules with allowlisted keys` | green |
@@ -102,10 +102,10 @@ Rows initially green are unchanged regressions passed individually on 2026-11-02
 
 ## 6. Child and user-visible status integration
 
-- [ ] 6.1 Add failing `test/tools/agent_compaction_test.dart` cases for captured child policy selection, different models, config edits, invalid/oversized payloads and native argv bounds. Verify actual launch-seam failures before wiring the captured policy payload.
-- [ ] 6.2 Wire validated captured policy into child launch and child-local resolution/evidence without changing effort inheritance or no-nested-agent policy. Document child policy semantics. Verify 6.1 passes plus existing child/effort regressions individually, including native Windows argv coverage; turn child rows green.
-- [ ] 6.3 Add failing `test/rpc/compaction_status_test.dart` cases for reconnect after observed compaction and explicit recovery after unsupported route. Exercise RPC materialization/client rendering and model-visible notice reconstruction; verify red failures at those real boundaries.
-- [ ] 6.4 Expose scalar policy/provenance, capability reason, boundary identity and capacity/budget quality via RPC and line-client projections; derive recovery notices without leaking ciphertext or raw server text. Document status and explicit recovery options. Verify 6.3 passes, existing RPC/client regressions remain green, and turn status rows green.
+- [x] 6.1 Add failing `test/tools/agent_compaction_test.dart` cases for captured child policy selection, different models, config edits, invalid/oversized payloads and native argv bounds. Verify actual launch-seam failures before wiring the captured policy payload.
+- [x] 6.2 Wire validated captured policy into child launch and child-local resolution/evidence without changing effort inheritance or no-nested-agent policy. Document child policy semantics. Verify 6.1 passes plus existing child/effort regressions individually, including native Windows argv coverage; turn child rows green.
+- [x] 6.3 Add failing `test/rpc/compaction_status_test.dart` cases for reconnect after observed compaction and explicit recovery after unsupported route. Exercise RPC materialization/client rendering and model-visible notice reconstruction; verify red failures at those real boundaries.
+- [x] 6.4 Expose scalar policy/provenance, capability reason, boundary identity and capacity/budget quality via RPC and line-client projections; derive recovery notices without leaking ciphertext or raw server text. Document status and explicit recovery options. Verify 6.3 passes, existing RPC/client regressions remain green, and turn status rows green.
 
 ## 7. Delivery-level verification
 

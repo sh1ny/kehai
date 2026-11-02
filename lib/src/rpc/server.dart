@@ -9,6 +9,7 @@ import '../session/errors.dart';
 import '../session/path.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
+import '../session/tree.dart';
 import '../tools/ask.dart';
 import '../tools/runtime.dart';
 import 'codec.dart';
@@ -229,13 +230,23 @@ final class RpcServer {
     _updates = writer.subscribe().listen(_onUpdate, onError: _onUpdateError);
   }
 
-  void _sendSnapshot() => _pump.send(
-    snapshotEvent(
-      offset: writer.committedLength,
-      turn: writer.currentTurn,
-      tree: writer.tree.toJson(),
-    ),
-  );
+  void _sendSnapshot() => _pump.sendMaterialized(_snapshot);
+
+  Future<Map<String, Object?>> _snapshot() async {
+    // Capture authority before awaiting result projection. Updates committed
+    // while it builds stay queued after this snapshot, in ordinary wire order.
+    final offset = writer.committedLength;
+    final turn = writer.currentTurn;
+    final tree = writer.tree.toJson();
+    final status = await driver.compactionStatus(
+      SessionTree.fromJson(tree),
+      turn,
+    );
+    return {
+      ...snapshotEvent(offset: offset, turn: turn, tree: tree),
+      'compaction': status,
+    };
+  }
 
   /// The events the pump writes for a pending resync: the client drops its
   /// mirror and starts again from this snapshot.
@@ -243,16 +254,13 @@ final class RpcServer {
   /// The updates are resubscribed before the tree is read, in one step, so
   /// none falls between them; those committed since the resync was requested
   /// are in the snapshot and were not queued.
-  List<Map<String, Object?>> _resyncEvents() {
+  Future<List<Map<String, Object?>>> _resyncEvents() async {
     unawaited(_updates?.cancel());
     if (!_end.isCompleted) _subscribe();
+    final snapshot = await _snapshot();
     return [
       const {'type': 'resync'},
-      snapshotEvent(
-        offset: writer.committedLength,
-        turn: writer.currentTurn,
-        tree: writer.tree.toJson(),
-      ),
+      snapshot,
     ];
   }
 
@@ -267,6 +275,27 @@ final class RpcServer {
       }),
       droppable: true,
     );
+    final value = record.value;
+    if (record.path.startsWith('body/exchanges/') &&
+        value is Map<String, Object?> &&
+        const {
+          'done',
+          'stopped',
+          'failed',
+          'cancelled',
+        }.contains(value['state'])) {
+      _pump.sendMaterialized(() async {
+        final offset = writer.committedLength;
+        final turn = writer.currentTurn;
+        final tree = SessionTree.fromJson(writer.tree.toJson());
+        return {
+          'type': 'compaction_status',
+          'offset': offset,
+          'turn': turn,
+          'compaction': await driver.compactionStatus(tree, turn),
+        };
+      }, droppable: true);
+    }
     // A client mirror holds no timeline to fold a rewind into; the resync
     // follows the update, which stays queued.
     if (record.op == Op.rewind) _pump.requestResync(keepQueued: true);

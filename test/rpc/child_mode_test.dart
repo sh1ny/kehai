@@ -176,6 +176,8 @@ void main() {
         p.join(root, 'bin', 'kehai.dart'),
         'rpc',
         '--child',
+        '--compaction-policy',
+        UserConfig.load(home.path).captureProviderPolicy(),
         '--parent',
         parent.path,
         '--job',

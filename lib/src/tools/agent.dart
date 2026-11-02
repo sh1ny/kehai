@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../cli/settings.dart' show homeVariable;
+import '../config/user_config.dart';
 import '../client/engine_process.dart';
 import '../jobs/agent_run.dart';
 import '../jobs/supervisor.dart';
@@ -54,15 +55,23 @@ final class AgentTool implements Tool {
   ({String executable, List<String> arguments}) buildChildCommand(
     ToolContext context,
     List<String> rpcArgs,
-  ) => (engine ?? engineCommand)([
-    ...rpcArgs,
-    if (context.effort case final effort?) ...[
-      '--effort',
-      effort,
-    ] else
-      '--effort-default',
-    if (context.yolo) '--yolo',
-  ]);
+  ) {
+    // Validate and bound the snapshot before invoking even the command builder.
+    final payload = context.config.captureProviderPolicy();
+    final command = (engine ?? engineCommand)([
+      ...rpcArgs,
+      if (context.effort case final effort?) ...[
+        '--effort',
+        effort,
+      ] else
+        '--effort-default',
+      if (context.yolo) '--yolo',
+      '--compaction-policy',
+      payload,
+    ]);
+    _validateNativeCommand(command.executable, command.arguments);
+    return command;
+  }
 
   @override
   Future<ToolOutcome> run(
@@ -358,4 +367,33 @@ final class AgentTool implements Tool {
     summary: 'cancelled',
     complete: false,
   );
+}
+
+// Conservative Windows CreateProcess bound, also enforced on POSIX so a
+// captured launch remains portable. Count UTF-16 units, separators and NUL;
+// quote every argument and account for escaped quotes/trailing backslashes.
+void _validateNativeCommand(String executable, List<String> arguments) {
+  var units = 1;
+  for (final arg in [executable, ...arguments]) {
+    if (arg.contains('\u0000')) {
+      throw const ConfigError('compaction-policy', 'child argv contains NUL');
+    }
+    units += 3; // Two quotes and a separator (conservatively also for argv[0]).
+    var slashes = 0;
+    for (final unit in arg.codeUnits) {
+      if (unit == 92) {
+        slashes++;
+      } else {
+        units += slashes * (unit == 34 ? 2 : 1) + (unit == 34 ? 2 : 1);
+        slashes = 0;
+      }
+    }
+    units += slashes * 2;
+    if (units > 32767) {
+      throw const ConfigError(
+        'compaction-policy',
+        'child native command line exceeds 32767 UTF-16 units',
+      );
+    }
+  }
 }

@@ -258,3 +258,34 @@ int _utf8Length(String text) {
   }
   return bytes;
 }
+
+/// Renders only the scalar fields of a reconstructed compaction projection.
+///
+/// Opaque history and unrecognized fields are never inspected or printed.
+List<String> compactionStatusLines(Object? value) {
+  if (value is! Map<String, Object?>) return const [];
+  String field(String key) => switch (value[key]) {
+    final String text => cutTo(oneLine(text), 500),
+    final num number => '$number',
+    _ => '?',
+  };
+  final used = value['used'] is num ? '~${field('used')}' : '?';
+  return [
+    'compaction: ${field('provider')}/${field('route')}/${field('model')} '
+        '${field('strategy')} threshold ${field('threshold')}',
+    '  strategy source: ${field('strategySource')}',
+    '  threshold source: ${field('thresholdSource')}',
+    '  capability: ${field('capability')} — ${field('capabilityReason')}',
+    '  boundary: ${field('boundary')}; continuity: ${field('continuity')}',
+    '  capacity: ${field('window')} (${field('windowSource')}); '
+        'backend metadata: ${field('backendWindow')}; legacy hint: ${field('legacyWindowHint')}',
+    if (value['windowConfigPath'] is String)
+      '  capacity source: ${field('windowConfigPath')}',
+    if (value['migrationNotice'] is String) '  ${field('migrationNotice')}',
+    '  budget: $used (${field('budgetQuality')}); '
+        'retained estimate: ~${field('retained')}; calibration: ${field('calibration')}',
+    if (value['previousNativeStop'] is String)
+      '  previous native stop: ${field('previousNativeStop')}',
+    if (value['recoveryNotice'] is String) '  ${field('recoveryNotice')}',
+  ].map((line) => cutTo(line, 500)).toList();
+}

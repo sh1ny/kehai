@@ -17,6 +17,9 @@ const Duration defaultHookTimeout = Duration(seconds: 10);
 /// The largest `timeout_ms` a hook may set.
 const int maxHookTimeoutMs = 600000;
 
+/// The maximum decoded UTF-8 size of a captured child policy.
+const int maxCapturedPolicyBytes = 8 * 1024;
+
 /// The tool names a rule or hook may refer to.
 const Set<String> toolRoster = {
   'read',
@@ -246,6 +249,90 @@ final class UserConfig {
 
   /// Captured provider/route/model settings, independent of backend metadata.
   final Map<String, ProviderConfig> providers;
+
+  /// Encodes only validated provider policy for an internal child launch.
+  ///
+  /// Throws [ConfigError] rather than omitting fields above the 8 KiB limit.
+  String captureProviderPolicy() {
+    Map<String, Object?> settings(CompactionSettings value) => {
+      if (value.strategy case final strategy?) 'strategy': strategy.wireName,
+      'threshold': ?value.threshold,
+    };
+    final json = <String, Object?>{
+      'providers': {
+        for (final MapEntry(key: id, value: provider) in providers.entries)
+          id: {
+            if (provider.compaction case final policy?)
+              'compaction': settings(policy),
+            'routes': {
+              for (final MapEntry(key: id, value: route)
+                  in provider.routes.entries)
+                id: {
+                  if (route.compaction case final policy?)
+                    'compaction': settings(policy),
+                  'models': {
+                    for (final MapEntry(key: id, value: model)
+                        in route.models.entries)
+                      id: {
+                        if (model.compaction case final policy?)
+                          'compaction': settings(policy),
+                        'contextWindow': ?model.contextWindow,
+                      },
+                  },
+                },
+            },
+          },
+      },
+    };
+    final bytes = utf8.encode(jsonEncode(json));
+    if (bytes.length > maxCapturedPolicyBytes) {
+      throw const ConfigError(
+        'compaction-policy',
+        'captured policy exceeds 8 KiB',
+      );
+    }
+    final encoded = base64Encode(bytes);
+    decodeProviderPolicy(encoded);
+    return encoded;
+  }
+
+  /// Validates a bounded, provider-only internal policy payload.
+  ///
+  /// Malformed encodings, unknown keys and invalid settings fail closed.
+  static UserConfig decodeProviderPolicy(String encoded) {
+    const path = 'compaction-policy';
+    if (encoded.length > ((maxCapturedPolicyBytes + 2) ~/ 3) * 4) {
+      throw const ConfigError(path, 'captured policy exceeds 8 KiB');
+    }
+    try {
+      final bytes = base64Decode(encoded);
+      if (bytes.length > maxCapturedPolicyBytes) {
+        throw const ConfigError(path, 'captured policy exceeds 8 KiB');
+      }
+      final json = jsonDecode(utf8.decode(bytes));
+      if (json case {'providers': final Map<String, Object?> _}) {
+        if (json.length == 1) return _parse(path, json);
+      }
+      throw const ConfigError(path, 'expected provider-policy object');
+    } on FormatException {
+      throw const ConfigError(path, 'invalid captured policy encoding');
+    }
+  }
+
+  /// Replaces provider settings with the parent's validated captured snapshot.
+  ///
+  /// Other startup settings retain their existing semantics, including effort.
+  UserConfig withProviderPolicy(String encoded) => UserConfig(
+    allow: allow,
+    hooks: hooks,
+    rgPath: rgPath,
+    envPassthrough: envPassthrough,
+    model: model,
+    effort: effort,
+    contextWindows: contextWindows,
+    agentModels: agentModels,
+    providers: decodeProviderPolicy(encoded).providers,
+  );
 
   /// Resolves each field separately, retaining its exact source setting.
   EffectiveCompactionPolicy effectiveCompaction(

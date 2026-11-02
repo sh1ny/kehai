@@ -445,6 +445,7 @@ class _RpcCommand extends _KehaiCommand {
         'role-digest',
         help: 'Child mode: the SHA-256 of the role file.',
       )
+      ..addOption('compaction-policy', hide: true)
       ..addFlag(
         'yolo',
         negatable: false,
@@ -466,7 +467,13 @@ class _RpcCommand extends _KehaiCommand {
     if (results.flag('resume') && results.option('session') != null) {
       usageException('use --resume or --session, not both');
     }
-    final child = _childSpec(results, usageException);
+    final ChildSpec? child;
+    try {
+      child = _childSpec(results, usageException);
+    } on ConfigError catch (e) {
+      context.err.writeln(e.message);
+      return exitFailure;
+    }
     return context.rpcRunner(
       settings: settings,
       workspace: Directory.current,
@@ -489,7 +496,12 @@ class _RpcCommand extends _KehaiCommand {
 ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
   const childOnly = ['parent', 'job', 'role', 'role-digest'];
   if (!results.flag('child')) {
-    for (final name in [...childOnly, 'yolo', 'effort-default']) {
+    for (final name in [
+      ...childOnly,
+      'yolo',
+      'effort-default',
+      'compaction-policy',
+    ]) {
       if (results.wasParsed(name)) usage('--$name needs --child');
     }
     return null;
@@ -503,6 +515,14 @@ ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
   for (final name in childOnly) {
     if (results.option(name) == null) usage('--child needs --$name');
   }
+  final policy = results.option('compaction-policy');
+  if (policy == null) {
+    throw const ConfigError(
+      'compaction-policy',
+      'child launch needs captured provider policy',
+    );
+  }
+  UserConfig.decodeProviderPolicy(policy);
   return ChildSpec(
     parent: results.option('parent')!,
     job: results.option('job')!,
@@ -510,5 +530,6 @@ ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
     roleDigest: results.option('role-digest')!,
     yolo: results.flag('yolo'),
     effortDefault: results.flag('effort-default'),
+    compactionPolicy: policy,
   );
 }

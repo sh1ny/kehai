@@ -13,7 +13,12 @@ typedef FakeResponder = Stream<ProviderEvent> Function(
 /// A scripted [ModelProvider]: it records every request it gets.
 final class FakeProvider implements ModelProvider {
   /// Creates a provider answering through [respond].
-  FakeProvider(this.respond, {this.models = const [], this.estimator});
+  FakeProvider(
+    this.respond, {
+    this.models = const [],
+    this.estimator,
+    this.id = 'fake',
+  });
 
   /// Creates a provider that answers request `n` with `steps[n]`.
   ///
@@ -40,7 +45,7 @@ final class FakeProvider implements ModelProvider {
   final List<ModelRequest> requests = [];
 
   @override
-  String get id => 'fake';
+  final String id;
 
   @override
   Stream<ProviderEvent> stream(ModelRequest request, {CancelToken? cancel}) {

@@ -192,8 +192,8 @@ final class RequestBuilder {
   final DateTime Function() clock;
 
   /// Derives admission lineage from captured inputs without projecting history.
-  Map<String, Object?> requestLineage(SessionTree tree) {
-    final context = _currentContext(tree);
+  Map<String, Object?> requestLineage(SessionTree tree, {String? contextKey}) {
+    final context = contextKey ?? _currentContext(tree);
     final captured = _capturedRole(tree, context);
     return _lineage(
       composeInstructions(
@@ -218,9 +218,35 @@ final class RequestBuilder {
     ]),
   };
 
+  /// The latest surviving completed boundary's identity, without its contents.
+  String? selectedBoundary(SessionTree tree) {
+    String? boundary;
+    for (final MapEntry(key: key, value: step) in _children(
+      tree,
+      'body/steps',
+    )) {
+      if (step['state'] != 'completed') continue;
+      final output = step['output'];
+      if (output is! List<Object?>) continue;
+      for (var i = 0; i < output.length; i++) {
+        if (output[i] case {
+          'type': 'compaction',
+          'item': {'id': final String id},
+        }) {
+          boundary = '$key:$i:$id';
+        }
+      }
+    }
+    return boundary;
+  }
+
   /// Builds the request for the step at journal [turn] from [tree].
-  Future<BuiltRequest> build(SessionTree tree, {required int turn}) async {
-    final contextKey = _currentContext(tree);
+  Future<BuiltRequest> build(
+    SessionTree tree, {
+    required int turn,
+    String? contextKey,
+  }) async {
+    contextKey ??= _currentContext(tree);
     // A child's role is read from the tree: the text captured at its start
     // wins over the constructor's hook, whatever the role file says now.
     final captured = _capturedRole(tree, contextKey);

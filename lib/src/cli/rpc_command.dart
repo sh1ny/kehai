@@ -57,6 +57,7 @@ final class ChildSpec {
     required this.roleDigest,
     this.yolo = false,
     this.effortDefault = false,
+    this.compactionPolicy,
   });
 
   /// The parent session's directory; the child session is created under its
@@ -79,6 +80,9 @@ final class ChildSpec {
   ///
   /// This bypasses config effort selection, not config validation.
   final bool effortDefault;
+
+  /// The bounded provider-policy snapshot captured by the parent engine.
+  final String? compactionPolicy;
 }
 
 /// The engine startup boundary, injectable by command-line input tests.
@@ -133,7 +137,19 @@ Future<int> runRpc({
     final canonical = canonicalWorkspace(workspace.path);
     final UserConfig config;
     try {
-      config = UserConfig.load(settings.home);
+      if (child != null && child.compactionPolicy == null) {
+        throw const ConfigError(
+          'compaction-policy',
+          'child launch needs captured provider policy',
+        );
+      }
+      if (child?.compactionPolicy case final policy?) {
+        UserConfig.decodeProviderPolicy(policy);
+      }
+      final loaded = UserConfig.load(settings.home);
+      config = child == null
+          ? loaded
+          : loaded.withProviderPolicy(child.compactionPolicy!);
     } on ConfigError catch (e) {
       throw _StartupFailure(e.message);
     }
