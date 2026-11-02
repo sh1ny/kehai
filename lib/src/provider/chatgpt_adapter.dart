@@ -530,6 +530,15 @@ final class _Turn {
             if (index != null) _textDeltaIndexes.add(index);
             if (itemId is String) _textDeltaIds.add(itemId);
             if (index == null && itemId is! String) {
+              if (_messages.isNotEmpty) {
+                _fail(
+                  _local(
+                    FailureKind.protocol,
+                    'Anonymous text arrived after a message completed.',
+                  ),
+                );
+                return;
+              }
               _unidentifiedTextDelta = true;
             }
             final resolved =

@@ -206,6 +206,68 @@ void main() {
     );
   });
 
+  test(
+    'late anonymous text fails without corrupting persisted reconstruction',
+    () async {
+      var writer = await SessionWriter.create(await tempDir());
+      addTearDown(() => writer.close());
+      script = [
+        _item(_message('m0', 'secret-late-text'), 0),
+        {'type': 'response.output_text.delta', 'delta': 'secret-late-text'},
+        _item(_compact('secret-boundary'), 1),
+        _completed,
+      ];
+
+      Future<void> submit(String id, String expectedState) async {
+        final runtime = await ToolRuntime.attach(
+          writer,
+          ResultStore(writer.sessionDir),
+          workspace: writer.sessionDir,
+          gate: const AllowAllStage(),
+        );
+        final driver = ExchangeDriver(
+          writer: writer,
+          runtime: runtime,
+          provider: adapter,
+          model: 'gpt-5.5',
+        );
+        try {
+          final admitted = await driver.submit(
+            id: id,
+            text: id,
+            turn: writer.currentTurn,
+          ) as SubmitAdmitted;
+          expect((await admitted.done).state, expectedState);
+        } finally {
+          await driver.close();
+          await runtime.close();
+        }
+      }
+
+      await submit('original-user-text', 'failed');
+      expect(requests, 1);
+      await writer.close();
+      writer = await SessionWriter.open(writer.sessionDir);
+      final stored =
+          writer.tree.get(SessionPath.parse('body/steps/s-00000001')) as Map;
+      expect(stored['state'], 'failed');
+      final failure = stored['failure'] as Map;
+      expect(failure['kind'], 'protocol');
+      expect(failure['message'], isNot(contains('secret')));
+      expect(stored['output'], isNull);
+      expect(stored['partial'], isNull);
+      script = [_completed];
+      await submit('next-user-text', 'done');
+      expect(requests, 2);
+      final reconstructed = jsonEncode(bodies.last['input']);
+      expect(reconstructed, contains('original-user-text'));
+      expect(reconstructed, contains('next-user-text'));
+      expect(reconstructed, isNot(contains('secret-late-text')));
+      expect(reconstructed, isNot(contains('secret-boundary')));
+      expect(reconstructed, isNot(contains('"type":"compaction"')));
+    },
+  );
+
   for (final identity in ['item-id', 'done-id-only', 'null-id']) {
     test(
       'SSE unindexed text is pre-cut on persisted rebuild ($identity)',
