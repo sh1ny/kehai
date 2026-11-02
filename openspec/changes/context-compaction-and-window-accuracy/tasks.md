@@ -74,7 +74,7 @@ Green rows are unchanged regressions passed individually on 2026-11-02; red rows
 
 ## 1. Record the binding contract
 
-- [ ] 1.1 Write the supplemental ADR for native opaque continuity, latest-boundary-first lineage validation, captured policy, route-qualified capacity and call recovery; update architecture's ADR index and M2 behavior. Verify links resolve and accepted ADRs plus `docs/sensorium-spec.md` remain unchanged.
+- [x] 1.1 Write the supplemental ADR for native opaque continuity, latest-boundary-first lineage validation, captured policy, route-qualified capacity and call recovery; update architecture's ADR index and M2 behavior. Verify links resolve and accepted ADRs plus `docs/sensorium-spec.md` remain unchanged.
 
 ## 2. Policy and qualified capacity
 

@@ -28,3 +28,10 @@ M2 entry 1 advances the long-change self-hosting and honest-capacity exit criter
 ## Impact
 
 Targets `lib/src/provider/`, `lib/src/loop/`, `lib/src/config/user_config.dart`, RPC/line-client and child-engine wiring, and their tests. Uses the existing Dart 3.x AOT runtime, four-field journal and result store; adds no native dependency, external state store, summary model, scratch tools, pricing registry or broad sensorium implementation. Delivery remains one PR with pre-ship review and Linux/Windows qualification; this planning session stops after design review, before implementation.
+
+## Release Notes
+
+Record the binding M2 native-compaction contract; runtime implementation follows in subsequent groups.
+
+### Added
+- ADR 0015 defining opaque continuity, lineage validation, captured policy, call recovery and route-qualified capacity.
