@@ -166,6 +166,9 @@ Future<_TurnResult> _turn(
       case TextDelta(:final text):
         result._text.write(text);
         stdout.writeln('  TextDelta ${jsonEncode(text)}');
+      case TextDeltaPosition():
+        // Position updates do not deliver new text.
+        break;
       case ReasoningSummaryDelta(:final text):
         stdout.writeln('  ReasoningSummaryDelta ${jsonEncode(text)}');
       case ToolCall():

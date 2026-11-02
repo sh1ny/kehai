@@ -223,6 +223,20 @@ final class TextDelta extends ProviderEvent {
   final int? outputIndex;
 }
 
+/// The resolved output position of an earlier unindexed text [delta].
+///
+/// This updates canonical ordering only; it does not deliver text again.
+final class TextDeltaPosition extends ProviderEvent {
+  /// Creates a position update for the identical previously emitted [delta].
+  const TextDeltaPosition(this.delta, {required this.outputIndex});
+
+  /// The original text event, matched by object identity.
+  final TextDelta delta;
+
+  /// The resolved non-negative output position.
+  final int outputIndex;
+}
+
 /// A fragment of a reasoning summary.
 final class ReasoningSummaryDelta extends ProviderEvent {
   /// Creates a delta carrying [text].

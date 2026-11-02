@@ -10,6 +10,17 @@ import 'package:kehai/src/provider/chatgpt_request.dart';
 import 'package:kehai/src/config/user_config.dart';
 import 'package:kehai/src/provider/provider.dart';
 import 'package:test/test.dart';
+import 'package:kehai/kehai.dart'
+    show
+        SessionWriter,
+        ResultStore,
+        ToolRuntime,
+        AllowAllStage,
+        ExchangeDriver,
+        SubmitAdmitted,
+        SessionPath;
+
+import '../support/session_support.dart';
 
 const _request = ModelRequest(
   model: 'gpt-fake',
@@ -51,6 +62,7 @@ void main() {
   late ChatGptAdapter adapter;
   var script = <Map<String, Object?>>[];
   var requests = 0;
+  final bodies = <Map<String, Object?>>[];
 
   setUp(() async {
     // Keep all credential fixture writes inside the checkout.
@@ -83,10 +95,14 @@ void main() {
       );
     script = [];
     requests = 0;
+    bodies.clear();
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
       requests++;
-      await request.drain<void>();
+      bodies.add(
+        jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, Object?>,
+      );
       // Deliberately no Content-Type, as in the observed route response.
       for (final event in script) {
         request.response.write('data: ${jsonEncode(event)}\n\n');
@@ -114,6 +130,88 @@ void main() {
     expect(events.whereType<ToolCall>(), isEmpty);
     expect(events.whereType<Completed>(), isEmpty);
     expect(requests, 1);
+  }
+
+  for (final identity in ['item-id', 'done-id-only', 'null-id']) {
+    test(
+      'SSE unindexed text is pre-cut on persisted rebuild ($identity)',
+      () async {
+        final writer = await SessionWriter.create(await tempDir());
+        addTearDown(writer.close);
+        final runtime = await ToolRuntime.attach(
+          writer,
+          ResultStore(writer.sessionDir),
+          workspace: writer.sessionDir,
+          gate: const AllowAllStage(),
+        );
+        addTearDown(runtime.close);
+        final driver = ExchangeDriver(
+          writer: writer,
+          runtime: runtime,
+          provider: adapter,
+          model: 'gpt-5.5',
+        );
+        addTearDown(driver.close);
+        final live = <String>[];
+        final subscription = driver.deltas.listen((delta) {
+          if (delta.kind == 'text') live.add(delta.delta);
+        });
+        addTearDown(subscription.cancel);
+        final message = _message('m', 'before cut');
+        if (identity == 'null-id') message['id'] = null;
+        script = [
+          {
+            'type': 'response.output_text.delta',
+            'delta': 'before ',
+            if (identity == 'item-id') 'item_id': 'm',
+          },
+          {
+            'type': 'response.output_text.delta',
+            'delta': 'cut',
+            if (identity == 'item-id') 'item_id': 'm',
+          },
+          _item(message, 0),
+          _item(_compact('boundary'), 1),
+          _completed,
+        ];
+        final first = await driver.submit(
+          id: 'first',
+          text: 'go',
+          turn: writer.currentTurn,
+        ) as SubmitAdmitted;
+        expect((await first.done).state, 'done');
+        expect(live, ['before ', 'cut']);
+        script = [
+          {
+            'type': 'response.completed',
+            'response': {
+              'output': <Object?>[],
+              'usage': {'input_tokens': 1000, 'output_tokens': 1},
+            },
+          },
+        ];
+        final second = await driver.submit(
+          id: 'second',
+          text: 'next',
+          turn: writer.currentTurn,
+        ) as SubmitAdmitted;
+        final secondResult = await second.done;
+        expect(secondResult.state, 'done', reason: secondResult.reason);
+        expect(
+          jsonEncode(bodies[1]['input']),
+          isNot(contains('before cut')),
+          reason:
+              'Text at output index 0 must be omitted before cut at index 1',
+        );
+        final stored =
+            writer.tree.get(SessionPath.parse('body/steps/s-00000001')) as Map;
+        expect(stored['output'], [
+          {'type': 'text', 'text': 'before cut'},
+          {'type': 'compaction', 'item': _compact('boundary')},
+        ]);
+        expect(live, ['before ', 'cut']);
+      },
+    );
   }
 
   test('model-provider: Compacted token-sharing body', () {

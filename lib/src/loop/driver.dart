@@ -935,9 +935,11 @@ final class ExchangeDriver {
     try {
       await for (final event in provider.stream(request, cancel: token)) {
         switch (event) {
-          case TextDelta(:final text, :final outputIndex):
-            streamed.addText(text, outputIndex);
+          case TextDelta(:final text):
+            streamed.addText(event);
             _deltas.add(StreamDelta(turn, 'text', text));
+          case TextDeltaPosition(:final delta, :final outputIndex):
+            streamed.positionText(delta, outputIndex);
           case ReasoningSummaryDelta(:final text):
             _deltas.add(StreamDelta(turn, 'reasoning', text));
           case OpaqueItem(:final json, :final outputIndex):
@@ -1091,7 +1093,7 @@ sealed class _Part {
   _Part(this.index);
 
   /// The backend's output index, or null when it sent none.
-  final int? index;
+  int? index;
 
   /// The arrival sequence, set by [_Streamed.add].
   int seq = 0;
@@ -1125,6 +1127,7 @@ final class _CallPart extends _Part {
 /// What one response streamed.
 final class _Streamed {
   final List<_Part> _parts = [];
+  final Map<TextDelta, _TextPart> _textParts = Map.identity();
   Usage? usage;
   StopReason? stop;
   ProviderFailure? failure;
@@ -1134,33 +1137,47 @@ final class _Streamed {
     _parts.add(part);
   }
 
-  /// Appends [text] to the text part of [index], or to the last unindexed text
-  /// part, or starts a new one.
-  void addText(String text, int? index) {
-    _TextPart? target;
-    if (index != null) {
-      target = _parts
-          .whereType<_TextPart>()
-          .where((t) => t.index == index)
-          .lastOrNull;
-    } else if (_parts.lastOrNull case _TextPart(index: null) && final last) {
-      target = last;
-    }
-    if (target == null) {
-      target = _TextPart(index);
-      add(target);
-    }
-    target.text.write(text);
+  void addText(TextDelta delta) {
+    final part = _TextPart(delta.outputIndex)..text.write(delta.text);
+    if (delta.outputIndex == null) _textParts[delta] = part;
+    add(part);
+  }
+
+  void positionText(TextDelta delta, int index) {
+    _textParts[delta]?.index = index;
   }
 
   /// The parts by output index, then the unindexed ones in arrival order.
   List<_Part> ordered() {
-    final indexed = _parts.where((part) => part.index != null).toList()
+    // Coalesce only after position updates, so anonymous deltas for distinct
+    // done messages cannot accidentally share an output position.
+    final grouped = <_Part>[];
+    for (final part in _parts) {
+      if (part is! _TextPart) {
+        grouped.add(part);
+        continue;
+      }
+      _TextPart? target;
+      if (part.index != null) {
+        target = grouped
+            .whereType<_TextPart>()
+            .where((text) => text.index == part.index)
+            .lastOrNull;
+      } else if (grouped.lastOrNull case _TextPart(index: null) && final last) {
+        target = last;
+      }
+      if (target == null) {
+        target = _TextPart(part.index)..seq = part.seq;
+        grouped.add(target);
+      }
+      target.text.write(part.text);
+    }
+    final indexed = grouped.where((part) => part.index != null).toList()
       ..sort((a, b) {
         final byIndex = a.index!.compareTo(b.index!);
         return byIndex != 0 ? byIndex : a.seq.compareTo(b.seq);
       });
-    return [...indexed, ..._parts.where((part) => part.index == null)];
+    return [...indexed, ...grouped.where((part) => part.index == null)];
   }
 }
 

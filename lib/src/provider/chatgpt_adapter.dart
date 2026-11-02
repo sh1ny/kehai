@@ -258,6 +258,7 @@ final class _Turn {
   final Set<int> _textDeltaIndexes = {};
   final Set<String> _textDeltaIds = {};
   bool _unidentifiedTextDelta = false;
+  final List<(TextDelta, String?)> _unindexedTextDeltas = [];
   int _doneSequence = 0;
   void Function()? _detachCancel;
 
@@ -531,7 +532,16 @@ final class _Turn {
             if (index == null && itemId is! String) {
               _unidentifiedTextDelta = true;
             }
-            _emit(TextDelta(delta, outputIndex: index));
+            final resolved =
+                index ?? (itemId is String ? _itemsById[itemId]?.index : null);
+            final event = TextDelta(delta, outputIndex: resolved);
+            if (resolved == null) {
+              _unindexedTextDeltas.add((
+                event,
+                itemId is String ? itemId : null,
+              ));
+            }
+            _emit(event);
           }
         }
       case 'response.reasoning_summary_text.delta':
@@ -612,6 +622,16 @@ final class _Turn {
       case {'type': 'compaction'}:
         _parts.add((done, CompactionItem(item, outputIndex: index!)));
       case {'type': 'message'}:
+        // Bind the actual live events, not their text or a nullable item ID.
+        // Anonymous deltas belong to the next message in stable wire order.
+        _unindexedTextDeltas.removeWhere((pending) {
+          final (delta, deltaId) = pending;
+          if (deltaId != null && deltaId != id) return false;
+          if (index != null) {
+            _emit(TextDeltaPosition(delta, outputIndex: index));
+          }
+          return true;
+        });
         _messages.add(done);
       case {'type': 'reasoning'}:
         _emit(OpaqueItem(item, outputIndex: index));

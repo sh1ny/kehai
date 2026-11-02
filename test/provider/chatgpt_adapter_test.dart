@@ -64,6 +64,7 @@ ModelRequest _request({
 
 String _show(ProviderEvent event) => switch (event) {
   TextDelta(:final text) => 'text:$text',
+  TextDeltaPosition(:final outputIndex) => 'text-position:$outputIndex',
   ReasoningSummaryDelta(:final text) => 'summary:$text',
   ToolCall(:final callId, :final name, :final argumentsJson) =>
     'call:$callId:$name:$argumentsJson',
