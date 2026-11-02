@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:kehai/kehai.dart';
+import 'package:kehai/src/provider/chatgpt_request.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_provider.dart';
@@ -61,6 +62,98 @@ List<ConversationItem> content(BuiltRequest b) =>
     b.request.items.take(b.request.items.length - 1).toList();
 
 void main() {
+  test(
+    'tools survive settled-call compaction reconstruction and reopen',
+    () async {
+      var w = await createWriter(await tempDir());
+      addTearDown(() => w.close());
+      var effects = 0;
+      Future<ToolRuntime> attach() => ToolRuntime.attach(
+        w,
+        ResultStore(w.sessionDir),
+        workspace: w.sessionDir,
+        gate: const AllowAllStage(),
+        tools: {'ls': _CountTool(() => effects++)},
+      );
+      var runtime = await attach();
+      final provider = FakeProvider.steps([
+        [
+          CompactionItem(opaque('selected'), outputIndex: 0),
+          const ToolCall(
+            callId: 'settled',
+            name: 'ls',
+            argumentsJson: '{}',
+            outputIndex: 1,
+          ),
+          const Completed(StopReason.toolUse),
+        ],
+        [const TextDelta('done'), const Completed(StopReason.endTurn)],
+      ]);
+      final driver = ExchangeDriver(
+        writer: w,
+        runtime: runtime,
+        provider: provider,
+        model: 'gpt-5.5',
+      );
+      try {
+        final submitted = await driver.submit(
+          id: 'first',
+          text: 'go',
+          turn: w.currentTurn,
+        ) as SubmitAdmitted;
+        expect((await submitted.done).state, 'done');
+      } finally {
+        await driver.close();
+        await runtime.close();
+      }
+      expect(effects, 1);
+      final next = buildChatGptBody(provider.requests[1]);
+      final nextInput = next['input'] as List;
+      expect(nextInput.first, opaque('selected'));
+      expect((nextInput[1] as Map)['type'], 'additional_tools');
+      final call = nextInput.indexWhere(
+        (i) => (i as Map)['type'] == 'function_call',
+      );
+      expect(call, 2);
+      expect((nextInput[call] as Map)['call_id'], 'settled');
+      expect((nextInput[call + 1] as Map)['type'], 'function_call_output');
+      expect((nextInput[call + 1] as Map)['output'], contains('[ls ok]'));
+
+      final dir = w.sessionDir;
+      await w.close();
+      w = await SessionWriter.open(dir);
+      runtime = await attach();
+      addTearDown(runtime.close);
+      final rebuilt = await RequestBuilder(
+        sessionDir: dir,
+        model: 'gpt-5.5',
+        workspaceName: 'test',
+        tools: runtime.specs,
+        providerId: provider.id,
+        estimateRequest: (r) => r.items.fold(0, (n, i) => n + estimateItem(i)),
+      ).build(w.tree, turn: w.currentTurn);
+      final body = buildChatGptBody(rebuilt.request);
+      final input = body['input'] as List;
+      expect(input.first, opaque('selected'));
+      expect(input[1], nextInput[1]);
+      expect(input.sublist(2, 4), nextInput.sublist(2, 4));
+      expect(body['instructions'], next['instructions']);
+      expect(body['tool_choice'], next['tool_choice']);
+      expect(body, isNot(contains('tools')));
+      expect(
+        input.whereType<Map<String, Object?>>().where(
+          (i) => i['type'] == 'additional_tools',
+        ),
+        hasLength(1),
+      );
+      expect(
+        effects,
+        1,
+        reason: 'Reopen must not execute the settled call again',
+      );
+    },
+  );
+
   test('agent-loop: Compaction committed with completion', () async {
     final w = await createWriter(await tempDir());
     final runtime = await ToolRuntime.attach(

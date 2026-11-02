@@ -56,7 +56,90 @@ Map<String, Object?> _message(String id, String text) => {
   ],
 };
 
+const _readTools = [
+  ToolSpec(
+    name: 'read',
+    description: 'read',
+    parametersJsonSchema: {'type': 'object'},
+  ),
+];
+
 void main() {
+  test('model-provider: Tools re-established after a replayed boundary', () {
+    final compact = _compact('selected');
+    for (final policy in [
+      null,
+      const NativeCompactionPolicy(threshold: 100000),
+    ]) {
+      for (final tools in [<ToolSpec>[], _readTools]) {
+        for (final suffix in [
+          <ConversationItem>[],
+          <ConversationItem>[
+            const ToolCallItem(
+              callId: 'call',
+              name: 'read',
+              argumentsJson: '{}',
+            ),
+            const ToolOutputItem(callId: 'call', output: 'verbatim result'),
+            const UserMessage('continue'),
+          ],
+        ]) {
+          final body = buildChatGptBody(
+            ModelRequest(
+              model: _request.model,
+              instructions: _request.instructions,
+              items: [OpaqueCompactionItem(compact), ...suffix],
+              tools: tools,
+              sessionId: _request.sessionId,
+              nativeCompaction: policy,
+            ),
+          );
+          final input = body['input'] as List;
+          expect(input.first, compact);
+          expect(
+            input.whereType<Map<String, Object?>>().where(
+              (i) => i['type'] == 'additional_tools',
+            ),
+            hasLength(tools.isEmpty ? 0 : 1),
+          );
+          if (tools.isNotEmpty) {
+            expect(input[1], {
+              'type': 'additional_tools',
+              'role': 'developer',
+              'tools': [
+                {
+                  'type': 'function',
+                  'name': 'read',
+                  'description': 'read',
+                  'parameters': {'type': 'object'},
+                  'strict': false,
+                },
+              ],
+            });
+          }
+          final retained = input.skip(tools.isEmpty ? 1 : 2).toList();
+          final uncompacted = buildChatGptBody(
+            ModelRequest(
+              model: _request.model,
+              instructions: _request.instructions,
+              items: suffix,
+              tools: tools,
+              sessionId: _request.sessionId,
+            ),
+          );
+          final plain = uncompacted['input'] as List;
+          if (tools.isNotEmpty) {
+            expect((plain.first as Map)['type'], 'additional_tools');
+          }
+          expect(retained, plain.skip(tools.isEmpty ? 0 : 1).toList());
+          expect(body['instructions'], _request.instructions);
+          expect(body['tool_choice'], 'auto');
+          expect(body, isNot(contains('tools')));
+        }
+      }
+    }
+  });
+
   late Directory tmp;
   late HttpServer server;
   late ChatGptAdapter adapter;
@@ -64,6 +147,8 @@ void main() {
   var requests = 0;
   Map<String, Object?>? rejection;
   final bodies = <Map<String, Object?>>[];
+  var resetToolsAtCompaction = false;
+  final registeredTools = <Set<String>>[];
 
   setUp(() async {
     // Keep all credential fixture writes inside the checkout.
@@ -98,6 +183,8 @@ void main() {
     requests = 0;
     rejection = null;
     bodies.clear();
+    resetToolsAtCompaction = false;
+    registeredTools.clear();
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
       requests++;
@@ -108,6 +195,28 @@ void main() {
       if (rejection != null) {
         request.response.statusCode = HttpStatus.forbidden;
         request.response.write(jsonEncode({'error': rejection}));
+        await request.response.close();
+        return;
+      }
+      if (resetToolsAtCompaction) {
+        // Synthetic backend semantics: a boundary supersedes prior tool state.
+        final names = <String>{};
+        for (final item in bodies.last['input'] as List) {
+          final value = item as Map;
+          if (value['type'] == 'compaction') names.clear();
+          if (value['type'] == 'additional_tools') {
+            names.addAll([
+              for (final tool in value['tools'] as List)
+                (tool as Map)['name'] as String,
+            ]);
+          }
+        }
+        registeredTools.add(names);
+        final text = names.contains('read') ? 'TOOLS_READY' : 'NO_TOOLS';
+        request.response.write(
+          'data: ${jsonEncode(_item(_message('registration', text), 0))}\n\n',
+        );
+        request.response.write('data: ${jsonEncode(_completed)}\n\n');
         await request.response.close();
         return;
       }
@@ -139,6 +248,42 @@ void main() {
     expect(events.whereType<Completed>(), isEmpty);
     expect(requests, 1);
   }
+
+  test('offline backend resets tool registration at compaction', () async {
+    resetToolsAtCompaction = true;
+    for (final compacted in [false, true]) {
+      final events = await adapter
+          .stream(
+            ModelRequest(
+              model: _request.model,
+              instructions: _request.instructions,
+              items: [
+                if (compacted) OpaqueCompactionItem(_compact('replayed')),
+                const ToolCallItem(
+                  callId: 'settled',
+                  name: 'read',
+                  argumentsJson: '{}',
+                ),
+                const ToolOutputItem(
+                  callId: 'settled',
+                  output: 'stored result',
+                ),
+                const UserMessage('use read again'),
+              ],
+              tools: _readTools,
+              sessionId: _request.sessionId,
+            ),
+          )
+          .toList();
+      expect(events.last, isA<Completed>());
+      expect(
+        events.whereType<TextDelta>().map((e) => e.text).join(),
+        'TOOLS_READY',
+      );
+      expect(registeredTools.last, {'read'});
+    }
+    expect(requests, 2);
+  });
 
   test('403 param-only rejection durably disables native attempts', () async {
     rejection = {
@@ -373,8 +518,8 @@ void main() {
     ]);
     expect(body.keys, everyElement(isIn(chatGptBodyKeys)));
     final input = body['input'] as List<Object?>;
-    expect((input.first as Map)['type'], 'additional_tools');
-    expect(input[1], compact);
+    expect(input.first, compact);
+    expect((input[1] as Map)['type'], 'additional_tools');
     expect(input, hasLength(3));
     expect(body['instructions'], 'brief');
     expect(body['store'], false);

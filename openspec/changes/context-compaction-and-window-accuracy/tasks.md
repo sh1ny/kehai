@@ -48,6 +48,9 @@
 | model-provider → Normalized turn stream | Stream ends early | `test/provider/chatgpt_adapter_test.dart` | `normalized stream early close ends with protocol failure` | green |
 | model-provider → Token-sharing request rules | Token-sharing body | `test/provider/chatgpt_adapter_test.dart` | `plan backend body follows token-sharing rules with allowlisted keys` | green |
 | model-provider → Token-sharing request rules | Compacted token-sharing body | `test/provider/compaction_test.dart` | `model-provider: Compacted token-sharing body` | green |
+| model-provider → Token-sharing request rules | Tools re-established after a replayed boundary | `test/provider/compaction_test.dart` | `model-provider: Tools re-established after a replayed boundary` | green |
+| Amendment regression | Backend clears registration at boundary | `test/provider/compaction_test.dart` | `offline backend resets tool registration at compaction` | green |
+| Amendment regression | Settled call and journal reopen | `test/loop/compaction_test.dart` | `tools survive settled-call compaction reconstruction and reopen` | green |
 | model-provider → Model listing | Models listed | `test/provider/models_test.dart` | `listed models exclude non-list visibility and unsupported` | green |
 | model-provider → Model listing | Context window reported | `test/provider/models_test.dart` | `context_window is read only when an integer above 1` | green |
 | model-provider → Model listing | Models endpoint fails | `test/provider/models_test.dart` | `503 fails server with no list` | green |
