@@ -81,13 +81,21 @@ final class BuiltRequest {
     required this.window,
     required this.block,
     required this.blockText,
+    required this.lineage,
+    required this.boundary,
   });
+
+  /// The provider, route, model and captured instruction/tool identity.
+  final Map<String, Object?> lineage;
+
+  /// The selected committed boundary identity, or null for full history.
+  final String? boundary;
 
   /// The request to send; its last item is the sensorium block.
   final ModelRequest request;
 
-  /// The context in use, estimated, including the block.
-  final int used;
+  /// The estimated context in use, or null until compacted usage is known.
+  final int? used;
 
   /// The model's context window, or null when unknown.
   final int? window;
@@ -99,7 +107,7 @@ final class BuiltRequest {
   final String blockText;
 
   /// Whether the context in use exceeds a known window.
-  bool get overflow => window != null && used > window!;
+  bool get overflow => window != null && used != null && used! > window!;
 }
 
 /// Builds requests for one session and model.
@@ -119,7 +127,19 @@ final class RequestBuilder {
     this.clock = DateTime.now,
     this.roleInstructions,
     this.effort,
+    this.providerId = 'openai',
+    this.routeId = 'chatgpt-account',
+    this.nativeCompaction,
   });
+
+  /// The provider identity recorded at admission.
+  final String providerId;
+
+  /// The route identity recorded at admission.
+  final String routeId;
+
+  /// The resolved inline request policy.
+  final NativeCompactionPolicy? nativeCompaction;
 
   /// The role section of a child engine's instructions, or null.
   final String? roleInstructions;
@@ -158,6 +178,33 @@ final class RequestBuilder {
   /// The clock for `HH:MM`.
   final DateTime Function() clock;
 
+  /// Derives admission lineage from captured inputs without projecting history.
+  Map<String, Object?> requestLineage(SessionTree tree) {
+    final context = _currentContext(tree);
+    final captured = _capturedRole(tree, context);
+    return _lineage(
+      composeInstructions(
+        role: captured?.text ?? roleInstructions,
+        context: _contextText(tree, context),
+      ),
+    );
+  }
+
+  Map<String, Object?> _lineage(String instructions) => <String, Object?>{
+    'provider': providerId,
+    'route': routeId,
+    'model': model,
+    'instructions': _digest(instructions),
+    'tools': _digest([
+      for (final tool in tools)
+        {
+          'name': tool.name,
+          'description': tool.description,
+          'parameters': tool.parametersJsonSchema,
+        },
+    ]),
+  };
+
   /// Builds the request for the step at journal [turn] from [tree].
   Future<BuiltRequest> build(SessionTree tree, {required int turn}) async {
     final contextKey = _currentContext(tree);
@@ -169,23 +216,30 @@ final class RequestBuilder {
       contextKey,
       captured?.digest ?? roleDigest,
     );
-    final (items, baseline) = await _conversation(tree, identity);
     final session = tree.get(SessionPath.parse('meta/session'));
     final instructions = composeInstructions(
       role: captured?.text ?? roleInstructions,
       context: _contextText(tree, contextKey),
     );
 
+    final lineage = _lineage(instructions);
+    final (items, baseline, boundary) = await _conversation(
+      tree,
+      identity,
+      lineage,
+    );
+
     ModelRequest requestWith(String block) => ModelRequest(
       model: model,
       reasoningEffort: effort,
+      nativeCompaction: nativeCompaction,
       instructions: instructions,
       items: [for (final b in items) b.item, UserMessage(block)],
       tools: tools,
       sessionId: session is String ? session : '',
     );
 
-    String render(int used) => sensoriumBlock(
+    String render(int? used) => sensoriumBlock(
       turn: turn,
       now: clock(),
       workspaceName: workspaceName,
@@ -198,7 +252,9 @@ final class RequestBuilder {
 
     final provisional = render(0);
     final provisionalTokens = blockTokens(provisional);
-    final base = baseline == null
+    final int? base = boundary != null && baseline == null
+        ? null
+        : baseline == null
         ? estimateRequest(requestWith(provisional))
         : baseline.tokens -
               baseline.block +
@@ -206,7 +262,9 @@ final class RequestBuilder {
               provisionalTokens;
     // The block holds the number it reports, so its own size can differ a
     // little from the provisional one; the count is adjusted once for that.
-    final used = base - provisionalTokens + blockTokens(render(base));
+    final used = base == null
+        ? null
+        : base - provisionalTokens + blockTokens(render(base));
     final finalBlock = render(used);
     return BuiltRequest(
       request: requestWith(finalBlock),
@@ -214,6 +272,8 @@ final class RequestBuilder {
       window: window,
       block: blockTokens(finalBlock),
       blockText: finalBlock,
+      lineage: lineage,
+      boundary: boundary,
     );
   }
 
@@ -246,44 +306,136 @@ final class RequestBuilder {
     return text is String ? text : '';
   }
 
-  Future<(List<BuiltItem>, UsageBaseline?)> _conversation(
+  Future<(List<BuiltItem>, UsageBaseline?, String?)> _conversation(
     SessionTree tree,
     InstructionsIdentity identity,
+    Map<String, Object?> lineage,
   ) async {
     final exchanges = _children(tree, 'body/exchanges');
     final steps = _children(tree, 'body/steps');
     final calls = Map.fromEntries(_children(tree, 'body/calls'));
+    final byExchange =
+        <Object?, List<MapEntry<String, Map<String, Object?>>>>{};
+    for (final entry in steps) {
+      (byExchange[entry.value['exchange']] ??= []).add(entry);
+    }
+    // Find the last cut using metadata only. Never compose discarded results.
+    String? cutStep;
+    var cutIndex = -1;
+    String? boundary;
+    for (final MapEntry(key: key, value: step) in steps) {
+      if (step['state'] != 'completed') continue;
+      final output = step['output'];
+      if (output is! List<Object?>) continue;
+      for (var i = 0; i < output.length; i++) {
+        final entry = output[i];
+        if (entry is! Map<String, Object?> ||
+            !const {
+              'text',
+              'reasoning',
+              'compaction',
+              'call',
+            }.contains(entry['type'])) {
+          throw StateError('unknown committed output kind');
+        }
+        if (entry['type'] == 'call' &&
+            _callNode(calls, '${entry['call']}') == null) {
+          throw StateError(
+            'committed call has no terminal outcome; reopen to recover',
+          );
+        }
+        if (entry['type'] == 'compaction') {
+          cutStep = key;
+          cutIndex = i;
+          final json = entry['item'];
+          if (json is! Map<String, Object?> ||
+              json['type'] != 'compaction' ||
+              json['id'] is! String ||
+              (json['id']! as String).isEmpty ||
+              json['encrypted_content'] is! String ||
+              (json['encrypted_content']! as String).isEmpty) {
+            throw StateError('invalid committed compaction item');
+          }
+          boundary = '$key:$i:${json['id']}';
+        }
+      }
+    }
+    // Validate the selected boundary and all opaque suffix metadata before
+    // composing any result. An older compatible cut is never a fallback.
+    var inSuffix = cutStep == null;
+    for (final MapEntry(key: key, value: step) in steps) {
+      if (step['state'] != 'completed') continue;
+      final output = step['output'];
+      if (output is! List<Object?>) continue;
+      if (key == cutStep) inSuffix = true;
+      if (!inSuffix) continue;
+      for (var i = key == cutStep ? cutIndex : 0; i < output.length; i++) {
+        final entry = output[i] as Map<String, Object?>;
+        if ((entry['type'] == 'compaction' || entry['type'] == 'reasoning') &&
+            !_same(step['lineage'], lineage) &&
+            (boundary != null || step['lineage'] != null)) {
+          throw StateError(
+            'incompatible continuity; rewind before boundary or start a new session',
+          );
+        }
+      }
+    }
     final items = <BuiltItem>[];
     UsageBaseline? baseline;
-
+    var retaining = cutStep == null;
     for (final MapEntry(key: exchangeKey, value: exchange) in exchanges) {
       final first = exchange['first'];
-      items.add(
-        BuiltItem(
-          UserMessage('${exchange['prompt']}'),
-          first is int ? first : _turnOf(exchangeKey),
-          ItemRole.prompt,
-        ),
-      );
-      for (final MapEntry(key: stepKey, value: step) in steps) {
-        if (step['exchange'] != exchangeKey || step['state'] != 'completed') {
-          continue;
-        }
+      if (retaining) {
+        items.add(
+          BuiltItem(
+            UserMessage('${exchange['prompt']}'),
+            first is int ? first : _turnOf(exchangeKey),
+            ItemRole.prompt,
+          ),
+        );
+      }
+      for (final MapEntry(key: stepKey, value: step)
+          in byExchange[exchangeKey] ??
+              const <MapEntry<String, Map<String, Object?>>>[]) {
+        if (step['state'] != 'completed') continue;
         final turn = _turnOf(stepKey);
-        final measured = _baselineOf(step, turn);
-        if (measured != null) {
-          // Usage counts the instructions it was sent with, so it is the
-          // baseline only for a request with the same identity (D16).
-          baseline =
-              InstructionsIdentity.fromRecorded(step['instructions']) ==
-                  identity
-              ? measured
-              : null;
-        }
+        final selected = stepKey == cutStep;
         final output = step['output'];
         if (output is! List<Object?>) continue;
-        for (final entry in output) {
-          if (entry is! Map<String, Object?>) continue;
+        if (!retaining && !selected) continue;
+        final measured = _baselineOf(step, turn);
+        if (measured != null &&
+            InstructionsIdentity.fromRecorded(step['instructions']) ==
+                identity &&
+            step['boundary'] == boundary &&
+            (boundary == null
+                ? step['lineage'] == null || _same(step['lineage'], lineage)
+                : _same(step['lineage'], lineage))) {
+          baseline = measured;
+        }
+        if (selected) retaining = true;
+        final notes = <BuiltItem>[];
+        for (var i = 0; i < output.length; i++) {
+          final entry = output[i];
+          if (entry is! Map<String, Object?>) {
+            throw StateError('invalid output entry');
+          }
+          if (selected && i < cutIndex) {
+            if (entry['type'] == 'call') {
+              final node = _callNode(calls, '${entry['call']}')!;
+              notes.add(
+                BuiltItem(
+                  UserMessage(
+                    'Tool result after compaction for call ${entry['callId']} '
+                    '(${entry['name']}):\n${await _modelText(tree, node)}',
+                  ),
+                  turn,
+                  ItemRole.output,
+                ),
+              );
+            }
+            continue;
+          }
           switch (entry['type']) {
             case 'text':
               items.add(
@@ -294,42 +446,53 @@ final class RequestBuilder {
                 ),
               );
             case 'reasoning':
-              final item = entry['item'];
-              if (item is Map<String, Object?>) {
-                items.add(
-                  BuiltItem(OpaqueReasoningItem(item), turn, ItemRole.response),
-                );
+            case 'compaction':
+              final json = entry['item'];
+              if (json is! Map<String, Object?>) {
+                throw StateError('invalid opaque item');
               }
+              items.add(
+                BuiltItem(
+                  entry['type'] == 'compaction'
+                      ? OpaqueCompactionItem(json)
+                      : OpaqueReasoningItem(json),
+                  turn,
+                  ItemRole.response,
+                ),
+              );
             case 'call':
-              final node = _callNode(calls, '${entry['call']}');
-              if (node == null) continue; // unpaired: omitted whole (D3)
+              final node = _callNode(calls, '${entry['call']}')!;
               final callId = '${entry['callId']}';
-              items
-                ..add(
-                  BuiltItem(
-                    ToolCallItem(
-                      callId: callId,
-                      name: '${entry['name']}',
-                      argumentsJson: '${entry['arguments']}',
-                    ),
-                    turn,
-                    ItemRole.response,
+              items.add(
+                BuiltItem(
+                  ToolCallItem(
+                    callId: callId,
+                    name: '${entry['name']}',
+                    argumentsJson: '${entry['arguments']}',
                   ),
-                )
-                ..add(
-                  BuiltItem(
-                    ToolOutputItem(
-                      callId: callId,
-                      output: await _modelText(tree, node),
-                    ),
-                    turn,
-                    ItemRole.output,
+                  turn,
+                  ItemRole.response,
+                ),
+              );
+              items.add(
+                BuiltItem(
+                  ToolOutputItem(
+                    callId: callId,
+                    output: await _modelText(tree, node),
                   ),
-                );
+                  turn,
+                  ItemRole.output,
+                ),
+              );
+            default:
+              throw StateError(
+                'unknown committed output kind: ${entry['type']}',
+              );
           }
         }
+        items.addAll(notes);
       }
-      if (exchange['state'] == 'cancelled') {
+      if (retaining && exchange['state'] == 'cancelled') {
         final last = exchange['last'] ?? first;
         items.add(
           BuiltItem(
@@ -340,7 +503,7 @@ final class RequestBuilder {
         );
       }
     }
-    return (items, baseline);
+    return (items, baseline, boundary);
   }
 
   UsageBaseline? _baselineOf(Map<String, Object?> step, int turn) {
@@ -439,3 +602,16 @@ List<MapEntry<String, Map<String, Object?>>> _children(
 
 /// The journal turn in a node key such as `s-00000007`.
 int _turnOf(String key) => int.tryParse(key.substring(2)) ?? 0;
+
+// Canonical JSON makes schema key order irrelevant to lineage.
+Object? _canonical(Object? value) => switch (value) {
+  Map<String, Object?> map => {
+    for (final k in map.keys.toList()..sort()) k: _canonical(map[k]),
+  },
+  List<Object?> list => [for (final v in list) _canonical(v)],
+  _ => value,
+};
+String _digest(Object? value) =>
+    sha256.convert(utf8.encode(jsonEncode(_canonical(value)))).toString();
+bool _same(Object? a, Object? b) =>
+    jsonEncode(_canonical(a)) == jsonEncode(_canonical(b));

@@ -42,16 +42,18 @@ String sensoriumBlock({
   required int turn,
   required DateTime now,
   required String workspaceName,
-  required int used,
+  required int? used,
   required int? window,
   required String model,
 }) {
   String two(int n) => n.toString().padLeft(2, '0');
-  final percent = window == null ? '' : ' (${(used * 100 / window).round()}%)';
+  final percent = window == null || used == null
+      ? ''
+      : ' (${(used * 100 / window).round()}%)';
   return '<sensorium>\n'
       'turn: $turn · full · ${two(now.hour)}:${two(now.minute)} · '
       'cwd $workspaceName\n'
-      'budget: ${formatTokens(used)}/${window == null ? '?' : formatTokens(window)}'
+      'budget: ${used == null ? '?' : formatTokens(used)}/${window == null ? '?' : formatTokens(window)}'
       ' ctx$percent · model $model\n'
       '</sensorium>';
 }

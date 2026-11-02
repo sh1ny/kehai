@@ -140,9 +140,9 @@ Move the setting to that route-qualified path only with an intentionally chosen
 estimate. Without a qualified value, effective capacity is unknown. Other routes
 retain legacy override/backend-metadata fallback behavior.
 
-Configuration resolution and provider transport are available separately from
-loop request-policy selection, status/migration-notice presentation, and captured
-child-policy launch wiring; those integrations are delivered in later groups.
+Configuration resolution, inline loop policy selection and journal projection are
+available. Capability detection, calibration admission, status/migration-notice
+presentation and captured child-policy launch wiring follow in later groups.
 
 ### Native provider transport
 
@@ -164,7 +164,43 @@ used only when that message has no streamed text deltas.
 Encrypted items and repeated copies count toward the existing 4 MiB aggregate
 output cap; the 8 MiB SSE-event and 1 MiB serialized-request caps are unchanged.
 Interrupted or failed responses release no held tool calls. Provider items are
-only boundary candidates: durable completed-step eligibility and conversation
-projection belong to the loop integration, not the adapter. Until that
-integration is delivered, the loop fails closed on a compaction event rather
-than treating it as reasoning or silently losing continuity.
+only boundary candidates until the step's ordered output commits successfully.
+
+### Journal continuity and call recovery
+
+Each new step records provider/route/model, captured instruction/tool digests and
+resolved policy/provenance at admission. Requests choose the **latest surviving
+completed boundary first**, then validate it and every opaque suffix item against
+the current lineage. A mismatch stops visibly: rewind before the incompatible
+boundary or start a new session. There is no older-compatible-boundary fallback
+or automatic resurrection of the full prefix. Policy threshold/off changes alone
+do not invalidate compatible continuity.
+
+Only the provider projection is cut; canonical history, scratch, full results,
+stable handles and request/child correlation are unchanged. Discarded historical
+results are not composed while rebuilding the bounded suffix. Calls in the
+boundary-producing response all settle before another request. Post-cut calls
+keep paired outputs; pre-cut calls produce deterministic user recovery notes
+with their call id/name and **verbatim central result envelope**, including handles.
+
+Attach and rewind also reconcile committed call positions that have no runtime
+node. They record terminal cancellations with reason
+`interrupted_before_admission`, the original input and source-step/model identity,
+and a stored central envelope containing `execution not recorded; not replayed`.
+Recovery never executes effects, retains existing results, skips registered live
+calls, and stops on conflicting metadata. Repeated/interrupted attach is
+idempotent. Rewind reconstructs missing outcomes only if their source step survives.
+No request is built while any committed call lacks a terminal outcome.
+
+Compaction invalidates pre-boundary token usage. Until a completed request using
+the same lineage and selected boundary reports usage, total used context is `?`
+with no percentage, even with a configured window. Ciphertext is not a token
+estimate. Compatible completed usage restores the normal baseline; a newer
+boundary invalidates it again. The sensorium remains two request-only lines;
+remaining estimate labels, capability evidence and calibration guards are not
+part of this integration yet.
+
+**Upgrade-only writing:** compacted sessions use additive output variants in the
+existing journal format. Older binaries that ignore these variants are not safe
+writers for such sessions. This reader fails visibly on an unknown committed
+output kind rather than silently dropping continuity.

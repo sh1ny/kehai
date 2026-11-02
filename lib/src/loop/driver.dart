@@ -180,6 +180,18 @@ final class ExchangeDriver {
          sessionDir: writer.sessionDir,
          model: model,
          effort: effort,
+         providerId: provider.id,
+         nativeCompaction:
+             runtime.config
+                     .effectiveCompaction(provider.id, 'chatgpt-account', model)
+                     .strategy ==
+                 CompactionStrategy.providerNative
+             ? NativeCompactionPolicy(
+                 threshold: runtime.config
+                     .effectiveCompaction(provider.id, 'chatgpt-account', model)
+                     .threshold,
+               )
+             : null,
          workspaceName: p.basename(runtime.workspace.path),
          tools: runtime.specs,
          estimateRequest: (request) => provider.estimate(request).tokens,
@@ -547,6 +559,11 @@ final class ExchangeDriver {
     String exchange,
     CancelToken token,
   ) async {
+    final policy = runtime.config.effectiveCompaction(
+      provider.id,
+      'chatgpt-account',
+      model,
+    );
     await _apply(
       JournalRecord(
         turn: turn,
@@ -556,6 +573,13 @@ final class ExchangeDriver {
           'exchange': exchange,
           'model': model,
           'effort': effort,
+          'lineage': _builder.requestLineage(writer.tree),
+          'policy': {
+            'strategy': policy.strategy.wireName,
+            'threshold': policy.threshold,
+            'strategySource': policy.strategySource,
+            'thresholdSource': policy.thresholdSource,
+          },
           'instructions': InstructionsIdentity(
             instructionsVersion,
             _contextKey,
@@ -566,7 +590,14 @@ final class ExchangeDriver {
         },
       ),
     );
-    final built = await _builder.build(writer.tree, turn: turn);
+    final BuiltRequest built;
+    try {
+      built = await _builder.build(writer.tree, turn: turn);
+    } on StateError catch (e) {
+      await _mergeStep(turn, {'state': 'failed', 'reason': e.message});
+      return _End('stopped', e.message);
+    }
+    await _mergeStep(turn, {'boundary': built.boundary});
     final context = {
       'used': built.used,
       'window': ?contextWindow,
@@ -711,9 +742,8 @@ final class ExchangeDriver {
             _deltas.add(StreamDelta(turn, 'reasoning', text));
           case OpaqueItem(:final json, :final outputIndex):
             streamed.add(_ReasoningPart(json, outputIndex));
-          case CompactionItem():
-            // Group 4 owns durable boundary collection; never drop continuity.
-            throw UnsupportedError('compaction commit is not implemented yet');
+          case CompactionItem(:final json, :final outputIndex):
+            streamed.add(_CompactionPart(json, outputIndex));
           case ToolCall(
             :final callId,
             :final name,
@@ -769,9 +799,11 @@ final class ExchangeDriver {
         : base;
   }
 
-  String _overflowMessage(int used) {
+  String _overflowMessage(int? used) {
     final window = contextWindow;
-    final size = window == null
+    final size = used == null
+        ? 'unknown tokens in use'
+        : window == null
         ? '~${formatTokens(used)} tokens in use'
         : '~${formatTokens(used)} of ${formatTokens(window)} tokens';
     return 'context overflow: $size; rewind or start a new session';
@@ -825,6 +857,7 @@ Map<String, Object?> _usageJson(Usage usage) => {
 Map<String, Object?>? _outputEntry(_Part part) => switch (part) {
   _TextPart(:final text) when text.isEmpty => null,
   _TextPart(:final text) => {'type': 'text', 'text': '$text'},
+  _CompactionPart(:final json) => {'type': 'compaction', 'item': json},
   _ReasoningPart(:final json) => {'type': 'reasoning', 'item': json},
   _CallPart(:final callId, :final name, :final arguments) => {
     'type': 'call',
@@ -868,6 +901,11 @@ final class _TextPart extends _Part {
   _TextPart(super.index);
 
   final StringBuffer text = StringBuffer();
+}
+
+final class _CompactionPart extends _Part {
+  _CompactionPart(this.json, super.index);
+  final Map<String, Object?> json;
 }
 
 final class _ReasoningPart extends _Part {

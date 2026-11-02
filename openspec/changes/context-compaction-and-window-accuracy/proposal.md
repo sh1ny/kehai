@@ -31,12 +31,16 @@ Targets `lib/src/provider/`, `lib/src/loop/`, `lib/src/config/user_config.dart`,
 
 ## Release Notes
 
-Add native compaction configuration and provider protocol support; journal and runtime policy wiring follow in subsequent groups.
+Add native compaction configuration, provider protocol support and journal-derived continuity with complete no-effect call recovery. Compacted token usage remains unknown until compatible completed usage exists; capability evidence, calibration admission and remaining presentation follow in later groups.
 
 ### Added
 - ADR 0015 defining opaque continuity, lineage validation, captured policy, call recovery and route-qualified capacity.
 - Typed compaction policy with per-field provenance, native/off defaults, and explicit reserved-strategy errors.
 - Inline native request policy and bounded indexed opaque compaction collection, including headerless SSE and done-message reconciliation.
+- Completed opaque output, admission lineage/policy and latest-boundary-first suffix reconstruction with pre-cut verbatim result notes.
+- Guarded recovery of every committed call position, including missing runtime admissions, without replaying effects.
 
 ### Changed
 - ChatGPT-account capacity resolution uses route-qualified estimates; legacy windows remain hints with migration notices, separate from backend metadata.
+- Usage baselines require matching lineage/boundary; new compacted projections show unknown total usage without estimating ciphertext.
+- Compacted sessions require upgrade-only writers; unknown output kinds and incompatible continuity stop visibly.
