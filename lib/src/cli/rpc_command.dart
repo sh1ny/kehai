@@ -143,13 +143,10 @@ Future<int> runRpc({
           'child launch needs captured provider policy',
         );
       }
-      if (child?.compactionPolicy case final policy?) {
-        UserConfig.decodeProviderPolicy(policy);
-      }
-      final loaded = UserConfig.load(settings.home);
-      config = child == null
-          ? loaded
-          : loaded.withProviderPolicy(child.compactionPolicy!);
+      config = UserConfig.load(
+        settings.home,
+        capturedProviderPolicy: child?.compactionPolicy,
+      );
     } on ConfigError catch (e) {
       throw _StartupFailure(e.message);
     }
@@ -226,7 +223,9 @@ Future<int> runRpc({
       provider: adapter,
       model: model,
       effort: effort,
-      contextWindow: resolveContextWindow(config, model, models),
+      contextWindow: models
+          .firstWhere((info) => info.id == model)
+          .contextWindow,
       childRole: role == null
           ? null
           : ChildRole(name: role.name, digest: role.digest, body: role.body),

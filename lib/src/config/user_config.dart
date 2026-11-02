@@ -201,12 +201,17 @@ final class UserConfig {
   /// A missing file gives the defaults. Throws a [ConfigError] naming the file
   /// and the first problem when the file is unreadable, is not valid JSON, has
   /// an unknown key, or holds a wrong type or an out-of-range value.
-  factory UserConfig.load(String home) {
+  factory UserConfig.load(String home, {String? capturedProviderPolicy}) {
+    if (capturedProviderPolicy != null) {
+      decodeProviderPolicy(capturedProviderPolicy);
+    }
     final path = p.join(home, configFileName);
     final String text;
     try {
       if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound) {
-        return const UserConfig();
+        return capturedProviderPolicy == null
+            ? const UserConfig()
+            : decodeProviderPolicy(capturedProviderPolicy);
       }
       text = File(path).readAsStringSync();
     } on FileSystemException catch (e) {
@@ -219,6 +224,14 @@ final class UserConfig {
       final offset = (e.offset ?? 0).clamp(0, text.length);
       final line = '\n'.allMatches(text.substring(0, offset)).length + 1;
       throw ConfigError(path, 'invalid JSON at line $line');
+    }
+    // A child inherits provider policy, not later edits to that policy. Replace
+    // the raw section before parsing, while validating all other current keys.
+    if (capturedProviderPolicy != null && json is Map<String, Object?>) {
+      final captured = jsonDecode(
+        utf8.decode(base64Decode(capturedProviderPolicy)),
+      ) as Map<String, Object?>;
+      json['providers'] = captured['providers'];
     }
     return _parse(path, json);
   }

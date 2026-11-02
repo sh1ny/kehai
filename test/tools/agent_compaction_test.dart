@@ -59,6 +59,83 @@ void main() {
     await _assertChildUsesSnapshot(args);
   });
 
+  for (final invalid in [
+    {'threshold': 999},
+    {'strategy': 'local_summary'},
+  ]) {
+    test(
+      'child process uses captured policy after invalid edit $invalid',
+      () async {
+        final captured = UserConfig(
+          providers: {
+            'openai': ProviderConfig(
+              compaction: const CompactionSettings(threshold: 80000),
+            ),
+          },
+        );
+        await _assertChildUsesSnapshot(
+          await _command(captured),
+          laterCompaction: invalid,
+        );
+      },
+    );
+  }
+
+  test(
+    'production startup keeps legacy hint and backend window distinct',
+    () async {
+      final home = TestHome();
+      home.store.replace(loggedInRecord());
+      File(p.join(home.path, 'config.json')).writeAsStringSync(
+        jsonEncode({
+          'model': 'gpt-fake',
+          'models': {
+            'gpt-fake': {'contextWindow': 160000},
+          },
+        }),
+      );
+      final fake = await FakeOpenAi.start();
+      fake.defaultModels = {
+        'models': [
+          {
+            'slug': 'gpt-fake',
+            'display_name': 'Fake',
+            'visibility': 'list',
+            'supported_in_api': true,
+            'context_window': 500000,
+          },
+        ],
+      };
+      final engine = await rpc.startEngine(
+        [],
+        home: home,
+        workspace: await tempDir(),
+        fake: fake,
+      );
+      try {
+        expect((await engine.nextLine())['type'], 'hello');
+        final snapshot = await engine.nextLine();
+        expect(snapshot['type'], 'snapshot');
+        final status = snapshot['compaction']! as Map;
+        expect(status['backendWindow'], 500000);
+        expect(status['legacyWindowHint'], 160000);
+        expect(status['window'], isNull);
+        expect(status['windowSource'], 'unknown');
+        expect(
+          status['migrationNotice'],
+          contains('models.gpt-fake.contextWindow'),
+        );
+        await engine.process.stdin.close();
+        expect(await engine.exitCode(), 0, reason: await engine.stderrText);
+      } finally {
+        engine.process.kill();
+        await engine.process.exitCode;
+        await engine.lines.cancel();
+        await engine.stderrText;
+      }
+    },
+  );
+
   test('context-compaction: Invalid launch payload', () async {
     for (final payload in [
       'not base64!',
@@ -189,16 +266,17 @@ void main() {
   });
 }
 
-Future<void> _assertChildUsesSnapshot(List<String> capturedArgs) async {
+Future<void> _assertChildUsesSnapshot(
+  List<String> capturedArgs, {
+  Map<String, Object?> laterCompaction = const {'threshold': 77777},
+}) async {
   final home = TestHome();
   home.store.replace(loggedInRecord());
   File(p.join(home.path, 'config.json')).writeAsStringSync(
     jsonEncode({
       'effort': 'low',
       'providers': {
-        'openai': {
-          'compaction': {'threshold': 77777},
-        },
+        'openai': {'compaction': laterCompaction},
       },
     }),
   );
