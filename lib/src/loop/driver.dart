@@ -1184,9 +1184,10 @@ final class _Streamed {
 bool _fieldRejected(ProviderFailure failure) =>
     (failure.kind == ProviderFailureKind.invalidRequest ||
         failure.kind == ProviderFailureKind.notPermitted) &&
-    ('${failure.code ?? ''} ${failure.message}').toLowerCase().contains(
-      'context_management',
-    );
+    (failure.param == 'context_management' ||
+        ('${failure.code ?? ''} ${failure.message}').toLowerCase().contains(
+          'context_management',
+        ));
 
 String _nativeMessage(String reason) =>
     'native compaction stopped: $reason; '

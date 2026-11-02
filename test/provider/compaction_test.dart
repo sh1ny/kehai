@@ -62,6 +62,7 @@ void main() {
   late ChatGptAdapter adapter;
   var script = <Map<String, Object?>>[];
   var requests = 0;
+  Map<String, Object?>? rejection;
   final bodies = <Map<String, Object?>>[];
 
   setUp(() async {
@@ -95,6 +96,7 @@ void main() {
       );
     script = [];
     requests = 0;
+    rejection = null;
     bodies.clear();
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
@@ -103,6 +105,12 @@ void main() {
         jsonDecode(await utf8.decoder.bind(request).join())
             as Map<String, Object?>,
       );
+      if (rejection != null) {
+        request.response.statusCode = HttpStatus.forbidden;
+        request.response.write(jsonEncode({'error': rejection}));
+        await request.response.close();
+        return;
+      }
       // Deliberately no Content-Type, as in the observed route response.
       for (final event in script) {
         request.response.write('data: ${jsonEncode(event)}\n\n');
@@ -131,6 +139,72 @@ void main() {
     expect(events.whereType<Completed>(), isEmpty);
     expect(requests, 1);
   }
+
+  test('403 param-only rejection durably disables native attempts', () async {
+    rejection = {
+      'code': 'forbidden',
+      'param': 'context_management',
+      'message': 'Request denied',
+    };
+    final dir = await tempDir();
+    var writer = await SessionWriter.create(dir);
+    addTearDown(() => writer.close());
+
+    Future<void> attempt(String id) async {
+      final runtime = await ToolRuntime.attach(
+        writer,
+        ResultStore(writer.sessionDir),
+        workspace: writer.sessionDir,
+        gate: const AllowAllStage(),
+        config: const UserConfig(
+          providers: {
+            'openai': ProviderConfig(
+              compaction: CompactionSettings(
+                strategy: CompactionStrategy.providerNative,
+              ),
+            ),
+          },
+        ),
+      );
+      final driver = ExchangeDriver(
+        writer: writer,
+        runtime: runtime,
+        provider: adapter,
+        model: 'gpt-5.5',
+      );
+      try {
+        final submitted = await driver.submit(
+          id: id,
+          text: 'go',
+          turn: writer.currentTurn,
+        ) as SubmitAdmitted;
+        final result = await submitted.done;
+        expect(result.state, 'stopped');
+        expect(result.reason, contains('context_management rejected'));
+      } finally {
+        await driver.close();
+        await runtime.close();
+      }
+    }
+
+    await attempt('first');
+    expect(requests, 1);
+    expect(bodies.single, contains('context_management'));
+    await writer.close();
+    writer = await SessionWriter.open(writer.sessionDir);
+    final steps = writer.tree.get(SessionPath.parse('body/steps')) as Map;
+    final first = steps.values.single as Map;
+    expect(first['capability'], {
+      'state': 'unsupported',
+      'reason': 'context_management rejected',
+    });
+    await attempt('after-reopen');
+    expect(
+      requests,
+      1,
+      reason: 'Unsupported evidence must prevent another send',
+    );
+  });
 
   for (final identity in ['item-id', 'done-id-only', 'null-id']) {
     test(

@@ -24,7 +24,10 @@ ProviderFailure mapBackendError(
     kind,
     status: status,
     code: code,
-    param: kind == FailureKind.invalidRequest ? fields.param : null,
+    param:
+        kind == FailureKind.invalidRequest || kind == FailureKind.notPermitted
+        ? fields.param
+        : null,
   );
   return ProviderFailure(
     kind: kind,
