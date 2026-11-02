@@ -14,15 +14,20 @@ A provider SHALL turn one model request into an ordered event stream that ends w
 - **THEN** the stream ends with `failed` of kind `protocol`, saying the stream ended before completion, and no `completed` event is emitted
 
 ### Requirement: Token-sharing request rules
-Every request SHALL follow OpenAI's token-sharing rules: `store: false` and `stream: true`; the complete current conversation projection in `input` (latest eligible compaction item and its suffix when compacted), with no `previous_response_id`; top-level `instructions`, never a system message item; function tools only in an `additional_tools` input item first in `input`, never top-level `tools`; and encrypted reasoning content requested. It SHALL omit every field those rules reject (listed in the scenario below).
+Every request SHALL follow OpenAI's token-sharing rules: `store: false` and `stream: true`; the complete current conversation projection in `input` (latest eligible compaction item and its suffix when compacted), with no `previous_response_id`; top-level `instructions`, never a system message item; function tools only in a single `additional_tools` input item when tools are non-empty, never top-level `tools`; and encrypted reasoning content requested. On requests containing a selected compaction item, `additional_tools` SHALL appear immediately after that item and before the retained suffix; on uncompacted requests it SHALL be first in `input`. Opaque item contents, call/result pairing, `tool_choice: auto` and instructions SHALL remain unchanged. It SHALL omit every field those rules reject (listed in the scenario below).
 
 #### Scenario: Token-sharing body
-- **WHEN** a turn with instructions, three earlier conversation items and one tool is sent
+- **WHEN** an uncompacted turn with instructions, three earlier conversation items and one tool is sent
 - **THEN** the body carries top-level `instructions`, an `input` whose first item is `additional_tools` holding one `function` tool followed by the three items, and `include` with `reasoning.encrypted_content`, and has no top-level `tools`, no `previous_response_id`, no system item, and none of `background`, `conversation`, `max_output_tokens`, `max_tool_calls`, `metadata`, `moderation`, `multi_agent`, `prompt`, `prompt_cache_retention`, `safety_identifier`, `temperature`, `top_logprobs`, `top_p`, `truncation` or `user`
 
 #### Scenario: Compacted token-sharing body
 - **WHEN** native compaction is enabled with threshold 100000
 - **THEN** the body also carries `context_management: [{"type":"compaction","compact_threshold":100000}]`, while retaining all other token-sharing rules and no `previous_response_id`
+
+#### Scenario: Tools re-established after a replayed boundary
+- **WHEN** a request with non-empty tools replays the selected opaque compaction item and a retained suffix, including a settled function call and its result
+- **THEN** `input` contains the unchanged compaction item, immediately followed by exactly one `additional_tools` item with the current tool definitions, then the unchanged retained suffix with its call/result pairing; top-level instructions and `tool_choice: auto` are unchanged and no top-level `tools` key is sent
+- **AND** reconstructing the same request after journal reopen preserves this ordering, so a backend that resets tool registration at the compaction item receives the tools again before the suffix
 
 ### Requirement: Model listing
 The provider SHALL list models from `GET https://api.openai.com/v1/models` with the plan access token. For each model it returns the slug as id, the display name, and the context window from `context_window` when that is an integer greater than 1, otherwise no window. This value SHALL be labelled backend-reported metadata, not a verified route limit. The ChatGPT-account route SHALL expose its effective window as unknown unless route-qualified configuration supplies it. It omits models whose `visibility` is not `list`, and models marked `supported_in_api: false`. It SHALL read at most 4 MiB of the response before decoding; a larger response fails with kind `protocol`.
