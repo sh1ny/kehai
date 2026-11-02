@@ -11,6 +11,7 @@ import '../results/composer.dart';
 import '../results/handles.dart';
 import '../session/path.dart';
 import '../session/tree.dart';
+import 'compaction_state.dart';
 import 'instructions.dart';
 import 'sensorium.dart';
 
@@ -83,6 +84,8 @@ final class BuiltRequest {
     required this.blockText,
     required this.lineage,
     required this.boundary,
+    required this.retained,
+    required this.quality,
   });
 
   /// The provider, route, model and captured instruction/tool identity.
@@ -96,6 +99,12 @@ final class BuiltRequest {
 
   /// The estimated context in use, or null until compacted usage is known.
   final int? used;
+
+  /// The estimated non-opaque instructions, tools, suffix, notes and sensorium.
+  final int retained;
+
+  /// The provenance of the total context estimate, or its unknown state.
+  final String quality;
 
   /// The model's context window, or null when unknown.
   final int? window;
@@ -123,6 +132,7 @@ final class RequestBuilder {
     required this.tools,
     required this.estimateRequest,
     this.window,
+    this.windowEstimated = false,
     this.estimate = estimateItem,
     this.clock = DateTime.now,
     this.roleInstructions,
@@ -168,6 +178,9 @@ final class RequestBuilder {
 
   /// The context window in tokens, or null when unknown.
   final int? window;
+
+  /// Whether the effective window is a user-configured estimate.
+  final bool windowEstimated;
 
   /// Estimates one item.
   final ItemEstimator estimate;
@@ -229,6 +242,11 @@ final class RequestBuilder {
       lineage,
     );
 
+    final notice = compactionRecoveryNotice(tree, lineage);
+    if (notice != null) {
+      items.add(BuiltItem(UserMessage(notice), turn, ItemRole.note));
+    }
+
     ModelRequest requestWith(String block) => ModelRequest(
       model: model,
       reasoningEffort: effort,
@@ -246,6 +264,8 @@ final class RequestBuilder {
       used: used,
       window: window,
       model: model,
+      usedEstimated: true,
+      windowEstimated: windowEstimated,
     );
 
     int blockTokens(String block) => estimate(UserMessage(block));
@@ -266,8 +286,46 @@ final class RequestBuilder {
         ? null
         : base - provisionalTokens + blockTokens(render(base));
     final finalBlock = render(used);
+    final request = requestWith(finalBlock);
+    final nonOpaque = request.items
+        .where(
+          (item) =>
+              item is! OpaqueCompactionItem && item is! OpaqueReasoningItem,
+        )
+        .toList();
+    final nonOpaqueRequest = ModelRequest(
+      model: model,
+      instructions: instructions,
+      items: nonOpaque,
+      tools: tools,
+      sessionId: request.sessionId,
+      reasoningEffort: effort,
+      nativeCompaction: nativeCompaction,
+    );
+    final providerRetained = estimateRequest(nonOpaqueRequest);
+    final localRetained =
+        estimateText(instructions) +
+        estimateText(
+          jsonEncode([
+            for (final tool in tools)
+              {
+                'name': tool.name,
+                'description': tool.description,
+                'parameters': tool.parametersJsonSchema,
+              },
+          ]),
+        ) +
+        nonOpaque.fold<int>(0, (sum, item) => sum + estimate(item));
     return BuiltRequest(
-      request: requestWith(finalBlock),
+      request: request,
+      retained: providerRetained > localRetained
+          ? providerRetained
+          : localRetained,
+      quality: used == null
+          ? 'unknown compacted usage'
+          : baseline == null
+          ? 'estimated full request'
+          : 'estimated from compatible usage',
       used: used,
       window: window,
       block: blockTokens(finalBlock),

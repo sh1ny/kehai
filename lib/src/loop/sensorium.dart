@@ -45,15 +45,19 @@ String sensoriumBlock({
   required int? used,
   required int? window,
   required String model,
+  bool usedEstimated = false,
+  bool windowEstimated = false,
 }) {
   String two(int n) => n.toString().padLeft(2, '0');
   final percent = window == null || used == null
       ? ''
-      : ' (${(used * 100 / window).round()}%)';
+      : ' (${usedEstimated || windowEstimated ? '~' : ''}${(used * 100 / window).round()}%)';
+  String count(int? n, bool estimated) =>
+      n == null ? '?' : '${estimated ? '~' : ''}${formatTokens(n)}';
   return '<sensorium>\n'
       'turn: $turn · full · ${two(now.hour)}:${two(now.minute)} · '
       'cwd $workspaceName\n'
-      'budget: ${used == null ? '?' : formatTokens(used)}/${window == null ? '?' : formatTokens(window)}'
+      'budget: ${count(used, usedEstimated)}/${count(window, windowEstimated)}'
       ' ctx$percent · model $model\n'
       '</sensorium>';
 }

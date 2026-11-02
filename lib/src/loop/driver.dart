@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 
 import '../config/user_config.dart';
 import '../provider/provider.dart';
+import '../provider/chatgpt_request.dart';
 import '../session/path.dart';
 import '../session/record.dart';
 import '../session/requests.dart';
@@ -18,6 +19,7 @@ import '../session/writer.dart';
 import '../tools/runtime.dart';
 import '../workspace/inventory.dart';
 import '../workspace/load.dart';
+import 'compaction_state.dart';
 import 'instructions.dart';
 import 'request_builder.dart';
 import 'retry.dart';
@@ -164,19 +166,34 @@ final class ExchangeDriver {
   /// Creates a driver for [writer] and [runtime] that sends requests for
   /// [model] to [provider].
   ///
-  /// [contextWindow] is the model's window or null when unknown.
+  /// [contextWindow] is backend metadata; ChatGPT-account capacity is resolved
+  /// separately from route-qualified configuration.
   ExchangeDriver({
     required this.writer,
     required this.runtime,
     required this.provider,
     required this.model,
-    this.contextWindow,
+    int? contextWindow,
     DateTime Function()? clock,
     this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
     this.childRole,
     this.effort,
-  }) : _builder = RequestBuilder(
+  }) : capacity = runtime.config.resolveCapacity(
+         provider.id,
+         'chatgpt-account',
+         model,
+         backendContextWindow: contextWindow,
+       ),
+       contextWindow = runtime.config
+           .resolveCapacity(
+             provider.id,
+             'chatgpt-account',
+             model,
+             backendContextWindow: contextWindow,
+           )
+           .contextWindow,
+       _builder = RequestBuilder(
          sessionDir: writer.sessionDir,
          model: model,
          effort: effort,
@@ -195,7 +212,24 @@ final class ExchangeDriver {
          workspaceName: p.basename(runtime.workspace.path),
          tools: runtime.specs,
          estimateRequest: (request) => provider.estimate(request).tokens,
-         window: contextWindow,
+         window: runtime.config
+             .resolveCapacity(
+               provider.id,
+               'chatgpt-account',
+               model,
+               backendContextWindow: contextWindow,
+             )
+             .contextWindow,
+         windowEstimated:
+             runtime.config
+                 .resolveCapacity(
+                   provider.id,
+                   'chatgpt-account',
+                   model,
+                   backendContextWindow: contextWindow,
+                 )
+                 .source ==
+             'user-configured estimate',
          clock: clock ?? DateTime.now,
        );
 
@@ -216,6 +250,9 @@ final class ExchangeDriver {
 
   /// The context window in tokens, or null when unknown.
   final int? contextWindow;
+
+  /// The effective route capacity and its distinct raw metadata/provenance.
+  final RouteCapacity capacity;
 
   /// Decides whether a failed request is sent again.
   final RetryPolicy retryPolicy;
@@ -603,8 +640,51 @@ final class ExchangeDriver {
       'window': ?contextWindow,
       'block': built.block,
       'estimated': true,
+      'quality': built.quality,
+      'retained': built.retained,
+      'windowSource': capacity.source,
+      'backendWindow': ?capacity.backendContextWindow,
+      'legacyWindowHint': ?capacity.legacyHint,
+      'migrationNotice': ?capacity.migrationNotice,
     };
-    if (built.overflow) {
+    final native = policy.strategy == CompactionStrategy.providerNative;
+    final evidence = CompactionState.fold(
+      writer.tree,
+      built.lineage,
+      policy,
+      built.boundary,
+    );
+    final calibration = native && built.boundary != null && built.used == null;
+    context['calibration'] = calibration;
+    await _mergeStep(turn, {'capability': evidence.toJson()});
+    String? nativeStop;
+    if (native && evidence.state == 'unsupported') {
+      nativeStop = evidence.reason;
+    } else if (native &&
+        encodeChatGptBody(buildChatGptBody(built.request)) == null) {
+      nativeStop = 'serialized request exceeds 1 MiB';
+    } else if (calibration && evidence.calibrationConsumed) {
+      nativeStop = 'calibration allowance consumed';
+    } else if (calibration && built.retained * 2 > policy.threshold) {
+      nativeStop = 'retained-content calibration cap exceeded';
+    } else if (native &&
+        !calibration &&
+        built.used! > (policy.threshold * 5 + 3) ~/ 4) {
+      nativeStop = 'submission safety ceiling exceeded';
+    }
+    if (nativeStop != null) {
+      await _mergeStep(turn, {
+        'state': 'failed',
+        'reason': _nativeMessage(nativeStop),
+        'nativeStop': nativeStop,
+        'context': context,
+      });
+      return _End('stopped', _nativeMessage(nativeStop));
+    }
+    if (built.overflow ||
+        (calibration &&
+            contextWindow != null &&
+            built.retained > contextWindow!)) {
       final message = _overflowMessage(built.used);
       await _mergeStep(turn, {
         'state': 'failed',
@@ -614,6 +694,8 @@ final class ExchangeDriver {
       return _End('stopped', message);
     }
 
+    // Consumption is durable before the provider can observe the request.
+    if (calibration) await _mergeStep(turn, {'calibration': true});
     var attempts = 0;
     _Streamed streamed;
     while (true) {
@@ -623,6 +705,7 @@ final class ExchangeDriver {
       if (failure == null || failure.kind == ProviderFailureKind.cancelled) {
         break;
       }
+      if (calibration || (native && _fieldRejected(failure))) break;
       final delay = retryPolicy.delayFor(failure, attempts);
       if (delay == null) break;
       await _wait(delay, token);
@@ -644,6 +727,12 @@ final class ExchangeDriver {
         state = 'cancelled';
         reason = _cancelReason;
         end = _End('cancelled', _cancelReason);
+      } else if (native && _fieldRejected(failure!)) {
+        state = 'failed';
+        reason = 'context_management rejected';
+        evidence.state = 'unsupported';
+        evidence.reason = reason;
+        end = _End('stopped', _nativeMessage(reason));
       } else if (failure!.kind == ProviderFailureKind.contextOverflow) {
         state = 'failed';
         reason = 'context overflow';
@@ -662,12 +751,17 @@ final class ExchangeDriver {
         'state': state,
         'reason': reason,
         'attempts': attempts,
+        'capability': evidence.toJson(),
+        if (native && evidence.state == 'unsupported')
+          'nativeStop': evidence.reason,
         if (failure != null)
           'failure': {
             'kind': failure.kind.wire,
-            'message': failure.message,
+            'message': native && _fieldRejected(failure)
+                ? 'context_management rejected'
+                : failure.message,
             'status': ?failure.status,
-            'code': ?failure.code,
+            if (!(native && _fieldRejected(failure))) 'code': ?failure.code,
             'sent': failure.sent,
           },
         if (partial.isNotEmpty) 'partial': partial,
@@ -677,10 +771,29 @@ final class ExchangeDriver {
       return end;
     }
 
+    String? completionStop;
+    if (native) {
+      if (parts.any((part) => part is _CompactionPart)) {
+        evidence.state = 'observed-supported';
+        evidence.reason = 'compaction item observed';
+      } else if ((streamed.usage?.input ?? built.used ?? 0) >=
+          policy.threshold) {
+        evidence.state = 'unsupported';
+        evidence.reason = streamed.usage?.input == null
+            ? 'estimated input at threshold without compaction'
+            : 'no compaction item at threshold';
+        completionStop = evidence.reason;
+      } else if (calibration &&
+          (streamed.usage?.input == null || streamed.usage?.output == null)) {
+        completionStop = 'calibration usage unavailable';
+      }
+    }
     await seams.beforeStepCommit?.call(turn);
     await _mergeStep(turn, {
       'state': 'completed',
       'stop': streamed.stop!.wire,
+      'capability': evidence.toJson(),
+      'nativeStop': ?completionStop,
       'attempts': attempts,
       if (streamed.usage case final usage?) 'usage': _usageJson(usage),
       'context': context,
@@ -697,6 +810,9 @@ final class ExchangeDriver {
         ),
     ];
     if (calls.isEmpty) {
+      if (completionStop != null && !token.isCancelled) {
+        return _End('stopped', _nativeMessage(completionStop));
+      }
       // An interrupt during the commit still cancels the exchange; the step
       // arrived whole and stays committed.
       return token.isCancelled
@@ -714,6 +830,9 @@ final class ExchangeDriver {
     }
     final broken = errors.nonNulls.firstOrNull;
     if (broken != null) return _End('failed', 'tool runtime error: $broken');
+    if (completionStop != null) {
+      return _End('stopped', _nativeMessage(completionStop));
+    }
     return const _Continue();
   }
 
@@ -963,3 +1082,14 @@ final class _Streamed {
     return [...indexed, ..._parts.where((part) => part.index == null)];
   }
 }
+
+bool _fieldRejected(ProviderFailure failure) =>
+    (failure.kind == ProviderFailureKind.invalidRequest ||
+        failure.kind == ProviderFailureKind.notPermitted) &&
+    ('${failure.code ?? ''} ${failure.message}').toLowerCase().contains(
+      'context_management',
+    );
+
+String _nativeMessage(String reason) =>
+    'native compaction stopped: $reason; '
+    'explicitly select off or a different policy, rewind, or start a new session';

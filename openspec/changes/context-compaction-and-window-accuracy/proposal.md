@@ -31,7 +31,7 @@ Targets `lib/src/provider/`, `lib/src/loop/`, `lib/src/config/user_config.dart`,
 
 ## Release Notes
 
-Add native compaction configuration, provider protocol support and journal-derived continuity with complete no-effect call recovery. Compacted token usage remains unknown until compatible completed usage exists; capability evidence, calibration admission and remaining presentation follow in later groups.
+Add native compaction configuration, protocol support, journal-derived continuity and no-effect call recovery. Native submissions now use durable capability evidence, bounded admission and one recorded calibration allowance per boundary. Budgets distinguish estimates, unknown compacted usage and route-qualified capacity; child and RPC/client integration follow in group 6.
 
 ### Added
 - ADR 0015 defining opaque continuity, lineage validation, captured policy, call recovery and route-qualified capacity.
@@ -39,8 +39,11 @@ Add native compaction configuration, provider protocol support and journal-deriv
 - Inline native request policy and bounded indexed opaque compaction collection, including headerless SSE and done-message reconciliation.
 - Completed opaque output, admission lineage/policy and latest-boundary-first suffix reconstruction with pre-cut verbatim result notes.
 - Guarded recovery of every committed call position, including missing runtime admissions, without replaying effects.
+- Journal-derived, policy-specific native capability evidence with explicit recovery notices and no silent fallback.
+- Bounded native submission and one admission-recorded calibration attempt per boundary, including interruption and partial-usage guards.
 
 ### Changed
 - ChatGPT-account capacity resolution uses route-qualified estimates; legacy windows remain hints with migration notices, separate from backend metadata.
 - Usage baselines require matching lineage/boundary; new compacted projections show unknown total usage without estimating ciphertext.
+- Estimated counts, configured windows and percentages are visibly approximate; unknown compacted usage suppresses percentages.
 - Compacted sessions require upgrade-only writers; unknown output kinds and incompatible continuity stop visibly.

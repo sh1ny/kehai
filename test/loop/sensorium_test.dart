@@ -125,13 +125,13 @@ void main() {
         expect(built.used, 41200);
         expect(
           _budgetLine(built),
-          'budget: 41k/200k ctx (21%) · model gpt-5.5',
+          'budget: ~41k/200k ctx (~21%) · model gpt-5.5',
         );
         expect(
           built.blockText,
           '<sensorium>\n'
           'turn: 14 · full · 09:05 · cwd proj\n'
-          'budget: 41k/200k ctx (21%) · model gpt-5.5\n'
+          'budget: ~41k/200k ctx (~21%) · model gpt-5.5\n'
           '</sensorium>',
         );
       },
@@ -154,7 +154,7 @@ void main() {
         window: null,
       ).build(writer.tree, turn: 14);
 
-      expect(_budgetLine(built), 'budget: 41k/? ctx · model gpt-5.5');
+      expect(_budgetLine(built), 'budget: ~41k/? ctx · model gpt-5.5');
       expect(built.overflow, isFalse);
     });
 

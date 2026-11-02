@@ -16,7 +16,7 @@
 | agent-loop → Requests rebuilt from the tree | Incompatible boundary | `test/loop/compaction_test.dart` | `agent-loop: Incompatible boundary` | green |
 | agent-loop → Context overflow stops the exchange | Estimate over the window | `test/loop/driver_test.dart` | `Context overflow estimate over a known window stops before sending` | green |
 | agent-loop → Context overflow stops the exchange | Provider reports overflow | `test/loop/driver_test.dart` | `Context overflow provider context_overflow stops the exchange without retry` | green |
-| agent-loop → Context overflow stops the exchange | Compaction missing at safety threshold | `test/loop/compaction_test.dart` | `agent-loop: Compaction missing at safety threshold` | red |
+| agent-loop → Context overflow stops the exchange | Compaction missing at safety threshold | `test/loop/compaction_test.dart` | `agent-loop: Compaction missing at safety threshold` | green |
 | agent-loop → Every committed call has a recoverable outcome | Normal settlement across the cut | `test/loop/compaction_test.dart` | `agent-loop: Normal settlement across the cut` | green |
 | agent-loop → Every committed call has a recoverable outcome | Death before any runtime admission | `test/loop/compaction_test.dart` | `agent-loop: Death before any runtime admission` | green |
 | agent-loop → Every committed call has a recoverable outcome | Partial admission and repeated reopen | `test/loop/compaction_test.dart` | `agent-loop: Partial admission and repeated reopen` | green |
@@ -24,22 +24,22 @@
 | context-compaction → Route and model compaction policy | Model override | `test/config/compaction_config_test.dart` | `context-compaction: Model override` | green |
 | context-compaction → Route and model compaction policy | Invalid or reserved configuration | `test/config/compaction_config_test.dart` | `context-compaction: Invalid or reserved configuration` | green |
 | context-compaction → Route and model compaction policy | Explicit off | `test/config/compaction_config_test.dart` | `context-compaction: Explicit off` | green |
-| context-compaction → Visible runtime capability detection | Observed support | `test/loop/compaction_test.dart` | `context-compaction: Observed support` | red |
-| context-compaction → Visible runtime capability detection | Threshold request silently ignored | `test/loop/compaction_test.dart` | `context-compaction: Threshold request silently ignored` | red |
-| context-compaction → Visible runtime capability detection | Field rejected | `test/loop/compaction_test.dart` | `context-compaction: Field rejected` | red |
-| context-compaction → Visible runtime capability detection | Below threshold or inconclusive | `test/loop/compaction_test.dart` | `context-compaction: Below threshold or inconclusive` | red |
+| context-compaction → Visible runtime capability detection | Observed support | `test/loop/compaction_test.dart` | `context-compaction: Observed support` | green |
+| context-compaction → Visible runtime capability detection | Threshold request silently ignored | `test/loop/compaction_test.dart` | `context-compaction: Threshold request silently ignored` | green |
+| context-compaction → Visible runtime capability detection | Field rejected | `test/loop/compaction_test.dart` | `context-compaction: Field rejected` | green |
+| context-compaction → Visible runtime capability detection | Below threshold or inconclusive | `test/loop/compaction_test.dart` | `context-compaction: Below threshold or inconclusive` | green |
 | context-compaction → Native boundary and lineage | Two compaction items | `test/loop/compaction_test.dart` | `context-compaction: Two compaction items` | green |
 | context-compaction → Native boundary and lineage | Rewind across boundary | `test/loop/compaction_test.dart` | `context-compaction: Rewind across boundary` | green |
 | context-compaction → Native boundary and lineage | Changed model or instructions | `test/loop/compaction_test.dart` | `context-compaction: Changed model or instructions` | green |
 | context-compaction → Preserved state and safe absence | Replay and fork after compaction | `test/loop/compaction_test.dart` | `context-compaction: Replay and fork after compaction` | green |
-| context-compaction → Preserved state and safe absence | Unsupported policy stays explicit | `test/loop/compaction_test.dart` | `context-compaction: Unsupported policy stays explicit` | red |
+| context-compaction → Preserved state and safe absence | Unsupported policy stays explicit | `test/loop/compaction_test.dart` | `context-compaction: Unsupported policy stays explicit` | green |
 | context-compaction → Preserved state and safe absence | Mixed lineage history | `test/loop/compaction_test.dart` | `context-compaction: Mixed lineage history` | green |
-| context-compaction → Bounded native submission and calibration | Successful calibration despite old large usage | `test/loop/compaction_test.dart` | `context-compaction: Successful calibration despite old large usage` | red |
-| context-compaction → Bounded native submission and calibration | Ordinary or suffix admission refuses | `test/loop/compaction_test.dart` | `context-compaction: Ordinary or suffix admission refuses` | red |
-| context-compaction → Bounded native submission and calibration | Calibration has no usage or dies | `test/loop/compaction_test.dart` | `context-compaction: Calibration has no usage or dies` | red |
-| context-compaction → Durable capability evidence | Estimate-based missing compaction | `test/loop/compaction_test.dart` | `context-compaction: Estimate-based missing compaction` | red |
-| context-compaction → Durable capability evidence | Resume and policy change | `test/loop/compaction_test.dart` | `context-compaction: Resume and policy change` | red |
-| context-compaction → Durable capability evidence | Rewind removes evidence | `test/loop/compaction_test.dart` | `context-compaction: Rewind removes evidence` | red |
+| context-compaction → Bounded native submission and calibration | Successful calibration despite old large usage | `test/loop/compaction_test.dart` | `context-compaction: Successful calibration despite old large usage` | green |
+| context-compaction → Bounded native submission and calibration | Ordinary or suffix admission refuses | `test/loop/compaction_test.dart` | `context-compaction: Ordinary or suffix admission refuses` | green |
+| context-compaction → Bounded native submission and calibration | Calibration has no usage or dies | `test/loop/compaction_test.dart` | `context-compaction: Calibration has no usage or dies` | green |
+| context-compaction → Durable capability evidence | Estimate-based missing compaction | `test/loop/compaction_test.dart` | `context-compaction: Estimate-based missing compaction` | green |
+| context-compaction → Durable capability evidence | Resume and policy change | `test/loop/compaction_test.dart` | `context-compaction: Resume and policy change` | green |
+| context-compaction → Durable capability evidence | Rewind removes evidence | `test/loop/compaction_test.dart` | `context-compaction: Rewind removes evidence` | green |
 | context-compaction → Captured child policy selection | Different child model and later config edit | `test/tools/agent_compaction_test.dart` | `context-compaction: Different child model and later config edit` | red |
 | context-compaction → Captured child policy selection | Invalid launch payload | `test/tools/agent_compaction_test.dart` | `context-compaction: Invalid launch payload` | red |
 | context-compaction → Reconstructed visible compaction status | Reconnect after observed compaction | `test/rpc/compaction_status_test.dart` | `context-compaction: Reconnect after observed compaction` | red |
@@ -59,18 +59,18 @@
 | model-provider → Route-qualified capacity configuration | Qualified window | `test/config/compaction_config_test.dart` | `model-provider: Qualified window` | green |
 | model-provider → Route-qualified capacity configuration | Legacy misleading window | `test/config/compaction_config_test.dart` | `model-provider: Legacy misleading window` | green |
 | model-provider → Route-qualified capacity configuration | Invalid qualified capacity | `test/config/compaction_config_test.dart` | `model-provider: Invalid qualified capacity` | green |
-| turn-perception → Turn and budget sections | Known window | `test/loop/compaction_budget_test.dart` | `turn-perception: Known window` | red |
+| turn-perception → Turn and budget sections | Known window | `test/loop/compaction_budget_test.dart` | `turn-perception: Known window` | green |
 | turn-perception → Turn and budget sections | Unknown window | `test/loop/sensorium_test.dart` | `Turn and budget sections budget line with an unknown window shows ? and no percent` | green |
-| turn-perception → Turn and budget sections | Estimated window | `test/loop/compaction_budget_test.dart` | `turn-perception: Estimated window` | red |
-| turn-perception → Turn and budget sections | Unqualified metadata | `test/loop/compaction_budget_test.dart` | `turn-perception: Unqualified metadata` | red |
+| turn-perception → Turn and budget sections | Estimated window | `test/loop/compaction_budget_test.dart` | `turn-perception: Estimated window` | green |
+| turn-perception → Turn and budget sections | Unqualified metadata | `test/loop/compaction_budget_test.dart` | `turn-perception: Unqualified metadata` | green |
 | turn-perception → Context in use | After a step with usage | `test/loop/sensorium_test.dart` | `Context in use interleaved outputs of the baseline step are counted once by provenance` | green |
 | turn-perception → Context in use | Step without usage | `test/loop/sensorium_test.dart` | `Context in use cancelled step without usage falls back to the last completed step` | green |
 | turn-perception → Context in use | Incomplete step then a new prompt | `test/loop/sensorium_test.dart` | `Context in use incomplete step's usage is not the baseline and the request is sent` | green |
-| turn-perception → Context in use | First request after compaction | `test/loop/compaction_budget_test.dart` | `turn-perception: First request after compaction` | red |
-| turn-perception → Context in use | Usage after compaction | `test/loop/compaction_budget_test.dart` | `turn-perception: Usage after compaction` | red |
-| turn-perception → Context in use | Unknown used context with configured window | `test/loop/compaction_budget_test.dart` | `turn-perception: Unknown used context with configured window` | red |
+| turn-perception → Context in use | First request after compaction | `test/loop/compaction_budget_test.dart` | `turn-perception: First request after compaction` | green |
+| turn-perception → Context in use | Usage after compaction | `test/loop/compaction_budget_test.dart` | `turn-perception: Usage after compaction` | green |
+| turn-perception → Context in use | Unknown used context with configured window | `test/loop/compaction_budget_test.dart` | `turn-perception: Unknown used context with configured window` | green |
 
-Rows initially green are unchanged regressions passed individually on 2026-11-02; implementation groups turn new/changed rows green only after verification. Remaining red rows are planned behavior, not tests already written or executed. Known-window rendering remains red because estimate labels change. Each group reruns relevant green rows without artificial failures. Group 4 also verifies the owner-moved unknown-used/boundary baseline foundation in `test/loop/compaction_test.dart`; group 5 retains the remaining turn-perception rendering/integration rows. Local validation runs one test file at a time, pinned through mise; the full suite is CI-only per repository guard.
+Rows initially green are unchanged regressions passed individually on 2026-11-02; implementation groups turn new/changed rows green only after verification. Remaining red rows are planned behavior, not tests already written or executed. Each group reruns relevant green rows without artificial failures. Group 4 verifies the owner-moved unknown-used/boundary baseline foundation in `test/loop/compaction_test.dart`; group 5 adds the remaining turn-perception rendering/integration coverage without claiming new red evidence for that existing foundation. Local validation runs one test file at a time, pinned through mise; the full suite is CI-only per repository guard.
 
 ## 1. Record the binding contract
 
@@ -95,10 +95,10 @@ Rows initially green are unchanged regressions passed individually on 2026-11-02
 
 ## 5. Capability evidence, admission and budget
 
-- [ ] 5.1 Add failing loop cases for Visible runtime capability detection, Unsupported policy stays explicit, Bounded native submission and calibration, Durable capability evidence and Compaction missing at safety threshold. Include the 120k-input/6k-output deadlock regression, unknown usage, huge post-cut outputs, durable allowance consumption, policy return, resume and rewind. Verify intended failures before changing admission/evidence logic.
-- [ ] 5.2 Implement native threshold detection, qualified unsupported evidence, durable policy-specific status, ordinary ceiling and one bounded admission-recorded calibration allowance per boundary. Never retry a possibly admitted request without the field; retain explicit recovery choices. Document safety ceiling versus unknown route capacity and calibration residual risk. Verify 5.1 passes and existing overflow/retry regressions remain green; update mapped rows.
-- [ ] 5.3 Add failing `test/loop/compaction_budget_test.dart` cases for all remaining red turn-perception rows, including estimate labels, unknown compacted usage with a configured window, first post-boundary request and compatible post-compaction usage. The minimal unknown-used/boundary-aware foundation and its projection tests moved to 4.1–4.2 by owner approval; rerun that coverage without claiming new red evidence for already implemented behavior. Verify remaining rendering/accounting failures before changing that behavior.
-- [ ] 5.4 Build on the unknown-used and lineage/boundary-aware baseline foundation delivered in 4.2; implement the remaining honest unknown/estimated used/window presentation and budget integration without ciphertext-token estimates or obsolete prefix rejection. Capability detection, calibration admission and durable evidence remain in 5.1–5.2. Keep exactly two request-only sensorium lines. Update budget documentation. Verify 5.3 passes and rerun the green sensorium and group 4 foundation rows individually; turn the remaining mapped rows green.
+- [x] 5.1 Add failing loop cases for Visible runtime capability detection, Unsupported policy stays explicit, Bounded native submission and calibration, Durable capability evidence and Compaction missing at safety threshold. Include the 120k-input/6k-output deadlock regression, unknown usage, huge post-cut outputs, durable allowance consumption, policy return, resume and rewind. Verify intended failures before changing admission/evidence logic.
+- [x] 5.2 Implement native threshold detection, qualified unsupported evidence, durable policy-specific status, ordinary ceiling and one bounded admission-recorded calibration allowance per boundary. Never retry a possibly admitted request without the field; retain explicit recovery choices. Document safety ceiling versus unknown route capacity and calibration residual risk. Verify 5.1 passes and existing overflow/retry regressions remain green; update mapped rows.
+- [x] 5.3 Add failing `test/loop/compaction_budget_test.dart` cases for all remaining red turn-perception rows, including estimate labels, unknown compacted usage with a configured window, first post-boundary request and compatible post-compaction usage. The minimal unknown-used/boundary-aware foundation and its projection tests moved to 4.1–4.2 by owner approval; rerun that coverage without claiming new red evidence for already implemented behavior. Verify remaining rendering/accounting failures before changing that behavior.
+- [x] 5.4 Build on the unknown-used and lineage/boundary-aware baseline foundation delivered in 4.2; implement the remaining honest unknown/estimated used/window presentation and budget integration without ciphertext-token estimates or obsolete prefix rejection. Capability detection, calibration admission and durable evidence remain in 5.1–5.2. Keep exactly two request-only sensorium lines. Update budget documentation. Verify 5.3 passes and rerun the green sensorium and group 4 foundation rows individually; turn the remaining mapped rows green.
 
 ## 6. Child and user-visible status integration
 

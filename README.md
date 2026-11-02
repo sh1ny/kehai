@@ -140,9 +140,10 @@ Move the setting to that route-qualified path only with an intentionally chosen
 estimate. Without a qualified value, effective capacity is unknown. Other routes
 retain legacy override/backend-metadata fallback behavior.
 
-Configuration resolution, inline loop policy selection and journal projection are
-available. Capability detection, calibration admission, status/migration-notice
-presentation and captured child-policy launch wiring follow in later groups.
+Configuration resolution, inline loop policy selection, journal projection and
+native admission/evidence are available. Capacity provenance and the legacy
+migration notice are recorded with each step's context. RPC/client status
+presentation and captured child-policy launch wiring follow in the next group.
 
 ### Native provider transport
 
@@ -196,11 +197,54 @@ Compaction invalidates pre-boundary token usage. Until a completed request using
 the same lineage and selected boundary reports usage, total used context is `?`
 with no percentage, even with a configured window. Ciphertext is not a token
 estimate. Compatible completed usage restores the normal baseline; a newer
-boundary invalidates it again. The sensorium remains two request-only lines;
-remaining estimate labels, capability evidence and calibration guards are not
-part of this integration yet.
+boundary invalidates it again. The sensorium remains exactly two request-only
+lines. Estimated used counts show `~`; route-qualified estimated windows and
+percentages are also approximate, for example `~41k/~160k ctx (~26%)`.
+Unknown used context or window suppresses the percentage. Raw backend windows
+and legacy hints are recorded separately, never promoted to ChatGPT-account
+capacity.
 
 **Upgrade-only writing:** compacted sessions use additive output variants in the
 existing journal format. Older binaries that ignore these variants are not safe
 writers for such sessions. This reader fails visibly on an unknown committed
 output kind rather than silently dropping continuity.
+
+### Native capability evidence and admission safety
+
+Capability is **unverified**, **observed-supported**, or **unsupported**, derived
+from surviving journal steps for the current request lineage and effective policy.
+A completed compaction item proves observed behavior, not guaranteed route
+support. At or above the configured threshold, a completed ordinary response
+without a compaction item records `no compaction item at threshold` (reported
+input) or `estimated input at threshold without compaction` (missing usage with
+a conservative estimate). Below-threshold absence, interrupted streams and
+unrelated failures are inconclusive. Rejection identifying `context_management`
+records unsupported immediately; no request is retried without that field.
+
+Unsupported policy stops before another native request, across reopen and a
+return to that policy. Explicitly choosing a different policy starts unverified;
+rewind removes only later evidence. Recovery requires the owner to choose `off`,
+a different policy, rewind, or a new session; there is no automatic fallback.
+After explicit continuation, the next model request includes a deterministic
+notice of the recorded stop reason, without raw server text or ciphertext.
+
+Ordinary native submissions are limited to **ceil(1.25 × threshold)**, as well as
+any qualified route window and the existing **1 MiB serialized-request cap**.
+This ceiling is local safety policy, not a claim about the route's true capacity.
+The default threshold remains **100000**, with minimum **1000**.
+
+A newly committed boundary with unknown opaque size permits **one calibration
+attempt**. Estimated retained non-opaque input (instructions, tools, suffix,
+result notes and fresh sensorium) must fit both half the threshold and any
+qualified window, plus the request-byte cap. The discarded prefix is not an
+admission baseline: a 120k-input/6k-output compaction can calibrate with a small
+retained request. Large suffix outputs or notes stop locally without trimming.
+
+The boundary's allowance is recorded durably **before sending** and survives
+failure, interruption, reopen and policy changes. Calibration is not retried,
+even for a nominally unstarted failure. Missing usage without a new boundary
+records `calibration usage unavailable`, preserves the observed capability and
+stops repeated same-boundary requests; it does not prove threshold crossing.
+Compatible completed usage restores ordinary accounting; a new committed
+boundary gets its own allowance. Opaque tokens remain unknown during calibration:
+there is residual overflow risk, and an overflow stops without resend.

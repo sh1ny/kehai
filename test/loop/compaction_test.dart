@@ -631,6 +631,8 @@ void main() {
       throwsA(predicate((e) => '$e'.contains('conflicting committed call'))),
     );
   });
+
+  group5Tests();
 }
 
 final class _CountTool implements Tool {
@@ -644,4 +646,658 @@ final class _CountTool implements Tool {
     effect();
     return const ToolOutcome(summary: 'settled once');
   }
+}
+
+// Native policy exercised through the real driver with no network adapter.
+final class NativeFake implements ModelProvider {
+  NativeFake(
+    List<List<ProviderEvent>> scripts, {
+    int estimate = 5000,
+    this.onSend,
+  }) : fake = FakeProvider.steps(scripts, estimator: (_) => estimate);
+  final void Function()? onSend;
+  final FakeProvider fake;
+  List<ModelRequest> get requests => fake.requests;
+  @override
+  String get id => 'openai';
+  @override
+  TokenEstimate estimate(ModelRequest request) => fake.estimate(request);
+  @override
+  Future<List<ModelInfo>> listModels() => fake.listModels();
+  @override
+  Stream<ProviderEvent> stream(ModelRequest request, {CancelToken? cancel}) {
+    onSend?.call();
+    return fake.stream(request, cancel: cancel);
+  }
+}
+
+UserConfig nativeConfig({int threshold = 100000, bool off = false}) =>
+    UserConfig(
+      providers: {
+        'openai': ProviderConfig(
+          compaction: CompactionSettings(
+            strategy: off
+                ? CompactionStrategy.off
+                : CompactionStrategy.providerNative,
+            threshold: threshold,
+          ),
+        ),
+      },
+    );
+
+int _nativeRequestId = 0;
+
+Future<ExchangeResult> driveNative(
+  SessionWriter w,
+  NativeFake provider, {
+  UserConfig config = const UserConfig(),
+  String text = 'go',
+}) async {
+  final runtime = await ToolRuntime.attach(
+    w,
+    ResultStore(w.sessionDir),
+    workspace: w.sessionDir,
+    gate: const AllowAllStage(),
+    config: config,
+  );
+  try {
+    final driver = ExchangeDriver(
+      writer: w,
+      runtime: runtime,
+      provider: provider,
+      model: 'gpt-5.5',
+    );
+    final admitted = await driver.submit(
+      id: 'native-${_nativeRequestId++}',
+      text: text,
+      turn: w.currentTurn,
+    ) as SubmitAdmitted;
+    return await admitted.done;
+  } finally {
+    await runtime.close();
+  }
+}
+
+Map<String, Object?> lastStep(SessionWriter w) =>
+    (w.tree.get(SessionPath.parse('body/steps')) as Map).values.last
+        as Map<String, Object?>;
+
+void group5Tests() {
+  const done = Completed(StopReason.endTurn);
+  for (final (label, usage) in [
+    ('empty', const Usage()),
+    ('output only', const Usage(output: 8)),
+    ('input only below threshold', const Usage(input: 1186)),
+  ]) {
+    test(
+      'context-compaction: Calibration $label usage stops without a baseline',
+      () async {
+        final w = await createWriter(await tempDir());
+        await driveNative(
+          w,
+          NativeFake([
+            [CompactionItem(opaque('A'), outputIndex: 0), done],
+          ]),
+        );
+        final p = NativeFake([
+          [usage, done],
+        ]);
+        final result = await driveNative(w, p);
+        expect(result.state, 'stopped');
+        expect(result.reason, contains('calibration usage unavailable'));
+        expect(lastStep(w)['nativeStop'], 'calibration usage unavailable');
+        expect(lastStep(w)['state'], 'completed');
+        expect(lastStep(w)['calibration'], isTrue);
+        expect(lastStep(w)['capability'], {
+          'state': 'observed-supported',
+          'reason': 'compaction item observed',
+        });
+        expect(p.requests, hasLength(1));
+        final dir = w.sessionDir;
+        await w.close();
+        final reopened = await SessionWriter.open(dir);
+        addTearDown(reopened.close);
+        final blocked = NativeFake([
+          [done],
+        ]);
+        expect(
+          (await driveNative(reopened, blocked)).reason,
+          contains('calibration allowance consumed'),
+        );
+        expect(blocked.requests, isEmpty);
+      },
+    );
+  }
+  test('context-compaction: Calibration input alone proves missing compaction at threshold', () async {
+    final w = await createWriter(await tempDir());
+    await driveNative(
+      w,
+      NativeFake([
+        [CompactionItem(opaque('A'), outputIndex: 0), done],
+      ]),
+    );
+    final result = await driveNative(
+      w,
+      NativeFake([
+        [const Usage(input: 100000), done],
+      ]),
+    );
+    expect(result.state, 'stopped');
+    expect(result.reason, contains('no compaction item at threshold'));
+    expect(lastStep(w)['calibration'], isTrue);
+    expect(lastStep(w)['capability'], {
+      'state': 'unsupported',
+      'reason': 'no compaction item at threshold',
+    });
+  });
+  for (final (label, usage) in [
+    ('empty', const Usage()),
+    ('output only', const Usage(output: 8)),
+  ]) {
+    test(
+      'context-compaction: Ordinary $label usage qualifies estimated input',
+      () async {
+        final w = await createWriter(await tempDir());
+        final result = await driveNative(
+          w,
+          NativeFake([
+            [usage, done],
+          ], estimate: 100000),
+        );
+        expect(result.state, 'stopped');
+        expect(
+          result.reason,
+          contains('estimated input at threshold without compaction'),
+        );
+        expect(
+          lastStep(w)['nativeStop'],
+          'estimated input at threshold without compaction',
+        );
+        expect(lastStep(w)['capability'], {
+          'state': 'unsupported',
+          'reason': 'estimated input at threshold without compaction',
+        });
+      },
+    );
+  }
+  test('context-compaction: Unrelated capability rejections do not mark native unsupported', () async {
+    for (final kind in [
+      ProviderFailureKind.invalidRequest,
+      ProviderFailureKind.notPermitted,
+    ]) {
+      final w = await createWriter(await tempDir());
+      final result = await driveNative(
+        w,
+        NativeFake([
+          [
+            Failed(
+              ProviderFailure(
+                kind: kind,
+                code: 'unsupported_capability',
+                message: 'unsupported capability: reasoning_effort',
+                sent: false,
+              ),
+            ),
+          ],
+        ]),
+      );
+      expect(result.state, 'failed');
+      expect(lastStep(w)['nativeStop'], isNull);
+      expect(lastStep(w)['capability'], {
+        'state': 'unverified',
+        'reason': 'no conclusive observation',
+      });
+    }
+  });
+  test('context-compaction: Observed support', () async {
+    final w = await createWriter(await tempDir());
+    final p = NativeFake([
+      [CompactionItem(opaque('A'), outputIndex: 0), done],
+    ]);
+    await driveNative(w, p);
+    expect(lastStep(w)['capability'], {
+      'state': 'observed-supported',
+      'reason': 'compaction item observed',
+    });
+    expect(p.requests.single.nativeCompaction?.threshold, 100000);
+  });
+
+  for (final name in [
+    'context-compaction: Threshold request silently ignored',
+    'agent-loop: Compaction missing at safety threshold',
+  ]) {
+    test(name, () async {
+      final w = await createWriter(await tempDir());
+      final p = NativeFake([
+        [const Usage(input: 100000, output: 6), done],
+      ]);
+      final result = await driveNative(w, p);
+      expect(result.state, 'stopped');
+      expect(result.reason, contains('no compaction item at threshold'));
+      expect(lastStep(w)['state'], 'completed');
+      expect(lastStep(w)['capability'], {
+        'state': 'unsupported',
+        'reason': 'no compaction item at threshold',
+      });
+      expect(p.requests, hasLength(1));
+    });
+  }
+  test('context-compaction: Field rejected', () async {
+    final w = await createWriter(await tempDir());
+    final p = NativeFake([
+      [
+        Failed(
+          ProviderFailure(
+            kind: ProviderFailureKind.invalidRequest,
+            message: 'unsupported context_management SECRET cipher',
+            sent: false,
+          ),
+        ),
+      ],
+    ]);
+    final result = await driveNative(w, p);
+    expect(result.reason, contains('context_management rejected'));
+    expect(lastStep(w)['capability'], {
+      'state': 'unsupported',
+      'reason': 'context_management rejected',
+    });
+    expect(jsonEncode(lastStep(w)), isNot(contains('SECRET')));
+    expect(p.requests, hasLength(1));
+  });
+  test('context-compaction: Below threshold or inconclusive', () async {
+    for (final script in <List<ProviderEvent>>[
+      [const Usage(input: 99999, output: 10000), done],
+      [
+        const Usage(input: 110000, output: 1),
+        Failed(
+          ProviderFailure(
+            kind: ProviderFailureKind.protocol,
+            message: 'stream interrupted',
+          ),
+        ),
+      ],
+      [
+        Failed(
+          ProviderFailure(
+            kind: ProviderFailureKind.invalidRequest,
+            message: 'unrelated rejection',
+          ),
+        ),
+      ],
+    ]) {
+      final w = await createWriter(await tempDir());
+      await driveNative(w, NativeFake([script]));
+      expect(lastStep(w)['capability'], {
+        'state': 'unverified',
+        'reason': 'no conclusive observation',
+      });
+    }
+  });
+  test('context-compaction: Estimate-based missing compaction', () async {
+    final w = await createWriter(await tempDir());
+    final result = await driveNative(
+      w,
+      NativeFake([
+        [done],
+      ], estimate: 100000),
+    );
+    expect(result.state, 'stopped');
+    expect(
+      result.reason,
+      contains('estimated input at threshold without compaction'),
+    );
+    expect((lastStep(w)['capability'] as Map)['state'], 'unsupported');
+  });
+  test('context-compaction: Unsupported policy stays explicit', () async {
+    final w = await createWriter(await tempDir());
+    await driveNative(
+      w,
+      NativeFake([
+        [const Usage(input: 100000, output: 0), done],
+      ]),
+    );
+    final blocked = NativeFake([
+      [done],
+    ]);
+    final result = await driveNative(w, blocked);
+    expect(blocked.requests, isEmpty);
+    expect(result.reason, contains('explicitly select off'));
+    final recovered = NativeFake([
+      [done],
+    ]);
+    await driveNative(w, recovered, config: nativeConfig(off: true));
+    expect(recovered.requests.single.nativeCompaction, isNull);
+    final notices = recovered.requests.single.items
+        .whereType<UserMessage>()
+        .map((i) => i.text)
+        .join('\n');
+    expect(notices, contains('no compaction item at threshold'));
+    expect(notices, isNot(contains('SECRET')));
+  });
+  test(
+    'context-compaction: Successful calibration despite old large usage',
+    () async {
+      final w = await createWriter(await tempDir());
+      await driveNative(
+        w,
+        NativeFake([
+          [
+            const Usage(input: 120000, output: 6000),
+            CompactionItem(opaque('A'), outputIndex: 0),
+            done,
+          ],
+        ]),
+      );
+      final calibrate = NativeFake([
+        [const Usage(input: 1186, output: 8), done],
+      ]);
+      expect((await driveNative(w, calibrate)).state, 'done');
+      expect(lastStep(w)['calibration'], isTrue);
+      final context = lastStep(w)['context'] as Map;
+      expect(context['used'], isNull);
+      expect(context['retained'], lessThanOrEqualTo(50000));
+      final ordinary = NativeFake([
+        [const Usage(input: 1300, output: 8), done],
+      ]);
+      expect((await driveNative(w, ordinary)).state, 'done');
+      expect(lastStep(w)['calibration'], isNot(true));
+      expect((lastStep(w)['context'] as Map)['used'], lessThan(10000));
+    },
+  );
+  test('context-compaction: Ordinary or suffix admission refuses', () async {
+    for (final estimate in [125001, 300000]) {
+      final w = await createWriter(await tempDir());
+      final p = NativeFake([
+        [done],
+      ], estimate: estimate);
+      expect(
+        (await driveNative(w, p)).reason,
+        contains('submission safety ceiling'),
+      );
+      expect(p.requests, isEmpty);
+    }
+    for (final size in [160000, 1100000]) {
+      final w = await createWriter(await tempDir());
+      await driveNative(
+        w,
+        NativeFake([
+          [CompactionItem(opaque('A'), outputIndex: 0), done],
+        ]),
+      );
+      final p = NativeFake([
+        [done],
+      ]);
+      final result = await driveNative(w, p, text: 'x' * size);
+      expect(result.state, 'stopped');
+      expect(
+        result.reason,
+        contains(size > 1000000 ? '1 MiB' : 'retained-content'),
+      );
+      expect(p.requests, isEmpty);
+    }
+  });
+  test('context-compaction: Calibration has no usage or dies', () async {
+    for (final script in <List<ProviderEvent>>[
+      [done],
+      [
+        Failed(
+          ProviderFailure(kind: ProviderFailureKind.protocol, message: 'death'),
+        ),
+      ],
+    ]) {
+      final w = await createWriter(await tempDir());
+      await driveNative(
+        w,
+        NativeFake([
+          [CompactionItem(opaque('A'), outputIndex: 0), done],
+        ]),
+      );
+      final result = await driveNative(w, NativeFake([script]));
+      expect(lastStep(w)['calibration'], isTrue);
+      if (script.first is Completed) {
+        expect(result.reason, contains('calibration usage unavailable'));
+        expect(
+          (lastStep(w)['capability'] as Map)['state'],
+          'observed-supported',
+        );
+      }
+      final dir = w.sessionDir;
+      await w.close();
+      final reopened = await SessionWriter.open(dir);
+      addTearDown(reopened.close);
+      final p = NativeFake([
+        [done],
+      ]);
+      final blocked = await driveNative(
+        reopened,
+        p,
+        config: nativeConfig(threshold: 110000),
+      );
+      expect(p.requests, isEmpty);
+      expect(blocked.reason, contains('calibration allowance consumed'));
+    }
+  });
+  test('context-compaction: Resume and policy change', () async {
+    final w = await createWriter(await tempDir());
+    await driveNative(
+      w,
+      NativeFake([
+        [const Usage(input: 100000, output: 0), done],
+      ]),
+    );
+    final dir = w.sessionDir;
+    await w.close();
+    final reopened = await SessionWriter.open(dir);
+    addTearDown(reopened.close);
+    final blocked = NativeFake([
+      [done],
+    ]);
+    expect((await driveNative(reopened, blocked)).state, 'stopped');
+    expect(blocked.requests, isEmpty);
+    await driveNative(
+      reopened,
+      NativeFake([
+        [done],
+      ]),
+      config: nativeConfig(threshold: 110000),
+    );
+    expect((lastStep(reopened)['capability'] as Map)['state'], 'unverified');
+    final returned = NativeFake([
+      [done],
+    ]);
+    expect((await driveNative(reopened, returned)).state, 'stopped');
+    expect(returned.requests, isEmpty);
+  });
+  test('context-compaction: Rewind removes evidence', () async {
+    final w = await createWriter(await tempDir());
+    await driveNative(
+      w,
+      NativeFake([
+        [CompactionItem(opaque('A'), outputIndex: 0), done],
+      ]),
+    );
+    final keep = w.currentTurn;
+    await driveNative(
+      w,
+      NativeFake([
+        [const Usage(input: 100000, output: 0), done],
+      ]),
+    );
+    expect(lastStep(w)['capability'], {
+      'state': 'unsupported',
+      'reason': 'no compaction item at threshold',
+    });
+    await w.rewind(keep);
+    final p = NativeFake([
+      [CompactionItem(opaque('B'), outputIndex: 0), done],
+    ]);
+    expect((await driveNative(w, p)).state, 'done');
+    expect((lastStep(w)['capability'] as Map)['state'], 'observed-supported');
+  });
+  test(
+    'calibration is durably consumed before send and never retried',
+    () async {
+      final w = await createWriter(await tempDir());
+      await driveNative(
+        w,
+        NativeFake([
+          [CompactionItem(opaque('A'), outputIndex: 0), done],
+        ]),
+      );
+      var sent = 0;
+      final p = NativeFake(
+        [
+          [
+            Failed(
+              ProviderFailure(
+                kind: ProviderFailureKind.server,
+                message: 'not started',
+                sent: false,
+              ),
+            ),
+          ],
+        ],
+        onSend: () {
+          sent++;
+          expect(lastStep(w)['calibration'], isTrue);
+          expect(lastStep(w)['state'], 'running');
+        },
+      );
+      await driveNative(w, p);
+      expect(sent, 1);
+      final blocked = NativeFake([
+        [done],
+      ]);
+      expect(
+        (await driveNative(w, blocked)).reason,
+        contains('calibration allowance consumed'),
+      );
+      expect(blocked.requests, isEmpty);
+    },
+  );
+  test(
+    'huge post-cut tool outputs and pre-cut result notes refuse calibration',
+    () async {
+      for (final preCut in [false, true]) {
+        final w = await createWriter(await tempDir());
+        await driveNative(
+          w,
+          NativeFake([
+            [CompactionItem(opaque('A'), outputIndex: 0), done],
+          ]),
+        );
+        await w.apply(
+          rec(w.currentTurn, 'body/steps/s-00000001', Op.merge, {
+            'output': preCut
+                ? [callEntry('large', 'bash'), cut('A')]
+                : [cut('A'), callEntry('large', 'bash')],
+          }),
+        );
+        await seedCall(
+          w,
+          ResultStore(w.sessionDir),
+          callId: 'large',
+          modelText: 'x' * 160000,
+        );
+        final p = NativeFake([
+          [done],
+        ]);
+        final result = await driveNative(w, p);
+        expect(
+          result.reason,
+          contains('retained-content calibration cap exceeded'),
+        );
+        expect(p.requests, isEmpty);
+      }
+    },
+  );
+  test(
+    'calibration respects a qualified window smaller than half threshold',
+    () async {
+      final w = await createWriter(await tempDir());
+      await driveNative(
+        w,
+        NativeFake([
+          [CompactionItem(opaque('A'), outputIndex: 0), done],
+        ]),
+      );
+      final p = NativeFake([
+        [done],
+      ]);
+      const config = UserConfig(
+        providers: {
+          'openai': ProviderConfig(
+            routes: {
+              'chatgpt-account': RouteConfig(
+                models: {'gpt-5.5': RouteModelConfig(contextWindow: 4000)},
+              ),
+            },
+          ),
+        },
+      );
+      expect(
+        (await driveNative(w, p, config: config)).reason,
+        contains('context overflow'),
+      );
+      expect(p.requests, isEmpty);
+      expect(lastStep(w)['calibration'], isNot(true));
+    },
+  );
+  test(
+    'death before calibration completion preserves the admitted allowance',
+    () async {
+      final (w, io) = await createHooked(await tempDir());
+      await driveNative(
+        w,
+        NativeFake([
+          [CompactionItem(opaque('A'), outputIndex: 0), done],
+        ]),
+      );
+      io.onWrite = (bytes) async {
+        if (utf8.decode(bytes).contains('"state":"completed"')) {
+          throw StateError('death before calibration completion');
+        }
+      };
+      await expectLater(
+        driveNative(
+          w,
+          NativeFake([
+            [done],
+          ]),
+        ),
+        throwsA(isA<StorageError>()),
+      );
+      final dir = w.sessionDir;
+      await w.close();
+      final reopened = await SessionWriter.open(dir);
+      addTearDown(reopened.close);
+      // The allowance is an admission fact even though completion never committed.
+      expect(lastStep(reopened)['calibration'], isTrue);
+      expect(lastStep(reopened)['state'], 'running');
+      final runtime = await ToolRuntime.attach(
+        reopened,
+        ResultStore(dir),
+        workspace: dir,
+        gate: const AllowAllStage(),
+      );
+      try {
+        await ExchangeDriver(
+          writer: reopened,
+          runtime: runtime,
+          provider: NativeFake([
+            [done],
+          ]),
+          model: 'gpt-5.5',
+        ).finalizeUnfinished();
+      } finally {
+        await runtime.close();
+      }
+      final p = NativeFake([
+        [done],
+      ]);
+      final result = await driveNative(reopened, p);
+      expect(result.reason, contains('calibration allowance consumed'));
+      expect(p.requests, isEmpty);
+    },
+  );
 }
