@@ -10,7 +10,7 @@ Kehai's provider can send reasoning effort, but the running agent cannot select 
 - Resolve CLI over user config; with neither set, retain the provider's default (omit `reasoning.effort`). Use the same resolution on resume, without silently inheriting an earlier step's setting.
 - Send the selected value on every model request, including tool-follow-up steps, safe retries and internal agent requests. Internal agents inherit the parent's resolved effort.
 - Record `effort` on every new step, including explicit `null` for provider default; retain historical steps unchanged.
-- Run design and pre-ship reviews through Kehai's fresh-context `specwright-reviewer`, with `review.cross_model: false` committed first on this branch. Record observed dogfood friction without expanding the implementation scope.
+- Keep the full delivery lifecycle in Kehai. Initial design and pre-ship reviews used Kehai's fresh-context `specwright-reviewer` as a delivery-only dogfood choice, not a repository-wide policy. Restore `review.cross_model: true`; Kehai may launch configured external reviewer CLIs through validated Specwright routing. Obtain fresh design approval for this amendment and a fresh final-head pre-ship review before shipping. Record observed dogfood friction without expanding the reasoning-effort feature scope.
 
 ## Capabilities
 
