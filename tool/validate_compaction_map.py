@@ -27,10 +27,17 @@ for line in (change / 'tasks.md').read_text(encoding='utf-8').splitlines():
         cells = [cell.strip().strip('`') for cell in line.strip('|').split('|')]
         assert len(cells) == 5, line
         rows.append(cells)
-actual = {(r[0], r[1]) for r in rows}
-assert len(rows) == len(actual) == 65, ('row count/duplicates', len(rows), len(actual))
+normative = [r for r in rows if r[0] != 'Amendment regression']
+supplemental = [r for r in rows if r[0] == 'Amendment regression']
+actual = {(r[0], r[1]) for r in normative}
+assert len(normative) == len(actual) == len(expected), (
+    'normative row count/duplicates', len(normative), len(actual), len(expected))
 assert actual == expected, {'missing': sorted(expected - actual),
                             'extra': sorted(actual - expected)}
+supplemental_names = {r[1] for r in supplemental}
+assert len(supplemental) == len(supplemental_names), 'duplicate supplemental scenario'
+overlap = supplemental_names & {scenario for _, scenario in expected}
+assert not overlap, ('supplemental duplicates normative scenario', sorted(overlap))
 files = set()
 for requirement, scenario, file, name, state in rows:
     assert state == 'green', (scenario, state)
@@ -44,5 +51,6 @@ for requirement, scenario, file, name, state in rows:
     # Expanded test output includes the complete group-qualified test name.
     assert re.search(r'\+\d+: ' + re.escape(name) + r'\s*$', output, re.M), (file, name)
     files.add(file)
-print(f'PASS: {len(expected)} spec scenarios = {len(rows)} unique green map rows; '
+print(f'PASS: {len(expected)} spec scenarios = {len(normative)} unique green normative rows; '
+      f'{len(supplemental)} unique green supplemental rows; '
       f'all named tests passed across {len(files)} single-file logs')
