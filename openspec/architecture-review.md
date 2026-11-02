@@ -2,13 +2,12 @@
 
 ## Metadata
 
-- **Round:** 4 recheck — Required Change 1 only.
-- **Prior round:** The round 4 full review approved with one bounded provenance correction outstanding; its text was replaced by this recheck and is not in the repository. The round 2 review is in commit `ee23ec6`. Round 3 was incomplete because its external amendment input was inaccessible; no architecture defect was established. Round 2 covered superseded scope.
-- **Reviewer:** Codex, read-only recheck.
-- **Reviewed:** Prior `openspec/architecture-review.md`, current `openspec/architecture.md`, and review template. Reassessment limited to the Source reference map correction.
-- **Preserved approval scope:** Round 4’s full review of strategy, architecture, seven referenced ADRs, configuration, unchanged sensorium specification, and amendment/replacement-roadmap contract remains in effect. Those artifacts were not newly reviewed in full.
-- **Installed project-domain skills:** None.
-- **Input availability:** Required repository inputs were readable. No authoring transcripts or Temp-file dependencies were used.
+- **Round:** 5 — M1-close strategy/architecture amendment.
+- **Prior round:** Round 4 approval/recheck covers the original baseline and source-reference correction, not this amendment.
+- **Reviewer:** Codex, read-only baseline review.
+- **Reviewed:** `AGENTS.md`; `openspec/specwright.yaml`; `openspec/config.yaml`; strategy and architecture, including their Git diff; proposed ADR 0014 and untracked `openspec/milestones/m1-close.md` directly; current roadmap; prior architecture review; unchanged `docs/sensorium-spec.md`; accepted ADRs 0001–0013; review template.
+- **Installed project-domain skills:** None applicable.
+- **Evidence limits:** Receipts were assessed as reported evidence. No tests, qualification reruns, network/authenticated calls, edits or implementation were performed. Unrelated `.claude/settings.local.json` is outside scope.
 
 ## Findings
 
@@ -16,38 +15,56 @@
 
 None.
 
-Round 4’s findings remain preserved: the baseline maintains the three locked foundations, tree-owned durable state, central result handling, interrupted-operation recovery and prohibition on replaying uncertain effects. Its ordering, backpressure, failure, cancellation and retry constraints remain accepted within the prior review scope.
+The amendment preserves the three locked foundations: one authoritative session tree, central truncation/full-result handles and unified supervised jobs. Independent package APIs do not acquire session authority, and Kumiko remains a client of the existing engine through RPC v1.
 
-Subscription acceptance still requires secure credentials, native Windows protection, refresh and account/model discovery; API-key fallback cannot satisfy that gate. Installed workflow requirements and the actual first-M2-capability bridge remain accepted as described in round 4.
+ADR 0014 coherently supplements accepted decisions without editing or superseding them:
+
+- Packages require a demonstrated need and inadequate existing alternatives; they own MIT licensing, metadata, versions and tests, with no Kehai imports or types.
+- Workspace incubation uses `packages/<name>`. API stability **or** a second consumer triggers extraction; pub.dev publication remains a separate owner decision.
+- The strict no-Rust boundary includes building-block implementations. C FFI remains limited to demonstrated needs; native packaging must be qualified, and existing event-loop/resource constraints remain applicable.
+- Kumiko containment is extracted before reuse. Job Objects are a candidate replacement, with cleanup equivalence explicitly unproven. VT parsing is new pure Dart; tree-sitter C FFI and o200k counting remain optional and evidence-gated.
+- Compaction precedes later scratchpad tools while preserving scratch, result handles, request correlation and journal authority. This is compatible with ADRs 0001–0007 and 0011–0013.
 
 ### Moderate
 
-**M1 — Reproducible implementation-source references: resolved.**
+None requiring changes for this baseline gate.
 
-Every cited Codex login, OMP OAuth/hashline, historical built-in OpenCode auth, separate third-party OpenCode auth and Pi session file now pairs an exact repository path with a full 40-character revision. Links use the corresponding pinned revisions.
+The receipt distinguishes owner-accepted lifecycle completion from unattended operation: permission assistance, owner decisions, external reviewer routing, overflow restarts and the Windows Nightly waiver remain visible. It does not recast the failed Nightly as green or weaken future qualification requirements.
 
-The paragraph explicitly identifies these as **discovery candidates**, distinguishes reported file-existence checks from an inspected implementation audit, and requires consuming designs to read the sources, record learning and reverify current OAuth/service behavior before adoption. Historical OpenCode remains labelled historical; the separate plugin remains identified as third-party.
+The friction ledger records future work rather than implemented behavior. In particular, live configuration must reconcile ADR 0013’s immutable effort/inheritance contract; approval improvements retain user control; timing-test changes must preserve isolation guarantees; relative-PATH coverage restoration remains outstanding.
 
-Required Change 1 is applied. No new concrete defect was identified in the correction. This recheck does not independently establish upstream implementation behavior or current service compatibility.
+The unchanged roadmap is an intentional staged artifact, not a blocking contradiction here. Its subsequent rewrite must preserve the owner’s exact seven-entry order:
+
+1. Compaction and route-aware context-window accuracy.
+2. Sensorium/scratchpad.
+3. VCS/changes/notices.
+4. Nocterm, including the week-one renderer experiment, `/sense`, multiline input and paste.
+5. LSP/diagnostics/delta footer.
+6. jj checkpoints/git fallback.
+7. Windows parity/qualification.
+
+The overflow observations establish a route-capacity accuracy problem, not an exact replacement context limit.
 
 ### Suggestions
 
-None.
+Optional wording improvements only:
+
+- In architecture’s historical M1 paragraph, link “recorded at M1 close” directly to `milestones/m1-close.md`.
+- When updating the ADR index, clarify that “All seven ADRs accepted on 2026-10-28” refers specifically to ADRs 0001–0007.
+- Consider cross-linking the receipt’s “seven M2 entries” statement to the eventual ordered roadmap so its allocation is directly auditable.
 
 ## Verdict
 
-VERDICT: APPROVE_WITH_CHANGES
+VERDICT: APPROVE
 
 ## Required Changes
 
-1. **Completed and reviewer-rechecked:** Pin every implementation-source reference to exact files and full revisions, distinguish discovery candidates from inspected evidence, preserve historical labels, and retain current OAuth/service reverification requirements.
+None for the reviewed amendment.
 
-No outstanding edits remain for Required Change 1. The prior full-review approval scope is preserved; this is not a new architecture design review.
+This pass permits ADR 0014 acceptance/status and index edits. It does **not** close M1, approve a still-unwritten roadmap amendment, independently qualify delivery receipts or authorize shipping the planning branch. Kumiko extraction and runtime adaptation still require their separate planning change.
 
-All seven ADRs remain proposed until the author applies the acceptance status/index edit following this pass. The three locked foundations remain unchanged. This review does not verify roadmap completion or pass any milestone exit criterion.
-
-CHANGES_APPLIED: yes
+CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-The source-map correction is accepted by the reviewer as resolving M1. No files were written, login executed, or implementation, tests, builds, lint or formatters run.
+None. No files were changed.
