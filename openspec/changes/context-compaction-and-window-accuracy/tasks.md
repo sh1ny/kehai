@@ -21,9 +21,9 @@
 | agent-loop → Every committed call has a recoverable outcome | Death before any runtime admission | `test/loop/compaction_test.dart` | `agent-loop: Death before any runtime admission` | red |
 | agent-loop → Every committed call has a recoverable outcome | Partial admission and repeated reopen | `test/loop/compaction_test.dart` | `agent-loop: Partial admission and repeated reopen` | red |
 | agent-loop → Every committed call has a recoverable outcome | Rewind after recovery | `test/loop/compaction_test.dart` | `agent-loop: Rewind after recovery` | red |
-| context-compaction → Route and model compaction policy | Model override | `test/config/compaction_config_test.dart` | `context-compaction: Model override` | red |
-| context-compaction → Route and model compaction policy | Invalid or reserved configuration | `test/config/compaction_config_test.dart` | `context-compaction: Invalid or reserved configuration` | red |
-| context-compaction → Route and model compaction policy | Explicit off | `test/config/compaction_config_test.dart` | `context-compaction: Explicit off` | red |
+| context-compaction → Route and model compaction policy | Model override | `test/config/compaction_config_test.dart` | `context-compaction: Model override` | green |
+| context-compaction → Route and model compaction policy | Invalid or reserved configuration | `test/config/compaction_config_test.dart` | `context-compaction: Invalid or reserved configuration` | green |
+| context-compaction → Route and model compaction policy | Explicit off | `test/config/compaction_config_test.dart` | `context-compaction: Explicit off` | green |
 | context-compaction → Visible runtime capability detection | Observed support | `test/loop/compaction_test.dart` | `context-compaction: Observed support` | red |
 | context-compaction → Visible runtime capability detection | Threshold request silently ignored | `test/loop/compaction_test.dart` | `context-compaction: Threshold request silently ignored` | red |
 | context-compaction → Visible runtime capability detection | Field rejected | `test/loop/compaction_test.dart` | `context-compaction: Field rejected` | red |
@@ -56,9 +56,9 @@
 | model-provider → Opaque compaction stream continuity | Headerless completion with empty output | `test/provider/compaction_test.dart` | `model-provider: Headerless completion with empty output` | red |
 | model-provider → Opaque compaction stream continuity | Compaction before interrupted stream | `test/provider/compaction_test.dart` | `model-provider: Compaction before interrupted stream` | red |
 | model-provider → Opaque compaction stream continuity | Duplicate or conflicting item | `test/provider/compaction_test.dart` | `model-provider: Duplicate or conflicting item` | red |
-| model-provider → Route-qualified capacity configuration | Qualified window | `test/config/compaction_config_test.dart` | `model-provider: Qualified window` | red |
-| model-provider → Route-qualified capacity configuration | Legacy misleading window | `test/config/compaction_config_test.dart` | `model-provider: Legacy misleading window` | red |
-| model-provider → Route-qualified capacity configuration | Invalid qualified capacity | `test/config/compaction_config_test.dart` | `model-provider: Invalid qualified capacity` | red |
+| model-provider → Route-qualified capacity configuration | Qualified window | `test/config/compaction_config_test.dart` | `model-provider: Qualified window` | green |
+| model-provider → Route-qualified capacity configuration | Legacy misleading window | `test/config/compaction_config_test.dart` | `model-provider: Legacy misleading window` | green |
+| model-provider → Route-qualified capacity configuration | Invalid qualified capacity | `test/config/compaction_config_test.dart` | `model-provider: Invalid qualified capacity` | green |
 | turn-perception → Turn and budget sections | Known window | `test/loop/compaction_budget_test.dart` | `turn-perception: Known window` | red |
 | turn-perception → Turn and budget sections | Unknown window | `test/loop/sensorium_test.dart` | `Turn and budget sections budget line with an unknown window shows ? and no percent` | green |
 | turn-perception → Turn and budget sections | Estimated window | `test/loop/compaction_budget_test.dart` | `turn-perception: Estimated window` | red |
@@ -78,8 +78,8 @@ Green rows are unchanged regressions passed individually on 2026-11-02; red rows
 
 ## 2. Policy and qualified capacity
 
-- [ ] 2.1 Add failing `test/config/compaction_config_test.dart` cases for the map's Route and model compaction policy and Route-qualified capacity configuration rows; include precedence, partial-field merge, unknown keys, minimum threshold, reserved local strategy and legacy migration. Verify failures name absent/new behavior rather than fixture setup.
-- [ ] 2.2 Implement strict provider/route/model policy and route-capacity configuration, typed effective policy/provenance, defaults and explicit off semantics. Preserve existing config syntax; document exact JSON examples, legacy hint behavior and reserved local strategy. Verify 2.1 passes, rerun the existing config file, and turn those rows green.
+- [x] 2.1 Add failing `test/config/compaction_config_test.dart` cases for the map's Route and model compaction policy and Route-qualified capacity configuration rows; include precedence, partial-field merge, unknown keys, minimum threshold, reserved local strategy and legacy migration. Verify failures name absent/new behavior rather than fixture setup.
+- [x] 2.2 Implement strict provider/route/model policy and route-capacity configuration, typed effective policy/provenance, defaults and explicit off semantics. Preserve existing config syntax; document exact JSON examples, legacy hint behavior and reserved local strategy. Verify 2.1 passes, rerun the existing config file, and turn those rows green.
 
 ## 3. Provider request and stream boundary
 

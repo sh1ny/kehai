@@ -69,3 +69,76 @@ invalid configuration with exit **1**, naming `effort` and the configuration
 path, before creating a session or contacting the provider. RPC reports startup
 failures as a JSON `fatal` event; the line client prints the failure to standard
 error.
+
+## Compaction policy and route capacity configuration
+
+`config.json` accepts strict provider/route/model settings. Each compaction field
+resolves independently: model within route > route > provider > built-in. The
+built-in `openai` / `chatgpt-account` policy is `provider_native` with threshold
+100000; other routes default to `off`. A threshold must be an integer at least
+1000, even when strategy is `off`. Omitted fields inherit; explicit `null`, wrong
+types and unknown nested keys fail configuration with the full setting path.
+
+```json
+{
+  "providers": {
+    "openai": {
+      "compaction": { "threshold": 100000 },
+      "routes": {
+        "chatgpt-account": {
+          "compaction": { "strategy": "provider_native" },
+          "models": {
+            "gpt-6.1-sol": {
+              "compaction": { "threshold": 80000 },
+              "contextWindow": 160000
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Here the model's effective threshold is 80000, with the model setting as its
+source; strategy inherits from the route. The configuration resolver retains
+separate provenance for both fields. `contextWindow` is a positive integer and
+is labelled a **user-configured estimate**, not a verified provider limit. Raw
+backend metadata remains separate. On the ChatGPT-account route, generic model
+metadata (including a 500000 window) cannot establish effective capacity.
+
+To explicitly disable new compaction for the route:
+
+```json
+{
+  "providers": {
+    "openai": {
+      "routes": {
+        "chatgpt-account": { "compaction": { "strategy": "off" } }
+      }
+    }
+  }
+}
+```
+
+`off` selects no new compaction; it does not invalidate compatible opaque
+continuity already recorded. The exact strategy vocabulary is `provider_native`,
+`local_summary`, `off`. `local_summary` is reserved and **fails configuration as
+not implemented**, rather than silently falling back. Every configured scope is
+validated, even if a more specific field overrides it.
+
+Legacy syntax remains parseable:
+
+```json
+{ "models": { "gpt-6.1-sol": { "contextWindow": 500000 } } }
+```
+
+For ChatGPT-account this is only an **unqualified hint**, not an effective limit.
+The capacity resolver returns a migration notice naming the old setting and
+`providers.openai.routes.chatgpt-account.models.gpt-6.1-sol.contextWindow`.
+Move the setting to that route-qualified path only with an intentionally chosen
+estimate. Without a qualified value, effective capacity is unknown. Other routes
+retain legacy override/backend-metadata fallback behavior.
+
+These are configuration and resolution APIs; request, status/migration-notice
+presentation, and captured child-policy launch wiring are delivered separately.

@@ -108,6 +108,76 @@ final class HookConfig {
   final Duration timeout;
 }
 
+/// Supported policy vocabulary. Local summaries are reserved, not implemented.
+enum CompactionStrategy {
+  providerNative('provider_native'),
+  localSummary('local_summary'),
+  off('off');
+
+  const CompactionStrategy(this.wireName);
+  final String wireName;
+}
+
+/// A partial policy; omitted fields inherit independently.
+final class CompactionSettings {
+  const CompactionSettings({this.strategy, this.threshold});
+  final CompactionStrategy? strategy;
+  final int? threshold;
+}
+
+/// Fully resolved policy and the source of each field.
+final class EffectiveCompactionPolicy {
+  const EffectiveCompactionPolicy({
+    required this.strategy,
+    required this.threshold,
+    required this.strategySource,
+    required this.thresholdSource,
+  });
+  final CompactionStrategy strategy;
+  final int threshold;
+  final String strategySource;
+  final String thresholdSource;
+}
+
+/// Provider defaults and route-specific overrides captured at startup.
+final class ProviderConfig {
+  const ProviderConfig({this.compaction, this.routes = const {}});
+  final CompactionSettings? compaction;
+  final Map<String, RouteConfig> routes;
+}
+
+/// Route defaults and model-specific overrides.
+final class RouteConfig {
+  const RouteConfig({this.compaction, this.models = const {}});
+  final CompactionSettings? compaction;
+  final Map<String, RouteModelConfig> models;
+}
+
+/// A model's route-qualified settings, never generic backend metadata.
+final class RouteModelConfig {
+  const RouteModelConfig({this.compaction, this.contextWindow});
+  final CompactionSettings? compaction;
+  final int? contextWindow;
+}
+
+/// Capacity evidence with raw metadata and legacy hints kept distinct.
+final class RouteCapacity {
+  const RouteCapacity({
+    required this.contextWindow,
+    required this.source,
+    this.configPath,
+    this.backendContextWindow,
+    this.legacyHint,
+    this.migrationNotice,
+  });
+  final int? contextWindow;
+  final String source;
+  final String? configPath;
+  final int? backendContextWindow;
+  final int? legacyHint;
+  final String? migrationNotice;
+}
+
 /// The settings read once from `<kehai home>/config.json`.
 final class UserConfig {
   /// Creates a configuration. With no arguments it is the defaults.
@@ -120,6 +190,7 @@ final class UserConfig {
     this.effort,
     this.contextWindows = const {},
     this.agentModels = const {},
+    this.providers = const {},
   });
 
   /// Reads `config.json` from [home].
@@ -172,6 +243,84 @@ final class UserConfig {
 
   /// The `agents.models` map from a role's model alias to a model id.
   final Map<String, String> agentModels;
+
+  /// Captured provider/route/model settings, independent of backend metadata.
+  final Map<String, ProviderConfig> providers;
+
+  /// Resolves each field separately, retaining its exact source setting.
+  EffectiveCompactionPolicy effectiveCompaction(
+    String provider,
+    String route,
+    String model,
+  ) {
+    final providerConfig = providers[provider];
+    final routeConfig = providerConfig?.routes[route];
+    final base = 'providers.$provider';
+    final routePath = '$base.routes.$route';
+    var strategy = provider == 'openai' && route == 'chatgpt-account'
+        ? CompactionStrategy.providerNative
+        : CompactionStrategy.off;
+    var threshold = 100000;
+    var strategySource = 'built-in';
+    var thresholdSource = 'built-in';
+    for (final (settings, at) in [
+      (providerConfig?.compaction, '$base.compaction'),
+      (routeConfig?.compaction, '$routePath.compaction'),
+      (
+        routeConfig?.models[model]?.compaction,
+        '$routePath.models.$model.compaction',
+      ),
+    ]) {
+      if (settings?.strategy case final value?) {
+        strategy = value;
+        strategySource = '$at.strategy';
+      }
+      if (settings?.threshold case final value?) {
+        threshold = value;
+        thresholdSource = '$at.threshold';
+      }
+    }
+    return EffectiveCompactionPolicy(
+      strategy: strategy,
+      threshold: threshold,
+      strategySource: strategySource,
+      thresholdSource: thresholdSource,
+    );
+  }
+
+  /// Keeps raw metadata and legacy hints separate from route-qualified capacity.
+  /// Callers must surface [RouteCapacity.migrationNotice] when present.
+  RouteCapacity resolveCapacity(
+    String provider,
+    String route,
+    String model, {
+    int? backendContextWindow,
+  }) {
+    final at = 'providers.$provider.routes.$route.models.$model.contextWindow';
+    final qualified =
+        providers[provider]?.routes[route]?.models[model]?.contextWindow;
+    final legacy = contextWindows[model];
+    final chatgpt = provider == 'openai' && route == 'chatgpt-account';
+    final effective =
+        qualified ?? (chatgpt ? null : legacy ?? backendContextWindow);
+    return RouteCapacity(
+      contextWindow: effective,
+      source: qualified != null
+          ? 'user-configured estimate'
+          : chatgpt || effective == null
+          ? 'unknown'
+          : legacy != null
+          ? 'legacy model override'
+          : 'backend metadata',
+      configPath: qualified != null ? at : null,
+      backendContextWindow: backendContextWindow,
+      legacyHint: legacy,
+      migrationNotice: chatgpt && legacy != null
+          ? 'models.$model.contextWindow is an unqualified hint, not a '
+                'ChatGPT-account capacity. Migrate it to $at.'
+          : null,
+    );
+  }
 }
 
 UserConfig _parse(String path, Object? json) {
@@ -187,6 +336,7 @@ UserConfig _parse(String path, Object? json) {
     'effort',
     'models',
     'agents',
+    'providers',
   });
   final rgPath = json['rgPath'];
   if (json.containsKey('rgPath') && (rgPath is! String || rgPath.isEmpty)) {
@@ -239,6 +389,7 @@ UserConfig _parse(String path, Object? json) {
     effort: effort as String?,
     contextWindows: _models(path, json),
     agentModels: _agents(path, json),
+    providers: _providers(path, json),
   );
 }
 
@@ -408,4 +559,98 @@ void _noUnknown(
       );
     }
   }
+}
+
+Map<String, ProviderConfig> _providers(String path, Map<String, Object?> root) {
+  if (!root.containsKey('providers')) return const {};
+  final providers = _object(path, 'providers', root['providers']);
+  return Map.unmodifiable({
+    for (final MapEntry(:key, :value) in providers.entries)
+      key: _provider(path, 'providers.$key', value),
+  });
+}
+
+ProviderConfig _provider(String path, String at, Object? value) {
+  final map = _object(path, at, value);
+  _noUnknown(path, at, map, const {'compaction', 'routes'});
+  final routes = map.containsKey('routes')
+      ? _object(path, '$at.routes', map['routes'])
+      : const <String, Object?>{};
+  return ProviderConfig(
+    compaction: _compaction(path, at, map),
+    routes: Map.unmodifiable({
+      for (final MapEntry(:key, :value) in routes.entries)
+        key: _route(path, '$at.routes.$key', value),
+    }),
+  );
+}
+
+RouteConfig _route(String path, String at, Object? value) {
+  final map = _object(path, at, value);
+  _noUnknown(path, at, map, const {'compaction', 'models'});
+  final models = map.containsKey('models')
+      ? _object(path, '$at.models', map['models'])
+      : const <String, Object?>{};
+  return RouteConfig(
+    compaction: _compaction(path, at, map),
+    models: Map.unmodifiable({
+      for (final MapEntry(:key, :value) in models.entries)
+        key: _routeModel(path, '$at.models.$key', value),
+    }),
+  );
+}
+
+RouteModelConfig _routeModel(String path, String at, Object? value) {
+  final map = _object(path, at, value);
+  _noUnknown(path, at, map, const {'compaction', 'contextWindow'});
+  int? window;
+  if (map.containsKey('contextWindow')) {
+    final raw = map['contextWindow'];
+    if (raw is! int || raw < 1) {
+      throw ConfigError(path, '$at.contextWindow: must be a positive integer');
+    }
+    window = raw;
+  }
+  return RouteModelConfig(
+    compaction: _compaction(path, at, map),
+    contextWindow: window,
+  );
+}
+
+CompactionSettings? _compaction(
+  String path,
+  String parent,
+  Map<String, Object?> map,
+) {
+  if (!map.containsKey('compaction')) return null;
+  final at = '$parent.compaction';
+  final settings = _object(path, at, map['compaction']);
+  _noUnknown(path, at, settings, const {'strategy', 'threshold'});
+  CompactionStrategy? strategy;
+  if (settings.containsKey('strategy')) {
+    strategy = switch (settings['strategy']) {
+      'provider_native' => CompactionStrategy.providerNative,
+      'off' => CompactionStrategy.off,
+      'local_summary' => throw ConfigError(
+        path,
+        '$at.strategy: local_summary is reserved and not implemented',
+      ),
+      _ => throw ConfigError(
+        path,
+        '$at.strategy: must be provider_native, local_summary or off',
+      ),
+    };
+  }
+  int? threshold;
+  if (settings.containsKey('threshold')) {
+    final raw = settings['threshold'];
+    if (raw is! int || raw < 1000) {
+      throw ConfigError(
+        path,
+        '$at.threshold: must be an integer at least 1000',
+      );
+    }
+    threshold = raw;
+  }
+  return CompactionSettings(strategy: strategy, threshold: threshold);
 }

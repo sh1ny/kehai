@@ -31,7 +31,11 @@ Targets `lib/src/provider/`, `lib/src/loop/`, `lib/src/config/user_config.dart`,
 
 ## Release Notes
 
-Record the binding M2 native-compaction contract; runtime implementation follows in subsequent groups.
+Add strict provider/route/model policy and route-capacity configuration APIs; runtime wiring follows in subsequent groups.
 
 ### Added
 - ADR 0015 defining opaque continuity, lineage validation, captured policy, call recovery and route-qualified capacity.
+- Typed compaction policy with per-field provenance, native/off defaults, and explicit reserved-strategy errors.
+
+### Changed
+- ChatGPT-account capacity resolution uses route-qualified estimates; legacy windows remain hints with migration notices, separate from backend metadata.
