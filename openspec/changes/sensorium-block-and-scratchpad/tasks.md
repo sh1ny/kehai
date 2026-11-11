@@ -2,19 +2,19 @@
 
 ## Test map
 
-`red` means required new/changed coverage, not a claim that a test was executed during planning. `green` rows below have planning-run evidence: the official Dart MCP runner passed four selected existing budget/runtime cases on 2026-11-11. All new tests remain unimplemented. File names marked **new** are planned files, not existing code. Run Dart tests through the official MCP tool with pinned project tools; use existing harness fixtures and deterministic synchronization, never sleeps as correctness proof.
+`red` means required new/changed coverage awaiting executed green evidence. Four existing budget/runtime cases initially had official Dart MCP planning-run evidence on 2026-11-11; group-2 green rows now also have parent-reexecuted official apply evidence recorded in commit `1f54d39` (including temporary roster smoke removed after proof). File names marked **new** originated as planned files. Run Dart tests through the official MCP tool with pinned project tools; use existing harness fixtures and deterministic synchronization, never sleeps as correctness proof.
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| agent-scratchpad → Bounded verbatim scratch writes | Create and overwrite | `test/tools/scratch_test.dart` (new) | set and overwrite preserve verbatim current value | red |
-| agent-scratchpad → Bounded verbatim scratch writes | Capacity refusal | `test/tools/scratch_test.dart` (new) | key, value and rendered-section limits refuse atomically | red |
-| agent-scratchpad → Bounded verbatim scratch writes | Unsafe key | `test/tools/scratch_test.dart` (new) | invalid path-segment key cannot mutate scratch | red |
-| agent-scratchpad → Serialized scratch mutation | Concurrent additions at capacity | `test/tools/scratch_test.dart` (new) | concurrent last-slot sets validate at queue head | red |
-| agent-scratchpad → Serialized scratch mutation | Delete and repeated delete | `test/tools/scratch_test.dart` (new) | repeated delete reports already absent | red |
-| agent-scratchpad → Serialized scratch mutation | Cancelled late writer | `test/tools/scratch_test.dart` (new) | cancellation or rewind before decision blocks late mutation | red |
-| agent-scratchpad → Serialized scratch mutation | Cancellation during journal flush | `test/tools/scratch_test.dart` (new) | held flush cancellation preserves committed scratch on reopen without replay | red |
+| agent-scratchpad → Bounded verbatim scratch writes | Create and overwrite | `test/tools/scratch_test.dart` (new) | set and overwrite preserve verbatim current value | green |
+| agent-scratchpad → Bounded verbatim scratch writes | Capacity refusal | `test/tools/scratch_test.dart` (new) | key, value and rendered-section limits refuse atomically | green |
+| agent-scratchpad → Bounded verbatim scratch writes | Unsafe key | `test/tools/scratch_test.dart` (new) | invalid path-segment key cannot mutate scratch | green |
+| agent-scratchpad → Serialized scratch mutation | Concurrent additions at capacity | `test/tools/scratch_test.dart` (new) | concurrent last-slot sets validate at queue head | green |
+| agent-scratchpad → Serialized scratch mutation | Delete and repeated delete | `test/tools/scratch_test.dart` (new) | repeated delete reports already absent | green |
+| agent-scratchpad → Serialized scratch mutation | Cancelled late writer | `test/tools/scratch_test.dart` (new) | cancellation or rewind before decision blocks late mutation | green |
+| agent-scratchpad → Serialized scratch mutation | Cancellation during journal flush | `test/tools/scratch_test.dart` (new) | held flush cancellation preserves committed scratch on reopen without replay | green |
 | agent-scratchpad → Tree-native scratch continuity | Replay and fork after compaction | `test/loop/compaction_test.dart` | real scratch tool values and handles survive compaction reopen and fork | red |
-| agent-scratchpad → Tree-native scratch continuity | Rewind an overwrite and deletion | `test/tools/scratch_test.dart` (new) | rewind restores value before overwrite and deletion | red |
+| agent-scratchpad → Tree-native scratch continuity | Rewind an overwrite and deletion | `test/tools/scratch_test.dart` (new) | rewind restores value before overwrite and deletion | green |
 | agent-scratchpad → Tree-native scratch continuity | Unsupported stored representation | `test/loop/sensorium_test.dart` | malformed nonempty scratch refuses request composition | red |
 | agent-scratchpad → Bounded verbatim scratch writes | Literal structure in multiline scratch | `test/loop/sensorium_test.dart` | indented multiline Unicode scratch including lone CR and U+2028 cannot impersonate block structure | red |
 | turn-perception → One request-only sensorium block | Second step of an exchange | `test/loop/sensorium_test.dart` | follow-up has one current block and stable instructions | red |
@@ -41,10 +41,10 @@
 | turn-perception → Expanded-block accounting preserves native continuity | Scratch changes after completed usage | `test/loop/sensorium_test.dart` | replace old full block estimate once after scratch mutation | red |
 | turn-perception → Expanded-block accounting preserves native continuity | New native boundary | `test/loop/compaction_test.dart` | fresh scratch counts only as retained content while total use is unknown | red |
 | turn-perception → Expanded-block accounting preserves native continuity | Changed tool lineage on upgrade | `test/loop/compaction_test.dart` | scratch roster upgrade refuses old opaque continuity without fallback | red |
-| tool-calls → Fixed versioned tool roster | Roster exposed as tool specs | Temporary Dart roster smoke, removed after apply proof | default specs expose both new schemas and versions | red |
+| tool-calls → Fixed versioned tool roster | Roster exposed as tool specs | Temporary Dart roster smoke, removed after apply proof | default specs expose both new schemas and versions | green |
 | tool-calls → Fixed versioned tool roster | Unknown tool | `test/tools/runtime_test.dart` | unknown tool settles failed with envelope error and a stored result | green |
-| tool-calls → Fixed versioned tool roster | Child roster | Temporary Dart roster smoke, removed after apply proof | unrestricted child excludes agent and includes scratch tools | red |
-| tool-calls → Fixed versioned tool roster | Narrowed scratch access | `test/tools/scratch_test.dart` (new) | restricted child cannot mutate its or parent scratch through excluded tool | red |
+| tool-calls → Fixed versioned tool roster | Child roster | Temporary Dart roster smoke, removed after apply proof | unrestricted child excludes agent and includes scratch tools | green |
+| tool-calls → Fixed versioned tool roster | Narrowed scratch access | `test/tools/scratch_test.dart` (new) | restricted child cannot mutate its or parent scratch through excluded tool | green |
 
 The fourth planning-run passing case was `interleaved outputs of the baseline step are counted once by provenance`; retain and rerun it when expanding block accounting. Green rows are carried-forward behavior, not proof the new implementation is green. Remove incidental whole-block text and roster-list-copy tests instead of re-pinning their copies; temporary roster smoke is sufficient for wiring. New permanent tests must assert actual limits, state transitions, retained facts or error behavior, not mock echoes or source text.
 
