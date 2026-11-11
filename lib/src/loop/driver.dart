@@ -169,6 +169,7 @@ final class ExchangeDriver {
   ///
   /// [contextWindow] is backend metadata; ChatGPT-account capacity is resolved
   /// separately from route-qualified configuration.
+  /// [onRequestCaptured] is an optional test barrier after request capture.
   ExchangeDriver({
     required this.writer,
     required this.runtime,
@@ -176,6 +177,7 @@ final class ExchangeDriver {
     required this.model,
     int? contextWindow,
     DateTime Function()? clock,
+    Future<void> Function()? onRequestCaptured,
     this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
     this.childRole,
@@ -246,6 +248,7 @@ final class ExchangeDriver {
                  .migrationNotice !=
              null,
          clock: clock ?? DateTime.now,
+         onCaptured: onRequestCaptured,
        );
 
   /// The session writer.
@@ -329,6 +332,7 @@ final class ExchangeDriver {
     final native = policy.strategy == CompactionStrategy.providerNative;
     BuiltRequest? built;
     var continuity = 'compatible';
+    Map<String, Object?> perception = {'state': 'available'};
     try {
       built = await _builder.build(
         tree,
@@ -336,11 +340,18 @@ final class ExchangeDriver {
         contextKey: contextKey,
         sourceOffset: writer.committedLength,
       );
+    } on SensoriumCompositionError catch (e) {
+      perception = {
+        'state': 'unavailable',
+        'code': e.code,
+        'message': e.message,
+      };
     } on StateError catch (e) {
       // Do not expose arbitrary exception text from history or result files.
       continuity = e.message.startsWith('incompatible continuity')
           ? 'incompatible continuity'
           : 'projection unavailable; reopen to recover or start a new session';
+      perception = {'state': 'unavailable'};
     }
     final calibration = native && boundary != null && built?.used == null;
     return {
@@ -366,11 +377,16 @@ final class ExchangeDriver {
       'legacyWindowHint': capacity.legacyHint,
       'migrationNotice': capacity.migrationNotice,
       'used': built?.used,
-      'budgetQuality': built?.quality ?? 'unknown; continuity blocked',
+      'perception': perception,
+      'budgetQuality':
+          built?.quality ??
+          (perception['code'] != null
+              ? 'unknown; perception blocked'
+              : 'unknown; continuity blocked'),
       'retained': built?.retained,
       'calibration': !native
           ? 'disabled'
-          : continuity != 'compatible'
+          : perception['state'] != 'available' || continuity != 'compatible'
           ? 'blocked'
           : !calibration
           ? 'not needed'
@@ -553,7 +569,8 @@ final class ExchangeDriver {
       }
       turn = writer.currentTurn + 1;
     }
-    await _apply(
+    await _applyForExchange(
+      key,
       JournalRecord(
         turn: writer.currentTurn,
         path: 'body/exchanges/$key',
@@ -669,7 +686,8 @@ final class ExchangeDriver {
       SessionPath.parse('body/contexts/$contextKey'),
     );
     if (stored == null) {
-      await _apply(
+      await _applyForExchange(
+        exchange,
         JournalRecord(
           turn: first,
           path: 'body/contexts/$contextKey',
@@ -678,7 +696,8 @@ final class ExchangeDriver {
         ),
       );
     }
-    await _apply(
+    await _applyForExchange(
+      exchange,
       JournalRecord(
         turn: first,
         path: 'body/exchanges/$exchange',
@@ -701,7 +720,8 @@ final class ExchangeDriver {
       'chatgpt-account',
       model,
     );
-    await _apply(
+    final started = await _applyForExchange(
+      exchange,
       JournalRecord(
         turn: turn,
         path: _stepPath(turn),
@@ -727,6 +747,7 @@ final class ExchangeDriver {
         },
       ),
     );
+    if (!started) return _End('cancelled', _cancelReason);
     final BuiltRequest built;
     try {
       built = await _builder.build(
@@ -734,11 +755,23 @@ final class ExchangeDriver {
         turn: turn,
         sourceOffset: writer.committedLength,
       );
+    } on SensoriumCompositionError catch (e) {
+      await _mergeStep(turn, exchange, {
+        'state': 'failed',
+        'reason': e.message,
+      });
+      return _End('stopped', e.message);
     } on StateError catch (e) {
-      await _mergeStep(turn, {'state': 'failed', 'reason': e.message});
+      await _mergeStep(turn, exchange, {
+        'state': 'failed',
+        'reason': e.message,
+      });
       return _End('stopped', e.message);
     }
-    await _mergeStep(turn, {'boundary': built.boundary});
+    if (!_ownsCurrentStep(turn, exchange) || token.isCancelled) {
+      return _cancelStep(turn, exchange);
+    }
+    await _mergeStep(turn, exchange, {'boundary': built.boundary});
     final context = {
       'used': built.used,
       'window': ?contextWindow,
@@ -760,7 +793,7 @@ final class ExchangeDriver {
     );
     final calibration = native && built.boundary != null && built.used == null;
     context['calibration'] = calibration;
-    await _mergeStep(turn, {'capability': evidence.toJson()});
+    await _mergeStep(turn, exchange, {'capability': evidence.toJson()});
     String? nativeStop;
     if (native && evidence.state == 'unsupported') {
       nativeStop = evidence.reason;
@@ -777,7 +810,7 @@ final class ExchangeDriver {
       nativeStop = 'submission safety ceiling exceeded';
     }
     if (nativeStop != null) {
-      await _mergeStep(turn, {
+      await _mergeStep(turn, exchange, {
         'state': 'failed',
         'reason': _nativeMessage(nativeStop),
         'nativeStop': nativeStop,
@@ -790,7 +823,7 @@ final class ExchangeDriver {
             contextWindow != null &&
             built.retained > contextWindow!)) {
       final message = _overflowMessage(built.used);
-      await _mergeStep(turn, {
+      await _mergeStep(turn, exchange, {
         'state': 'failed',
         'reason': message,
         'context': context,
@@ -798,11 +831,33 @@ final class ExchangeDriver {
       return _End('stopped', message);
     }
 
-    // Consumption is durable before the provider can observe the request.
-    if (calibration) await _mergeStep(turn, {'calibration': true});
+    final source = built.source!;
+    // Local admission is durable before streaming, not proof of provider receipt.
+    // Calibration consumption keeps its existing pre-submission cutoff.
+    final admitted = await _mergeStep(turn, exchange, {
+      'context': context,
+      'sensorium': {
+        'text': built.blockText,
+        'tokens': built.block,
+        'mode': 'full',
+        'folds': [for (final fold in built.folds) fold.name],
+        'source': {
+          'turn': source.turn,
+          'time': source.time.toIso8601String(),
+          'offset': source.offset,
+        },
+      },
+      if (calibration) 'calibration': true,
+    }, admitting: token);
+    if (!admitted) return _cancelStep(turn, exchange);
     var attempts = 0;
     _Streamed streamed;
     while (true) {
+      // Recheck after admission's flush (and retry waits), without an await
+      // between the live ownership/cancellation check and stream invocation.
+      if (!_ownsCurrentStep(turn, exchange) || token.isCancelled) {
+        return _cancelStep(turn, exchange);
+      }
       attempts++;
       streamed = await _stream(built.request, turn, token);
       final failure = streamed.failure;
@@ -851,7 +906,7 @@ final class ExchangeDriver {
         reason = _failureReason(failure, attempts);
         end = _End('failed', reason);
       }
-      await _mergeStep(turn, {
+      await _mergeStep(turn, exchange, {
         'state': state,
         'reason': reason,
         'attempts': attempts,
@@ -893,7 +948,7 @@ final class ExchangeDriver {
       }
     }
     await seams.beforeStepCommit?.call(turn);
-    await _mergeStep(turn, {
+    final committed = await _mergeStep(turn, exchange, {
       'state': 'completed',
       'stop': streamed.stop!.wire,
       'capability': evidence.toJson(),
@@ -903,7 +958,11 @@ final class ExchangeDriver {
       'context': context,
       'output': [for (final part in parts) ?_outputEntry(part)],
     });
+    if (!committed) return _End('cancelled', _cancelReason);
     await seams.afterStepCommit?.call(turn);
+    if (!_ownsCurrentStep(turn, exchange, state: 'completed')) {
+      return _End('cancelled', _cancelReason);
+    }
 
     final calls = [
       for (final part in parts.whereType<_CallPart>())
@@ -1034,14 +1093,76 @@ final class ExchangeDriver {
     return 'context overflow: $size; rewind or start a new session';
   }
 
-  Future<void> _mergeStep(int turn, Map<String, Object?> fields) => _apply(
-    JournalRecord(
-      turn: turn,
-      path: _stepPath(turn),
-      op: Op.merge,
-      value: fields,
-    ),
-  );
+  bool _ownsStep(
+    GuardedRead read,
+    int turn,
+    String exchange, {
+    String state = 'running',
+  }) {
+    final step = read(_stepPath(turn));
+    final owner = read('body/exchanges/$exchange');
+    return step is Map<String, Object?> &&
+        step['exchange'] == exchange &&
+        step['state'] == state &&
+        owner is Map<String, Object?> &&
+        owner['state'] == 'running';
+  }
+
+  bool _ownsCurrentStep(int turn, String exchange, {String state = 'running'}) {
+    final tree = writer.tree;
+    return _ownsStep(
+      (path) => tree.get(SessionPath.parse(path)),
+      turn,
+      exchange,
+      state: state,
+    );
+  }
+
+  Future<_End> _cancelStep(int turn, String exchange) async {
+    await _mergeStep(turn, exchange, {
+      'state': 'cancelled',
+      'reason': _cancelReason,
+    });
+    return _End('cancelled', _cancelReason);
+  }
+
+  Future<bool> _mergeStep(
+    int turn,
+    String exchange,
+    Map<String, Object?> fields, {
+    CancelToken? admitting,
+  }) async {
+    final outcome = await _gated(
+      () => writer.applyGuarded((read) {
+        if (!_ownsStep(read, turn, exchange) ||
+            (admitting?.isCancelled ?? false)) {
+          return const GuardedRefusal('stale');
+        }
+        return GuardedAppend(
+          JournalRecord(
+            turn: turn,
+            path: _stepPath(turn),
+            op: Op.merge,
+            value: fields,
+          ),
+        );
+      }),
+    );
+    return outcome is Applied;
+  }
+
+  Future<bool> _applyForExchange(String exchange, JournalRecord record) async {
+    final outcome = await _gated(
+      () => writer.applyGuarded((read) {
+        final owner = read('body/exchanges/$exchange');
+        if (owner is! Map<String, Object?> || owner['state'] != 'running') {
+          return const GuardedRefusal('stale');
+        }
+        return GuardedAppend(record);
+      }),
+    );
+    return outcome is Applied;
+  }
 
   Future<CommittedUpdate> _apply(JournalRecord record) =>
       _gated(() => writer.apply(record));

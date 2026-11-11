@@ -133,11 +133,11 @@ export store, backup file or scratch-specific recovery authority.
 
 Every request ends with one generated, request-only `<sensorium>` user message.
 It is composed from one frozen acknowledged tree and one clock reading, after
-canonical conversation projection; it is not journal history. Literal tags in
-prompts, tool output, scratch and opaque provider items are never searched out or
-rewritten. The eleven sections always appear in this order: `turn`, `budget`,
-`vcs`, `changes_since_last_turn`, `diagnostics`, `tests`, `processes`, `plan`,
-`scratch`, `checkpoints`, `notices`.
+canonical conversation projection; it is not stored as a conversation item.
+Literal tags in prompts, tool output, scratch and opaque provider items are never
+searched out or rewritten. The eleven sections always appear in this order:
+`turn`, `budget`, `vcs`, `changes_since_last_turn`, `diagnostics`, `tests`,
+`processes`, `plan`, `scratch`, `checkpoints`, `notices`.
 
 `turn` reports full mode, local time and the workspace name. `budget` reports
 context use/window and percentage when known, model, unavailable session cost
@@ -196,6 +196,47 @@ an immutable ceiling failure is refused rather than silently undercounted.
 Instructions are stable between requests but versioned for this framing change;
 this upgrade deliberately changes strict instruction lineage. Full-mode layout
 and prompt-cache effects are not claimed to be neutral.
+
+### Inspecting admitted observations over RPC
+
+After request construction and the existing local safety checks, the driver
+commits `sensorium` alongside `context` at `body/steps/<step-key>`, before the
+first provider stream attempt. RPC v1 `snapshot.tree` contains this metadata;
+`update.record` carries the journal merge at that step path. Materialize updates
+into the tree to inspect the same fields after reconnect or resync:
+
+```json
+{
+  "sensorium": {
+    "text": "<sensorium>\n...\n</sensorium>",
+    "tokens": 420,
+    "mode": "full",
+    "folds": [],
+    "source": { "turn": 14, "time": "2026-11-11T09:05:00.000", "offset": 12345 }
+  }
+}
+```
+
+The numbers above illustrate the field shape, not a measured block. `text` is
+exactly the final generated user item in that request; `tokens` is its
+conservative estimate, also recorded as `context.block`. `folds` lists applied
+source reductions (`processes`, `vcs`, `diagnostics`, `tests`, `changes`,
+`checkpoints`) in order. Source `turn` and `time` are frozen at capture, so later
+job/scratch updates do not alter the admitted view. Source `offset` is only a
+same-journal diagnostic cursor: it is invalid after fork/migration and must never
+be used as an identity or lookup key.
+
+This is **local admission**, not proof of provider receipt or completion.
+Failed/cancelled streams retain their observation with their terminal state;
+local composition refusals have a failed step/stopped exchange but no admitted
+observation and no provider submission. Cancellation or rewind before the
+guarded admission prevents submission; a removed step cannot be recreated by its
+late build. Rewind removes later observations with their owning steps. Historical
+steps without `sensorium` remain without it, not backfilled from current scratch.
+The metadata is not replayed as conversation content. Native compaction does not
+remove it from the canonical tree, so per-step bounded copies still accumulate
+for the session lifetime. This is an inspection seam, not a `/sense` command or
+new UI.
 
 ## Compaction policy and route capacity configuration
 
@@ -313,6 +354,25 @@ item JSON, ciphertext or raw server error text. The existing authoritative RPC
 `tree` still contains opaque items, just as it contains encrypted reasoning;
 this is not a redaction or a change to journal privacy.
 
+The RPC `compaction.perception` field reports `{ "state": "available" }` after
+successful current projection. A composition refusal reports
+`{ "state": "unavailable", "code": "...", "message": "..." }`, with codes such
+as `scratch_state`, `ceiling` or `accounting`; the safe diagnostic is at most
+500 characters and excludes stored scratch values and ciphertext. Current `used`
+is unknown, `budgetQuality` identifies perception blocking, and native calibration
+is `blocked`. Independently known policy/field sources, provider/route/model,
+capability, boundary, continuity and capacity facts remain available. A perception
+failure is not evidence of incompatible opaque lineage or unsupported compaction.
+Status is a read-only preview: it neither appends journal bytes nor submits a
+request and never replaces a historical step's admitted observation.
+
+An insufficient ceiling supplied through an older configuration can be corrected
+on restart; fresh status and requests can then succeed without modifying scratch
+or inventing a refused observation. Normal startup enforces the safe minimum
+above. Malformed nonempty scratch needs a new session unless the caller already
+has a supported serialized rewind API and can rewind before the malformed state.
+There is no new scratch migration fallback or user-facing rewind/edit command.
+
 An unsupported native attempt stops without retrying with the field removed.
 The owner must explicitly select `off` or another policy, rewind before the
 incompatible/failed history, or start a new session. `off` disables **new** native
@@ -383,8 +443,9 @@ with no percentage, even with a configured window. Ciphertext is not a token
 estimate. Compatible completed usage restores the normal baseline; a newer
 boundary invalidates it again. Recorded request lineage and boundary determine
 usage compatibility; file-metadata changes that leave rendered instructions
-unchanged do not discard that usage. The sensorium remains exactly two request-only
-lines. Estimated used counts show `~`; route-qualified estimated windows and
+unchanged do not discard that usage. The full request-only sensorium includes
+current scratch; accounting replaces the previous full block contribution once.
+Estimated used counts show `~`; route-qualified estimated windows and
 percentages are also approximate, for example `~41k/~160k ctx (~26%)`.
 Unknown used context or window suppresses the percentage. Raw backend windows
 and legacy hints are recorded separately, never promoted to ChatGPT-account
@@ -394,6 +455,17 @@ capacity.
 existing journal format. Older binaries that ignore these variants are not safe
 writers for such sessions. This reader fails visibly on an unknown committed
 output kind rather than silently dropping continuity.
+
+Installing the scratch tools and updated built-in instructions changes both tool
+and instruction lineage. Pre-upgrade opaque continuity can therefore refuse
+with `incompatible continuity`; start a new session or use an already supported
+serialized rewind API to return before the incompatible output. The latest
+boundary is still selected first: there is no old-roster exemption, fallback to
+an older compatible boundary, or reconstruction of a discarded prefix. Turning
+native compaction `off` does not make incompatible ciphertext compatible.
+Absent/empty legacy scratch is supported; unsupported nonempty representations
+are never silently interpreted. Observation fields are additive metadata, not a
+new journal schema, and old steps are not rewritten.
 
 ### Native capability evidence and admission safety
 

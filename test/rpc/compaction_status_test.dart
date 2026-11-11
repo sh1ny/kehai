@@ -102,11 +102,17 @@ void main() {
     expect(status['budgetQuality'], 'unknown compacted usage');
     expect(status['retained'], isA<int>());
     expect(status['calibration'], 'available');
+    expect(status['perception'], {'state': 'available'});
     expect(
-      status.values.every(
-        (value) =>
-            value == null || value is String || value is num || value is bool,
-      ),
+      status.entries
+          .where((entry) => entry.key != 'perception')
+          .every(
+            (entry) =>
+                entry.value == null ||
+                entry.value is String ||
+                entry.value is num ||
+                entry.value is bool,
+          ),
       isTrue,
     );
     expect(jsonEncode(status), isNot(contains('CIPHERTEXT')));
