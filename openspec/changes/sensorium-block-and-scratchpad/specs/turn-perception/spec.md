@@ -43,30 +43,36 @@ The block SHALL begin with `turn` then `budget`, retaining turn/time/workspace a
 ## ADDED Requirements
 
 ### Requirement: Ordered self-contained perception
-Snapshots SHALL follow source order: turn, budget, vcs, changes_since_last_turn, diagnostics, tests, processes, plan, scratch, checkpoints, notices. The default SHALL be `full`, preserving unchanged facts when older blocks are absent, including after compaction/resume/fork/rewind. Supported empty sections SHALL say `none`; unavailable sections SHALL name why. Scratch SHALL preserve all stored text behind counted per-line presentation indentation. Delta-only-since-full SHALL not discard the only available baseline. Live processes SHALL use tree-owned state; logs SHALL explicitly say unavailable because result references publish at exit, without tail I/O or a new live-log producer. Notices SHALL use bounded codes; the existing compaction recovery message SHALL retain its separate request placement.
+Snapshots SHALL follow source order: turn, budget, vcs, changes_since_last_turn, diagnostics, tests, processes, plan, scratch, checkpoints, notices. They SHALL default to self-contained `full` mode, preserving unchanged facts without earlier blocks, with honest availability and counted verbatim scratch presentation.
 
 #### Scenario: Unchanged memory after earlier block removal
 - **WHEN** scratch is unchanged across successive requests and the earlier generated block is absent from the new input
 - **THEN** the new block is marked `full` and still contains all current scratch text
+- **AND** full fallback SHALL preserve facts after compaction, resume, fork and rewind; delta-only-since-full SHALL NOT discard the only available baseline
+- **AND** scratch SHALL preserve all stored text behind counted per-line presentation indentation
 
 #### Scenario: Known jobs but unavailable collectors
 - **WHEN** a shell job is live but VCS and diagnostics collection are not implemented in this milestone change
 - **THEN** processes describes the real tree-owned job, while vcs and diagnostics explicitly say unavailable, not clean or zero errors
+- **AND** live processes SHALL use tree-owned state; logs SHALL explicitly say unavailable because result references publish at exit, without tail I/O or a new live-log producer
 
 #### Scenario: Empty versus failed
 - **WHEN** the supported job projection has no live jobs and another supplied collector observation has failed
 - **THEN** processes says `none` and the failed section says unavailable with its reason or stale with its last known observation
+- **AND** every supported empty section SHALL say `none`; every unavailable section SHALL name why
 
 #### Scenario: Concurrent recovery notices
 - **WHEN** compaction recovery and ignored legacy-window notices both apply
 - **THEN** both bounded notice codes fit within the notice allocation without duplicating the separate recovery message or refusing composition
+- **AND** notices SHALL use bounded codes and the existing compaction recovery message SHALL retain its separate request placement
 
 ### Requirement: Hard perception budget and folding
-The block SHALL default to a configurable 1500-token ceiling, using conservative UTF-8-byte/3 accounting. Source section ceilings and fold order SHALL apply with explicit omission counts. Scratch, budget, turn and notices SHALL never be folded. Variable workspace/model presentation SHALL be visibly bounded, and notice codes SHALL be bounded, rather than making ordinary identifiers fail immutable section limits. Overflow of the complete immutable content SHALL fail before provider submission. No content SHALL spill into a second block or be silently cut. Startup SHALL reject ceilings below the calculated safe minimum of 1310 tokens: immutable maxima (30+40+400+80), worst-case folded allocations (40+200+300+40+40+60+60), and 20 framing tokens. Implementation/tests SHALL share these allocations and prove that maximum allowed scratch fits alongside every folded section.
+The block SHALL default to a configurable 1500-token ceiling with conservative UTF-8-byte/3 accounting. Source section caps/fold order and explicit omissions SHALL apply. Scratch, budget, turn and notices SHALL never fold. No content SHALL spill or be silently cut; complete immutable overflow SHALL refuse before submission. Startup SHALL enforce the calculated 1310-token safe minimum.
 
 #### Scenario: Folding under pressure
 - **WHEN** supported observations exceed the block ceiling but fit after folding
 - **THEN** process details fold to counts before VCS paths, then diagnostics, test names, change counts and checkpoints in source order; every omitted item count is explicit and the final block fits
+- **AND** variable workspace/model presentation SHALL be visibly bounded and notice codes bounded, rather than making ordinary identifiers fail immutable section limits
 
 #### Scenario: Immutable content cannot fit
 - **WHEN** a direct-composer or legacy-config seam supplies a ceiling smaller than the valid immutable turn/budget/scratch/notices content
@@ -75,13 +81,15 @@ The block SHALL default to a configurable 1500-token ceiling, using conservative
 #### Scenario: Invalid ceiling
 - **WHEN** the user configures a non-integer ceiling or one below the calculated safe minimum
 - **THEN** startup fails naming the setting before a provider request
+- **AND** the minimum SHALL derive from immutable maxima (30+40+400+80), worst-case folded allocations (40+200+300+40+40+60+60) and 20 framing tokens; implementation/tests SHALL share these allocations and prove maximum allowed scratch fits with every folded section
 
 ### Requirement: Exact admitted observation
-After the existing running-step admission and request construction, a guarded pre-stream merge SHALL record the exact rendered block, its conservative size, frozen source turn/time and source offset. The offset SHALL be diagnostic only within that journal, invalid after fork/migration, and SHALL NOT be used as a durable identity or lookup key. RPC materialization SHALL expose the stored observation, not recompute what a previous request saw. Failed composition SHALL not claim an observation was sent. Reconnect SHALL recover admitted observations from the tree, and rewind SHALL remove later observations with their steps.
+After running-step admission and request construction, a guarded pre-stream merge SHALL record the exact block, conservative size and frozen source turn/time/offset. RPC SHALL expose that stored observation, not recompute history. Failed composition SHALL NOT claim an observation was sent; reconnect SHALL recover observations from the tree and rewind SHALL remove later observations with their steps.
 
 #### Scenario: Inspect admitted step
 - **WHEN** a model request is admitted and a client reconnects after it completes
 - **THEN** the step metadata exposes exactly the block supplied to that request, including mode and fold markers
+- **AND** the source offset SHALL be diagnostic only within its journal, invalid after fork/migration, and SHALL NOT be used as durable identity or a lookup key
 
 #### Scenario: Cancellation after admission
 - **WHEN** the provider fails or is cancelled after step admission

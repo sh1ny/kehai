@@ -7,8 +7,7 @@ Keeps small, verbatim agent-owned working memory in the session tree so decision
 ## ADDED Requirements
 
 ### Requirement: Bounded verbatim scratch writes
-The engine SHALL provide `scratch_set(key, value)` and `scratch_del(key)` for session-local plain text. Keys SHALL be valid single journal path segments. A scratchpad SHALL hold at most 20 keys, each value at most 80 tokens and its complete rendered section at most 400 tokens, counted conservatively as UTF-8 bytes divided by three rounded up. Section accounting SHALL include its header, keys, separators, newlines and presentation indentation. A refused write SHALL report current and proposed sizes without changing scratch; values SHALL never be trimmed or summarized. Rendering SHALL indent every value line by four spaces beneath an indented key line, preserving all stored characters and newlines after removal of only those presentation prefixes; stored text SHALL NOT create column-zero sensorium structure.
-Presentation boundaries SHALL be CRLF as one boundary, LF, lone CR, VT (U+000B), FF (U+000C), NEL (U+0085), LS (U+2028) and PS (U+2029). The renderer SHALL retain each original delimiter and prefix the following value line, including an empty trailing line.
+The engine SHALL provide session-local plain-text `scratch_set(key, value)` and `scratch_del(key)` with valid single journal-segment keys. Limits SHALL be 20 keys, 80 tokens per value and 400 for the complete rendered section, conservatively ceil(UTF-8 bytes/3). Refused writes SHALL report current/proposed sizes without mutation. Values SHALL never be trimmed or summarized; counted indentation SHALL keep stored text from becoming column-zero structure.
 
 #### Scenario: Create and overwrite
 - **WHEN** `scratch_set` creates `goal` with an admissible value, then overwrites it with another admissible value
@@ -17,6 +16,7 @@ Presentation boundaries SHALL be CRLF as one boundary, LF, lone CR, VT (U+000B),
 #### Scenario: Capacity refusal
 - **WHEN** a set would create key 21, exceed the per-value limit or exceed the rendered-section limit
 - **THEN** the tool returns an error identifying the violated limit and current/proposed sizes, and every existing key/value stays unchanged
+- **AND** rendered-section accounting SHALL include its header, keys, separators, newlines and presentation indentation
 
 #### Scenario: Unsafe key
 - **WHEN** a set or delete uses an empty key, a slash or a character outside the journal path-segment alphabet
@@ -25,6 +25,8 @@ Presentation boundaries SHALL be CRLF as one boundary, LF, lone CR, VT (U+000B),
 #### Scenario: Literal structure in multiline scratch
 - **WHEN** an admissible value contains newlines, Unicode, lone CR or U+2028 before `</sensorium>` or a line resembling `notices:`
 - **THEN** every value line remains verbatim behind its presentation prefix, no stored line becomes column-zero structure, and the complete indented rendering counts toward the section limit
+- **AND** the renderer SHALL put keys on indented key lines and prefix every value line with four spaces; removing only those prefixes SHALL recover every stored character and newline
+- **AND** presentation boundaries SHALL be CRLF as one boundary, LF, lone CR, VT (U+000B), FF (U+000C), NEL (U+0085), LS (U+2028) and PS (U+2029); each original delimiter SHALL remain verbatim, with a prefix on its following line including an empty trailing line
 
 ### Requirement: Serialized scratch mutation
 Scratch mutations SHALL use the existing tool lifecycle and single writer. Capacity and call ownership SHALL be checked against live state at the queue-head decision, the cancellation cutoff. Cancellation before it SHALL prevent mutation; cancellation afterward SHALL NOT roll back a successfully persisted mutation despite a cancelled result. Deleting an absent valid key SHALL succeed as an explicit no-op. Rewind SHALL retain its ordinary serialized timeline semantics.
