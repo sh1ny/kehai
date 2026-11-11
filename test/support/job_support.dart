@@ -277,11 +277,13 @@ final class EngineRun {
       // The tree of the `dart run` process holds the fixture and the job.
       Process.runSync('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
     } else {
+      // Stop the writer first: killing the job while its engine is alive can
+      // commit a settled intent before the supposed crash.
+      if (pid != 0) Process.killPid(pid, ProcessSignal.sigkill);
+      process.kill(ProcessSignal.sigkill);
       if (longJob && jobPid != 0) {
         Process.runSync('kill', ['-KILL', '--', '-$jobPid']);
       }
-      if (pid != 0) Process.killPid(pid, ProcessSignal.sigkill);
-      process.kill(ProcessSignal.sigkill);
     }
     await process.exitCode;
   }
