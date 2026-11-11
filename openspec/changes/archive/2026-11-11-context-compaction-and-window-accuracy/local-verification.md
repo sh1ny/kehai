@@ -2,9 +2,10 @@
 
 ## Delivery continuation — 2026-11-11
 
-- PR: [#30](https://github.com/sh1ny/kehai/pull/30). Qualified code/test head:
-  `1bafce2b5fecd38fa594d7eb4fdae96fae519e05`; production code is unchanged
-  since `4d2c7a8d18ceb3e9655c52b16148e674a5c1580c`.
+- PR: [#30](https://github.com/sh1ny/kehai/pull/30). Final qualified code/test head:
+  `925ff9ac6e311f00f065a8d21f78cab07df75085`. Initial task 7.3 qualification
+  was at `1bafce2b5fecd38fa594d7eb4fdae96fae519e05`; the later output-index
+  ownership fix below changed production code and was requalified separately.
 - The three original review threads were fixed in `cfe3b01` and resolved.
   Claude found an additional uncompacted-history lineage regression; all six
   native-on/off instruction/model/tool cases failed before `4d2c7a8` and passed
@@ -25,14 +26,21 @@
   and cached-error checks, with wall clocks used only as generous hang guards.
   All four probe regressions pass locally.
 - Claude Opus 5.5 (`claude-opus-5-5`, reported by the Orca structured worker)
-  reviewed through Orca. The code/test review covers `1bafce2`: no P0/P1 findings,
-  four nonblocking P3 notes. The review executed no code or tests. Machine-local
+  reviewed through Orca. The final code/test review covers `925ff9a`: no P0/P1
+  findings, the same four accepted nonblocking P3 notes. The review executed no code or tests. Machine-local
   Specwright receipts record the Claude route; their actual-model field is
   unknown, distinct from the worker's model report.
 - Owner explicitly selected Claude-through-Orca instead of the configured
   GitHub Codex gate for this PR and authorized further blocker-fix rounds.
   No review-request comment was posted; existing GitHub automation independently
   reviewed new commits. CI and acceptance gates were not waived.
+- Subsequent GitHub feedback exposed conflicting text and compaction identities
+  claiming one output index. The regression failed before `925ff9a`; that fix
+  rejects contradictory ownership in both arrival orders and unindexed
+  reconciliation without publishing a successful compaction boundary.
+  The provider file passed all 21 tests after the fix; 49 adapter and 46 loop
+  tests passed with the same production source in the preceding combined run.
+  Static analysis reported no errors. The feedback thread was resolved.
 
 ### Real-provider coding and preservation evidence
 
@@ -76,21 +84,26 @@ jobs if a fixture exits before its kill path.
 
 ### Current delivery gates
 
-Both operating systems passed on qualified code/test head
-`1bafce2b5fecd38fa594d7eb4fdae96fae519e05`:
+Both operating systems passed on final qualified code/test head
+`925ff9ac6e311f00f065a8d21f78cab07df75085`:
 
-- [PR CI 43064906434](https://github.com/sh1ny/kehai/actions/runs/43064906434):
+- [PR CI 43071837352](https://github.com/sh1ny/kehai/actions/runs/43071837352):
   Linux and Windows checks **SUCCESS**.
-- [Manually dispatched Nightly 43064918767](https://github.com/sh1ny/kehai/actions/runs/43064918767):
-  Linux and Windows tests **SUCCESS**.
+- [Manually dispatched Nightly 43072036558](https://github.com/sh1ny/kehai/actions/runs/43072036558):
+  Linux and Windows tests **SUCCESS**, verified against that exact head.
 - Claude-through-Orca pre-ship gate passed on that exact head. Owner acceptance
   above completes task 7.3; no failed run was waived.
 
+The initial task 7.3 qualification at `1bafce2` also passed both-OS
+[PR CI 43064906434](https://github.com/sh1ny/kehai/actions/runs/43064906434)
+and [Nightly 43064918767](https://github.com/sh1ny/kehai/actions/runs/43064918767),
+before the later feedback fix and its fresh qualification.
+
 The rehearsal workspace and throwaway Dart drivers were removed. Its generated
 repair patch is retained at `.dart_tool/pr30-live-receipts/generated-repair.patch`,
-alongside the real journal, results and acceptance/status receipts. Later
-qualification-only and archive commits change no production code or tests; their
-head-specific checks and reviews must pass before merge and appear in PR receipts.
+alongside the real journal, results and acceptance/status receipts. The archive
+commit changes no production code or tests; its head-specific CI/Nightly and
+review gates must pass before merge and appear in PR receipts.
 
 ## Historical local verification — 2026-11-02
 

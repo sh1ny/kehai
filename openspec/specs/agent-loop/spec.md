@@ -17,7 +17,7 @@ A user prompt SHALL start one exchange. An exchange runs steps: each step is one
 - **THEN** it is refused with `busy`, nothing is recorded for it, and the running exchange continues
 
 ### Requirement: Conversation recorded in the tree
-The user prompt, assistant text, opaque reasoning items and each tool call's position SHALL be recorded as ordered conversation items under `body`, in the step's journal turn. Each step records its model, state, stop reason, usage and any failure. No conversation fact lives outside the tree.
+The user prompt, assistant text, opaque reasoning and compaction items and each tool call's position SHALL be recorded as ordered conversation items under `body`, in the step's journal turn. Each step records its model, state, stop reason, usage and any failure. No conversation fact lives outside the tree.
 
 #### Scenario: Items in order
 - **WHEN** a step streams text `Reading.`, then a reasoning item, then two tool calls
@@ -27,8 +27,16 @@ The user prompt, assistant text, opaque reasoning items and each tool call's pos
 - **WHEN** the session is rewound to the journal turn of an exchange's first step
 - **THEN** the items, steps and calls of later turns are gone from the tree, and the next request is built without them
 
+#### Scenario: Compaction committed with completion
+- **WHEN** a response successfully completes with compaction items
+- **THEN** the completed step records each complete opaque JSON item in response order and its request lineage; replay needs no external compaction cache
+
+#### Scenario: Crash before completion commit
+- **WHEN** the stream completes but the step completion is not durably committed before the engine dies
+- **THEN** resume finalizes the step interrupted and no compaction boundary from that step is active
+
 ### Requirement: Requests rebuilt from the tree
-Each model request SHALL be built from the current tree: the instructions (the fixed built-in text, then the workspace context captured for the exchange, and in a child engine its role's instructions between the two), the conversation items in order, and each call's output as the central composer renders its stored result. Opaque reasoning items are sent back unchanged. A call without a terminal state is never sent.
+Each model request SHALL be built from the current tree: the instructions (the fixed built-in text, then the workspace context captured for the exchange, and in a child engine its role's instructions between the two), the conversation projection in order (latest committed compaction item and all following items, after validating the boundary and opaque suffix lineage, or full history without a boundary), and each call's output as the central composer renders its stored result. Opaque reasoning and compaction items are sent back unchanged. A call without a terminal state is never sent.
 
 #### Scenario: Tool output is the composed envelope
 - **WHEN** a `bash` call produced 50,000 lines and the next step is built
@@ -36,7 +44,7 @@ Each model request SHALL be built from the current tree: the instructions (the f
 
 #### Scenario: Resumed session
 - **WHEN** a session whose last exchange was interrupted is reopened and the user submits a new prompt
-- **THEN** the request holds every earlier item and the composed output of every finalized call, including those finalized as `cancelled`
+- **THEN** the request holds every surviving projected item and the composed output of every finalized call, including those finalized as `cancelled`
 
 #### Scenario: Instructions from the exchange's context
 - **WHEN** a step of exchange 2 is built after `AGENTS.md` changed on disk during that exchange
@@ -45,6 +53,14 @@ Each model request SHALL be built from the current tree: the instructions (the f
 #### Scenario: Session from before this change
 - **WHEN** a session whose exchanges record no context key is resumed and its next request is built
 - **THEN** a context is captured for the new exchange, and the earlier items are sent unchanged
+
+#### Scenario: Boundary in a tool step
+- **WHEN** a completed response contains calls on both sides of a compaction item
+- **THEN** every call executes at most once, the next input has no orphan call/output pairs, post-boundary pairs are retained, and terminal outputs from pre-boundary calls are sent once as explicit recovery notes keyed by call id rather than orphan function outputs
+
+#### Scenario: Incompatible boundary
+- **WHEN** a surviving boundary belongs to a different provider, route, model or captured instruction/tool identity
+- **THEN** no request is sent and the user receives an incompatible-continuity stop with rewind/new-session guidance
 
 ### Requirement: Interrupted exchanges are marked in later requests
 Every request SHALL hold, right after the items of each exchange recorded `cancelled`, the fixed user note `The previous request was interrupted before it finished. Do not continue it unless asked.`, so the model does not take that exchange's unanswered prompt as still pending.
@@ -107,7 +123,7 @@ A failed model request SHALL be retried only when the failure proves no work sta
 - **THEN** no retry is made, and the exchange ends `failed` naming the wait the server asked for
 
 ### Requirement: Context overflow stops the exchange
-Before each request the loop SHALL compare the context in use with the model's context window. Over it, no request is sent. That case, or a provider `context_overflow` failure, ends the exchange `stopped` with reason `context overflow`. The message names the used and window sizes when known, and says to rewind or start a new session. Nothing is summarized or dropped.
+Before each request the loop SHALL compare the context in use with the model's context window. Over it, no request is sent. That case, or a provider `context_overflow` failure, ends the exchange `stopped` with reason `context overflow`. The message names the used and window sizes when known, and says to rewind or start a new session. Canonical history is never dropped. Provider-native compaction follows context-compaction policy before overflow; it does not bypass local window or request-byte limits, and no local summary or automatic overflow resend is attempted.
 
 #### Scenario: Estimate over the window
 - **WHEN** the context in use is estimated at 280k tokens for a model whose window is 272k
@@ -116,6 +132,10 @@ Before each request the loop SHALL compare the context in use with the model's c
 #### Scenario: Provider reports overflow
 - **WHEN** the window is unknown and the provider fails the request with `context_overflow`
 - **THEN** the exchange stops `stopped` with reason `context overflow`, and the failure is not retried
+
+#### Scenario: Compaction missing at safety threshold
+- **WHEN** native policy cannot establish compaction at its threshold
+- **THEN** the exchange stops visibly before the next request rather than growing toward a known overflow or silently switching strategies
 
 ### Requirement: Step output limit
 A step's response SHALL be bounded at 4 MiB of output, counted by the provider at ingestion (model-provider, *Response output limit*), including tool-call arguments it still holds. When the provider fails the stream at that limit, the loop records the step `failed` with `step output limit (4 MiB)` and the partial text received. The exchange ends `failed`, and no tool call of that step runs.
@@ -164,3 +184,23 @@ A tool call whose pre-tool hook hangs SHALL be resolved by the hook deadline. Th
 #### Scenario: Deny-class hook hangs
 - **WHEN** a `deny` hook for `bash` never exits and the model calls `bash`
 - **THEN** the call settles `denied` naming the hook timeout, and the exchange continues with the next step
+
+### Requirement: Every committed call has a recoverable outcome
+Before a new request, all call positions in surviving completed steps SHALL have terminal outcomes. Attach and rewind reconciliation SHALL include calls without runtime nodes, recording guarded cancelled results with reason `interrupted_before_admission` and envelope `execution not recorded; not replayed`, never executing effects. Existing outcomes SHALL be preserved; conflicting metadata SHALL stop recovery visibly. Removed source steps SHALL NOT be reconstructed.
+
+#### Scenario: Normal settlement across the cut
+- **WHEN** a completed response has calls before and after its compaction item and runtime admission succeeds
+- **THEN** every call settles once, the pre-cut outcome appears in a recovery note, and the post-cut outcome remains a paired function output
+
+#### Scenario: Death before any runtime admission
+- **WHEN** the engine dies after completed step output commits but before the first call is admitted
+- **THEN** reopen records a cancelled outcome for every missing call position without executing them, and pre-cut notes/post-cut pairs include the cancellation envelopes
+
+#### Scenario: Partial admission and repeated reopen
+- **WHEN** the engine dies after some calls are admitted, then recovery is itself interrupted and repeated
+- **THEN** existing effects/outcomes are never replayed or overwritten, admitted nodes use existing recovery, and each remaining missing position receives at most one terminal cancellation node
+
+#### Scenario: Rewind after recovery
+- **WHEN** rewind removes recovery nodes while retaining their source completed step, or removes the source step itself
+- **THEN** retained source positions are reconciled deterministically without effects and removed source positions are never reconstructed
+
