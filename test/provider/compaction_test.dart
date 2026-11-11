@@ -486,6 +486,63 @@ void main() {
     expect(statusless.message, isNot(contains('SECRET')));
   });
 
+  test('rejects conflicting text ownership at compaction positions', () async {
+    const text = {
+      'type': 'response.output_text.delta',
+      'item_id': 'message',
+      'output_index': 0,
+      'delta': 'before cut',
+    };
+    final scenarios = [
+      [text, _item(_compact('boundary'), 0), _completed],
+      [_item(_compact('boundary'), 0), text, _completed],
+      [
+        text,
+        {...text, 'item_id': 'other-message'},
+        _item(_compact('boundary'), 1),
+        _completed,
+      ],
+      [
+        text,
+        _item(_message('other-message', 'conflicting message'), 0),
+        _item(_compact('boundary'), 1),
+        _completed,
+      ],
+      [
+        _item(_compact('boundary'), 0),
+        {
+          'type': 'response.output_text.delta',
+          'item_id': 'boundary',
+          'delta': 'not message content',
+        },
+        _completed,
+      ],
+      [
+        {
+          'type': 'response.output_text.delta',
+          'output_index': 0,
+          'delta': 'anonymous indexed text',
+        },
+        _item(_compact('boundary'), 0),
+        _completed,
+      ],
+      [
+        text,
+        _item({'type': 'reasoning', 'id': 'message'}, 0),
+        _item(_compact('boundary'), 1),
+        _completed,
+      ],
+    ];
+    for (final events in scenarios) {
+      requests = 0;
+      script = events;
+      final result = await run();
+      protocol(result);
+      expect(result.whereType<CompactionItem>(), isEmpty);
+      expect(result.whereType<Completed>(), isEmpty);
+    }
+  });
+
   test('rejects unresolved output positions across compaction', () async {
     final scenarios = [
       [

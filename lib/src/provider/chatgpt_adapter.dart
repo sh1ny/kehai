@@ -258,6 +258,7 @@ final class _Turn {
   final Set<int> _textDeltaIndexes = {};
   final Set<String> _textDeltaIds = {};
   final Map<String, int> _textIndexesById = {};
+  final Map<int, String> _textIdsByIndex = {};
   final Set<_DoneItem> _unindexedDoneItems = {};
   final Map<_DoneItem, List<TextDelta>> _unpositionedMessageDeltas = {};
   bool _unidentifiedTextDelta = false;
@@ -531,6 +532,18 @@ final class _Turn {
           if (_count(utf8.encode(delta).length)) {
             final itemId = decoded['item_id'];
             if (itemId is String && !_count(utf8.encode(itemId).length)) return;
+            final resolved =
+                index ??
+                (itemId is String
+                    ? _textIndexesById[itemId] ?? _itemsById[itemId]?.index
+                    : null);
+            if (resolved != null &&
+                !_claimTextPosition(
+                  resolved,
+                  itemId is String ? itemId : null,
+                )) {
+              return;
+            }
             if (itemId is String && index != null) {
               final known =
                   _textIndexesById[itemId] ?? _itemsById[itemId]?.index;
@@ -557,7 +570,6 @@ final class _Turn {
                 return true;
               });
             }
-            if (index != null) _textDeltaIndexes.add(index);
             if (itemId is String) _textDeltaIds.add(itemId);
             if (index == null && itemId is! String) {
               if (_messages.isNotEmpty) {
@@ -571,11 +583,6 @@ final class _Turn {
               }
               _unidentifiedTextDelta = true;
             }
-            final resolved =
-                index ??
-                (itemId is String
-                    ? _textIndexesById[itemId] ?? _itemsById[itemId]?.index
-                    : null);
             final event = TextDelta(delta, outputIndex: resolved);
             if (resolved == null) {
               _unindexedTextDeltas.add((
@@ -646,6 +653,14 @@ final class _Turn {
       return;
     }
     index ??= id == null ? null : _textIndexesById[id] ?? _itemsById[id]?.index;
+    final textId = index == null ? null : _textIdsByIndex[index];
+    if (index != null &&
+        _textDeltaIndexes.contains(index) &&
+        (item['type'] != 'message' ||
+            (textId != null && id != null && textId != id))) {
+      _fail(_local(FailureKind.protocol, 'Response item identity conflicted.'));
+      return;
+    }
     final byIndex = index == null ? null : _itemsByIndex[index];
     final byId = id == null ? null : _itemsById[id];
     if (byId != null &&
@@ -733,9 +748,25 @@ final class _Turn {
     _itemsByIndex[index] = item;
     _unindexedDoneItems.remove(item);
     for (final delta
-        in _unpositionedMessageDeltas.remove(item) ?? <TextDelta>[]) {
+        in _unpositionedMessageDeltas.remove(item) ?? const <TextDelta>[]) {
       _emit(TextDeltaPosition(delta, outputIndex: index));
     }
+    return true;
+  }
+
+  bool _claimTextPosition(int index, String? id) {
+    final item = _itemsByIndex[index];
+    final itemId = item?.json['id'];
+    final textId = _textIdsByIndex[index];
+    if ((item != null && item.json['type'] != 'message') ||
+        (id != null &&
+            ((itemId is String && itemId != id) ||
+                (textId != null && textId != id)))) {
+      _fail(_local(FailureKind.protocol, 'Response item identity conflicted.'));
+      return false;
+    }
+    if (id != null) _textIdsByIndex[index] = id;
+    _textDeltaIndexes.add(index);
     return true;
   }
 

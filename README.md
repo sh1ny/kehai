@@ -210,10 +210,11 @@ on `gpt-6.1-sol`; the public token-sharing documentation does not promise route
 support. That response had no Content-Type and empty terminal output, so the
 adapter collects indexed `response.output_item.done` events instead. It keeps
 all compaction items, rejects malformed or conflicting identities/positions
-with sanitized errors, and deduplicates identical copies. Output positions must
-resolve before a response containing compaction can complete; ambiguous output
-fails without activating a boundary. Done-message text is used only when that
-message has no streamed text deltas.
+with sanitized errors, and deduplicates identical copies. Output positions and
+index ownership must resolve consistently across live deltas and completed items
+before a compaction response can complete; ambiguous output fails without
+activating a boundary. Done-message text is used only when that message has no
+streamed text deltas.
 
 Encrypted items and repeated copies count toward the existing 4 MiB aggregate
 output cap; the 8 MiB SSE-event and 1 MiB serialized-request caps are unchanged.
