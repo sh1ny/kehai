@@ -44,41 +44,42 @@ Future<String> _hangingRg(String pidFile) async {
 void main() {
   const probe = Duration(seconds: 1);
 
-  test('a probe that never exits ends grep failed within the deadline', () async {
-    final pidFile = p.join((await tempDir()).path, 'probe.pid');
-    final h = await BashHarness.create(
-      config: UserConfig(rgPath: await _hangingRg(pidFile)),
-      seams: const ToolRuntimeSeams(rgProbeTimeout: probe),
-    );
-
-    final clock = Stopwatch()..start();
-    final text = await h.call('grep', {'pattern': 'x'});
-    clock.stop();
-
-    expect(clock.elapsed, lessThan(const Duration(seconds: 15)));
-    final node = h.lastCall;
-    expect(node['status'], 'failed');
-    expect(node['reason'], contains('rg --version timed out'));
-    expect(text, contains('timed out'));
-    final job = h.jobNodes.values.single;
-    expect(job['state'], 'cancelled');
-    expect(job['reason'], 'deadline');
-    expect(job.containsKey('call'), isFalse);
-    expect(job['shell'], isNull);
-    if (File(pidFile).existsSync()) {
-      expect(
-        _alive(int.parse(File(pidFile).readAsStringSync().trim())),
-        isFalse,
+  test(
+    'a probe that never exits ends grep failed within the deadline',
+    () async {
+      final pidFile = p.join((await tempDir()).path, 'probe.pid');
+      final h = await BashHarness.create(
+        config: UserConfig(rgPath: await _hangingRg(pidFile)),
+        seams: const ToolRuntimeSeams(rgProbeTimeout: probe),
       );
-    }
 
-    // The outcome is cached: a second call fails at once, without a new probe.
-    final again = Stopwatch()..start();
-    await h.call('find', {'glob': '*'});
-    expect(again.elapsed, lessThan(const Duration(seconds: 1)));
-    expect(h.jobNodes, hasLength(1));
-    expect(h.lastCall['status'], 'failed');
-  });
+      final text = await h
+          .call('grep', {'pattern': 'x'})
+          .timeout(const Duration(seconds: 15));
+      final node = h.lastCall;
+      expect(node['status'], 'failed');
+      expect(node['reason'], contains('rg --version timed out'));
+      expect(text, contains('timed out'));
+      final job = h.jobNodes.values.single;
+      expect(job['state'], 'cancelled');
+      expect(job['reason'], 'deadline');
+      expect(job.containsKey('call'), isFalse);
+      expect(job['shell'], isNull);
+      if (File(pidFile).existsSync()) {
+        expect(
+          _alive(int.parse(File(pidFile).readAsStringSync().trim())),
+          isFalse,
+        );
+      }
+
+      // Reusing the failure must not launch another process. Wall time includes
+      // journal/result I/O and runner scheduling, not just the cached lookup.
+      await h.call('find', {'glob': '*'}).timeout(const Duration(seconds: 15));
+      expect(h.jobNodes, hasLength(1));
+      expect(h.lastCall['status'], 'failed');
+      expect(h.lastCall['reason'], node['reason']);
+    },
+  );
 
   test('a missing search path fails before rg is probed', () async {
     final pidFile = p.join((await tempDir()).path, 'probe.pid');
