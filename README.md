@@ -70,6 +70,65 @@ path, before creating a session or contacting the provider. RPC reports startup
 failures as a JSON `fatal` event; the line client prints the failure to standard
 error.
 
+## Session-local scratch
+
+The model can call `scratch_set` with `{"key":"goal","value":"Keep RPC v1 unchanged"}`
+and `scratch_del` with `{"key":"goal"}`. Set overwrites the current value
+verbatim; delete of an already absent key succeeds and explicitly reports a no-op.
+Keys are single journal path segments: **1–128 ASCII characters** from
+`A-Z a-z 0-9 _ . : -` (no slash, backslash, whitespace or Unicode key characters).
+An empty value is valid. Unknown argument fields are refused.
+
+Scratch holds at most **20 keys**, **80 estimated tokens per value** and
+**400 estimated tokens for the complete rendered scratch section**. These are
+conservative `ceil(UTF-8 bytes / 3)` counts, not provider-tokenizer measurements.
+The section count includes `scratch:`, lexically sorted key lines, separators,
+newlines and presentation indentation, so legal keys/values can still exceed the
+section cap. A refused write identifies the limit and current/proposed sizes,
+leaving every existing entry unchanged. Values are never trimmed or summarized.
+
+Stored entries are `scratch/<key> = {"value": "plain text"}`. Presentation puts
+each key on a two-space-indented line and prefixes every value line with four
+spaces. CRLF is one boundary; LF, lone CR, VT, FF, NEL, LS and PS are also
+boundaries. Every original delimiter survives, including a trailing empty line's
+prefix. Literal tags and labels remain scratch data, never permissions or
+instructions. Unsupported nonempty stored representations are errors, not silently
+converted values.
+
+Both tools use the normal validation → hooks → permission gate → execution →
+central stored-result path. They are **not automatically approved**. In headless
+mode, calls without an applicable allow rule are denied. To explicitly allow
+these session mutations, the user can add supported rules to `config.json`:
+
+```json
+{
+  "allow": [
+    { "tool": "scratch_set" },
+    { "tool": "scratch_del" }
+  ]
+}
+```
+
+A configured hook can select them with the ordinary schema, for example
+`{"name":"scratch-policy","argv":["policy-check"],"tools":["scratch_set","scratch_del"],"policy":"deny"}`
+as an entry in `hooks`. This requires an installed user-chosen `policy-check`
+program; the example does not install or execute one. Allow rules do not bypass
+hooks. These are user startup settings, not repository-granted permissions.
+
+The single writer checks call ownership, cancellation and live capacity together
+at the **queue-head mutation decision**, without an intervening await. Cancellation
+or rewind before that decision prevents a late mutation. Once the decision passes,
+a successfully persisted mutation is not rolled back even if cancellation arrives
+during flush and the tool result ends cancelled. Reopen never reexecutes uncertain
+scratch calls. Concurrent writes follow commit order; the last committed write to
+the same key wins. Ordinary serialized rewind restores the prior value or absence.
+
+Scratch is **session-only**, journal-derived and turn-anchored: replay, fork and
+rewind use normal tree semantics; native compaction does not modify it. A permitted
+child writes only its own independent journal, subject to its role's tool subset;
+children still cannot call `agent`. There is no `scratch_pin`, cross-session pinning,
+export store, backup file or scratch-specific recovery authority.
+
 ## Compaction policy and route capacity configuration
 
 `config.json` accepts strict provider/route/model settings. Each compaction field

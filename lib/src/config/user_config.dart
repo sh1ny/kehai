@@ -35,6 +35,8 @@ const Set<String> toolRoster = {
   'search_result',
   'skill',
   'agent',
+  'scratch_set',
+  'scratch_del',
 };
 
 /// A configuration file that cannot be used.

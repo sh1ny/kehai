@@ -31,6 +31,64 @@ void main() {
   }
 
   group('config', () {
+    for (final tool in ['scratch_set', 'scratch_del']) {
+      test(
+        '$tool explicit allow rule parses without autoapproval defaults',
+        () {
+          expect(UserConfig.load(home.path).allow, isEmpty);
+          write({
+            'allow': [
+              {'tool': tool},
+            ],
+          });
+          final config = UserConfig.load(home.path);
+          expect(config.allow, hasLength(1));
+          expect(config.allow.single.tool, tool);
+          expect(config.allow.single.argv, isNull);
+          expect(config.hooks, isEmpty);
+        },
+      );
+
+      test('$tool hook selector parses with its configured policy', () {
+        write({
+          'hooks': [
+            {
+              'name': 'scratch-check',
+              'argv': ['policy-check'],
+              'tools': [tool],
+              'policy': 'deny',
+            },
+          ],
+        });
+        final config = UserConfig.load(home.path);
+        expect(config.allow, isEmpty);
+        expect(config.hooks, hasLength(1));
+        expect(config.hooks.single.tools, [tool]);
+        expect(config.hooks.single.policy, HookPolicy.deny);
+        expect(config.hooks.single.argv, ['policy-check']);
+      });
+    }
+
+    test('scratch_pin remains unsupported in allow and hook rules', () {
+      write({
+        'allow': [
+          {'tool': 'scratch_pin'},
+        ],
+      });
+      expect(refused().message, contains('allow[0].tool: must be one of'));
+      write({
+        'hooks': [
+          {
+            'name': 'pin-check',
+            'argv': ['policy-check'],
+            'tools': ['scratch_pin'],
+            'policy': 'deny',
+          },
+        ],
+      });
+      expect(refused().message, contains('hooks[0].tools[0]: must be one of'));
+    });
+
     test('effort accepts every exact allowed value', () {
       for (final effort in [
         'none',

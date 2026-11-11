@@ -33,6 +33,7 @@ import '../session/path.dart';
 import '../session/record.dart';
 import '../session/write_gate.dart';
 import '../session/writer.dart';
+import '../session/scratch.dart';
 import '../shell/detect.dart';
 import '../hooks/hook_stage.dart';
 import '../permissions/workspace_paths.dart';
@@ -47,6 +48,7 @@ import 'read.dart';
 import 'roster.dart';
 import 'schema.dart';
 import 'search.dart';
+import 'scratch.dart';
 import 'skill.dart';
 import 'tool.dart';
 import 'write.dart';
@@ -79,6 +81,8 @@ Map<String, Tool> _builtinTools(LazyRg rg) => {
   'job': const JobTool(),
   'skill': const SkillTool(),
   'agent': AgentTool(),
+  'scratch_set': const ScratchSetTool(),
+  'scratch_del': const ScratchDelTool(),
 };
 
 /// The node key `c-<12 hex>` of the provider call id [callId].
@@ -628,6 +632,9 @@ final class ToolRuntime {
       model: model,
       effort: effort,
       yolo: yolo,
+      scratch: live.tool == 'scratch_set' || live.tool == 'scratch_del'
+          ? _CallScratch(this, live)
+          : null,
     );
     final tool = _invoke(_tools[live.tool]!, context, input);
     var first = await Future.any<_Step>([
@@ -993,6 +1000,92 @@ final class ToolRuntime {
         }),
       );
 
+  Future<ScratchMutation> _mutateScratch(
+    _Live live,
+    String key,
+    String? value,
+  ) async {
+    var decision = const ScratchMutation.refused('scratch mutation refused');
+    final outcome = await _write(
+      () => writer.applyGuarded((read) {
+        final node = read(live.path);
+        if (!identical(_live[live.key], live) ||
+            node is! Map<String, Object?> ||
+            node['attempt'] != live.attempt ||
+            _terminalStatuses.contains(node['status'])) {
+          return const GuardedRefusal('stale');
+        }
+        if (live.token.isCancelled) {
+          decision = const ScratchMutation.refused('scratch call cancelled');
+          return const GuardedRefusal('cancelled');
+        }
+        if (!validScratchKey(key)) {
+          decision = const ScratchMutation.refused('invalid scratch key');
+          return const GuardedRefusal('invalid key');
+        }
+        final ScratchState current;
+        try {
+          current = ScratchState.read(read('scratch'));
+        } on ScratchStateError catch (error) {
+          decision = ScratchMutation.refused(error.toString());
+          return const GuardedRefusal('invalid scratch state');
+        }
+        if (value == null && !current.values.containsKey(key)) {
+          decision = const ScratchMutation.accepted(
+            'scratch key already absent (no-op)',
+          );
+          return const GuardedRefusal('no-op');
+        }
+        if (value != null) {
+          final count = current.values.length;
+          final proposedCount =
+              count + (current.values.containsKey(key) ? 0 : 1);
+          if (proposedCount > maxScratchKeys) {
+            decision = ScratchMutation.refused(
+              'scratch key limit $maxScratchKeys: current $count, proposed $proposedCount; unchanged',
+            );
+            return const GuardedRefusal('key limit');
+          }
+          // Count without an encoded copy before allocating presentation text.
+          final proposedValue = scratchTokens(value);
+          if (proposedValue > maxScratchValueTokens) {
+            final oldValue = scratchTokens(current.values[key] ?? '');
+            decision = ScratchMutation.refused(
+              'scratch value limit $maxScratchValueTokens: current $oldValue, proposed $proposedValue; unchanged',
+            );
+            return const GuardedRefusal('value limit');
+          }
+          final proposed = {...current.values, key: value};
+          final proposedSection = scratchTokens(renderScratch(proposed));
+          if (proposedSection > maxScratchSectionTokens) {
+            decision = ScratchMutation.refused(
+              'scratch section limit $maxScratchSectionTokens: current ${current.tokens}, proposed $proposedSection; unchanged',
+            );
+            return const GuardedRefusal('section limit');
+          }
+        }
+        // This synchronous decision is the cutoff. Never recheck cancellation
+        // after flush or try to roll back a record that was successfully persisted.
+        decision = ScratchMutation.accepted(
+          value == null ? 'scratch key deleted' : 'scratch value set verbatim',
+        );
+        return GuardedAppend(
+          JournalRecord(
+            turn: writer.currentTurn,
+            path: 'scratch/$key',
+            op: value == null ? Op.del : Op.set,
+            value: value == null ? null : {'value': value},
+          ),
+        );
+      }),
+    );
+    if (outcome is Refused && outcome.reason == 'stale') {
+      _seams.onStale?.call(live.key);
+      throw StaleCallError(live.key);
+    }
+    return decision;
+  }
+
   /// Records the `pending` node with the call's input; false when a node with
   /// this key already exists.
   Future<bool> _create(_Live live) async {
@@ -1051,6 +1144,21 @@ final class ToolRuntime {
       next.granted.complete();
     }
   }
+}
+
+final class _CallScratch implements ScratchMutator {
+  _CallScratch(this.runtime, this.live);
+
+  final ToolRuntime runtime;
+  final _Live live;
+
+  @override
+  Future<ScratchMutation> set(String key, String value) =>
+      runtime._mutateScratch(live, key, value);
+
+  @override
+  Future<ScratchMutation> delete(String key) =>
+      runtime._mutateScratch(live, key, null);
 }
 
 /// What ended the wait of a running call.
