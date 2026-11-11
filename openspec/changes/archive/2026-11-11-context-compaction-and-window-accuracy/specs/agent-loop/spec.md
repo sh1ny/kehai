@@ -22,7 +22,7 @@ The user prompt, assistant text, opaque reasoning and compaction items and each 
 - **THEN** resume finalizes the step interrupted and no compaction boundary from that step is active
 
 ### Requirement: Requests rebuilt from the tree
-Each model request SHALL be built from the current tree: the instructions (the fixed built-in text, then the workspace context captured for the exchange, and in a child engine its role's instructions between the two), the conversation projection in order (latest committed compaction item and all following items, after validating the boundary and opaque suffix lineage, or full history without a boundary), and each call's output as the central composer renders its stored result. Opaque reasoning and compaction items are sent back unchanged. A call without a terminal state is never sent.
+Requests SHALL rebuild from the tree: instructions (fixed built-in text, child role instructions if any, then captured workspace context), ordered conversation and each stored call result's centrally composed output. Opaque reasoning and compaction items SHALL remain unchanged; calls without terminal states SHALL NOT be sent. Conversation SHALL use the latest committed compaction item and its suffix after boundary/suffix-lineage validation, or full history without a boundary.
 
 #### Scenario: Tool output is the composed envelope
 - **WHEN** a `bash` call produced 50,000 lines and the next step is built
@@ -49,7 +49,7 @@ Each model request SHALL be built from the current tree: the instructions (the f
 - **THEN** no request is sent and the user receives an incompatible-continuity stop with rewind/new-session guidance
 
 ### Requirement: Context overflow stops the exchange
-Before each request the loop SHALL compare the context in use with the model's context window. Over it, no request is sent. That case, or a provider `context_overflow` failure, ends the exchange `stopped` with reason `context overflow`. The message names the used and window sizes when known, and says to rewind or start a new session. Canonical history is never dropped. Provider-native compaction follows context-compaction policy before overflow; it does not bypass local window or request-byte limits, and no local summary or automatic overflow resend is attempted.
+Before each request, the loop SHALL compare context in use to the model window; over it, no request is sent. This or provider `context_overflow` SHALL end the exchange `stopped` with reason `context overflow`, known used/window sizes and rewind/new-session guidance. Canonical history SHALL remain intact. Native compaction SHALL follow its policy before overflow, respect window/request-byte caps and never use a local summary or automatic overflow resend.
 
 #### Scenario: Estimate over the window
 - **WHEN** the context in use is estimated at 280k tokens for a model whose window is 272k

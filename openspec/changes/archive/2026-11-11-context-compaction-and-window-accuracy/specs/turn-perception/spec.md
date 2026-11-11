@@ -7,7 +7,7 @@ The block SHALL hold exactly two lines, in this order:
 - `turn: <journal turn> · full · <HH:MM local> · cwd <workspace name>`
 - `budget: <used>/<window> ctx (<percent>%) · model <id>`
 
-Token counts render as `41k` (thousands, rounded) below a million and `1.2M` above. Cost is not shown. Estimated used counts and estimated windows SHALL carry `~`; unknown used counts or windows SHALL render `?` without a percentage. User-configured and backend-reported capacity SHALL expose their provenance in user-visible status, with route-qualified capacity used for the block.
+Counts SHALL round to thousands (`41k`) below 1M, or millions (`1.2M`) above. No cost is shown. Estimated counts/windows SHALL carry `~`; unknown values SHALL render `?` without a percentage. Status SHALL label user-configured/backend-reported capacity provenance; use route-qualified capacity in the block.
 
 #### Scenario: Known window
 - **WHEN** step turn 14 is built with 41,200 tokens in use for model `gpt-5.5` with a 200,000-token window
@@ -26,8 +26,7 @@ Token counts render as `41k` (thousands, rounded) below a million and `1.2M` abo
 - **THEN** the block shows `?` for the window, no percentage, and status identifies backend-reported metadata separately
 
 ### Requirement: Context in use
-The context in use SHALL be the last completed step `u`'s input plus output tokens, minus the estimate of `u`'s sensorium block, plus estimates of every tool output answering `u` (wherever the request places it), every later item, and this request's block. `u`'s response items are excluded from the estimate. Failed or cancelled steps' usage is never used. Without `u` it estimates the whole request.
- Compaction invalidates this baseline until a completed request using the selected compacted projection supplies usage. Before that, total compacted usage SHALL be unknown; encrypted byte length SHALL NOT be presented as known compacted token usage. Baselines SHALL match request lineage and selected boundary.
+Context in use SHALL equal the last completed step's input plus output tokens, minus its sensorium estimate, plus estimates of its tool outputs wherever placed, later items and this block. Do not recount its response items or use failed/cancelled usage; without a baseline, estimate the whole request. Baselines SHALL match lineage and boundary. After compaction, total usage SHALL stay unknown until compatible completed usage; ciphertext bytes SHALL NOT be treated as known token usage.
 
 #### Scenario: After a step with usage
 - **WHEN** the last completed step reported 30,000 input and 1,000 output tokens, its block was estimated at 40 tokens, and the request holds its items as `call A, output A, call B, output B` with outputs A and B estimated at 6,000 and 4,000 tokens

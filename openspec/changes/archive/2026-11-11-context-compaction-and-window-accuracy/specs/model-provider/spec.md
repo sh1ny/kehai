@@ -14,7 +14,7 @@ A provider SHALL turn one model request into an ordered event stream that ends w
 - **THEN** the stream ends with `failed` of kind `protocol`, saying the stream ended before completion, and no `completed` event is emitted
 
 ### Requirement: Token-sharing request rules
-Every request SHALL follow OpenAI's token-sharing rules: `store: false` and `stream: true`; the complete current conversation projection in `input` (latest eligible compaction item and its suffix when compacted), with no `previous_response_id`; top-level `instructions`, never a system message item; function tools only in a single `additional_tools` input item when tools are non-empty, never top-level `tools`; and encrypted reasoning content requested. On requests containing a selected compaction item, `additional_tools` SHALL appear immediately after that item and before the retained suffix; on uncompacted requests it SHALL be first in `input`. Opaque item contents, call/result pairing, `tool_choice: auto` and instructions SHALL remain unchanged. It SHALL omit every field those rules reject (listed in the scenario below).
+Requests SHALL use `store: false`, `stream: true`, full conversation projection in `input`, top-level `instructions` and encrypted reasoning content; omit system items, `previous_response_id`, top-level `tools` and the fields listed below. Non-empty function tools SHALL use one `additional_tools` item, immediately after the selected compaction item before its suffix, or first without a boundary. Opaque contents, call/result pairing, `tool_choice: auto` and instructions SHALL remain unchanged.
 
 #### Scenario: Token-sharing body
 - **WHEN** an uncompacted turn with instructions, three earlier conversation items and one tool is sent
@@ -30,7 +30,7 @@ Every request SHALL follow OpenAI's token-sharing rules: `store: false` and `str
 - **AND** reconstructing the same request after journal reopen preserves this ordering, so a backend that resets tool registration at the compaction item receives the tools again before the suffix
 
 ### Requirement: Model listing
-The provider SHALL list models from `GET https://api.openai.com/v1/models` with the plan access token. For each model it returns the slug as id, the display name, and the context window from `context_window` when that is an integer greater than 1, otherwise no window. This value SHALL be labelled backend-reported metadata, not a verified route limit. The ChatGPT-account route SHALL expose its effective window as unknown unless route-qualified configuration supplies it. It omits models whose `visibility` is not `list`, and models marked `supported_in_api: false`. It SHALL read at most 4 MiB of the response before decoding; a larger response fails with kind `protocol`.
+Using the plan token, the provider SHALL GET `https://api.openai.com/v1/models`, returning slug, display name and integer `context_window` >1 (else no window). It SHALL omit entries with `visibility` != `list` or `supported_in_api: false`. Windows SHALL be backend-reported metadata, not verified route limits; ChatGPT-account effective capacity requires route-qualified configuration. Reads SHALL stop before decoding at 4 MiB; larger responses SHALL fail `protocol`.
 
 #### Scenario: Models listed
 - **WHEN** the endpoint returns three models, one of them with visibility `hide`

@@ -99,6 +99,20 @@ The initial task 7.3 qualification at `1bafce2` also passed both-OS
 and [Nightly 43064918767](https://github.com/sh1ny/kehai/actions/runs/43064918767),
 before the later feedback fix and its fresh qualification.
 
+Archive head `d37f5be` passed both-OS
+[Nightly 43076726409](https://github.com/sh1ny/kehai/actions/runs/43076726409).
+[CI 43076715019](https://github.com/sh1ny/kehai/actions/runs/43076715019)
+failed Linux strict validation on six overlong requirement paragraphs; Windows
+also recorded an MSYS `child_copy` failure with Win32 error 299 in the handoff
+fixture's stderr. No Windows assertion was changed or suppressed.
+
+Owner authorized one additional CI repair round beyond the configured three.
+The six paragraphs were shortened in both main and archived specs, retaining
+every scenario and requirement name. `mise run openspec:validate` then passed
+all 24 specs under `--all --strict`, without warnings. No runtime source or
+test changed. This follow-up requires fresh Claude-through-Orca review and
+head-specific CI/Nightly before merge; final receipts appear in the PR.
+
 The rehearsal workspace and throwaway Dart drivers were removed. Its generated
 repair patch is retained at `.dart_tool/pr30-live-receipts/generated-repair.patch`,
 alongside the real journal, results and acceptance/status receipts. The archive
