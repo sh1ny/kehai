@@ -446,7 +446,7 @@ final class RequestBuilder {
     }
     // Validate the selected boundary and all opaque suffix metadata before
     // composing any result. An older compatible cut is never a fallback.
-    var inSuffix = cutStep == null;
+    var inSuffix = false;
     for (final MapEntry(key: key, value: step) in steps) {
       if (step['state'] != 'completed') continue;
       final output = step['output'];

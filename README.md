@@ -230,6 +230,9 @@ boundary or start a new session. There is no older-compatible-boundary fallback
 or automatic resurrection of the full prefix. Policy threshold/off changes alone
 do not invalidate compatible continuity.
 
+Without a selected boundary, requests retain ordinary full-history replay;
+instruction, tool or model changes do not apply the compacted-suffix lineage guard.
+
 Only the provider projection is cut; canonical history, scratch, full results,
 stable handles and request/child correlation are unchanged. Discarded historical
 results are not composed while rebuilding the bounded suffix. Calls in the

@@ -284,6 +284,83 @@ void main() {
     expect(built.request.instructions, builtInInstructions);
   });
 
+  for (final native in [false, true]) {
+    for (final change in ['instructions', 'model', 'tools']) {
+      test('full history without a boundary survives $change changes '
+          '(native=$native)', () async {
+        final (writer, _) = await _session();
+        const reasoning = {
+          'type': 'reasoning',
+          'id': 'rs-full-history',
+          'encrypted_content': 'unchanged-opaque-reasoning',
+        };
+        for (final key in ['before', 'after']) {
+          await writer.apply(
+            rec(1, 'body/contexts/$key', Op.set, {
+              'text': key == 'after' && change == 'instructions'
+                  ? 'Changed instructions'
+                  : 'Original instructions',
+            }),
+          );
+        }
+        await seedExchange(writer, 1, 'first prompt', context: 'before');
+        final original = _builder(writer);
+        await seedStep(
+          writer,
+          1,
+          exchange: 1,
+          output: [
+            {'type': 'reasoning', 'item': reasoning},
+            textEntry('first answer'),
+          ],
+        );
+        await writer.apply(
+          rec(1, 'body/steps/s-00000001', Op.merge, {
+            'lineage': original.requestLineage(writer.tree),
+          }),
+        );
+        await seedExchange(writer, 2, 'second prompt', context: 'after');
+        final rebuilt = await RequestBuilder(
+          sessionDir: writer.sessionDir,
+          model: change == 'model' ? 'different-model' : 'gpt-5.5',
+          workspaceName: 'proj',
+          tools: change == 'tools'
+              ? const [
+                  ToolSpec(
+                    name: 'new_tool',
+                    description: 'A changed tool roster',
+                    parametersJsonSchema: {'type': 'object'},
+                  ),
+                ]
+              : const [],
+          nativeCompaction: native
+              ? const NativeCompactionPolicy(threshold: 100000)
+              : null,
+          estimateRequest: (_) => 0,
+        ).build(writer.tree, turn: 2);
+        expect(rebuilt.boundary, isNull);
+        expect(_describe(rebuilt.request), [
+          'user:first prompt',
+          'reasoning:rs-full-history',
+          'assistant:first answer',
+          'user:second prompt',
+        ]);
+        expect(
+          rebuilt.request.items.whereType<OpaqueReasoningItem>().single.json,
+          reasoning,
+        );
+        expect(
+          rebuilt.request.instructions,
+          contains(
+            change == 'instructions'
+                ? 'Changed instructions'
+                : 'Original instructions',
+          ),
+        );
+      });
+    }
+  }
+
   group('fallbacks without a stored model text', () {
     test('a node with a result is recomposed with its diag lines', () async {
       final (writer, store) = await _session();
