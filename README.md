@@ -129,6 +129,74 @@ child writes only its own independent journal, subject to its role's tool subset
 children still cannot call `agent`. There is no `scratch_pin`, cross-session pinning,
 export store, backup file or scratch-specific recovery authority.
 
+## Full request sensorium
+
+Every request ends with one generated, request-only `<sensorium>` user message.
+It is composed from one frozen acknowledged tree and one clock reading, after
+canonical conversation projection; it is not journal history. Literal tags in
+prompts, tool output, scratch and opaque provider items are never searched out or
+rewritten. The eleven sections always appear in this order: `turn`, `budget`,
+`vcs`, `changes_since_last_turn`, `diagnostics`, `tests`, `processes`, `plan`,
+`scratch`, `checkpoints`, `notices`.
+
+`turn` reports full mode, local time and the workspace name. `budget` reports
+context use/window and percentage when known, model, unavailable session cost
+(`cost ?`), and independently known compaction threshold/turns since compaction.
+`?` is unknown, and `~` marks estimates, including a route-qualified configured
+window. These display estimates do not grant permission or establish provider
+capacity. Long workspace/model display names are shortened at UTF-8 boundaries
+with a counted `…`; canonical identities remain unchanged.
+
+Currently the builder supplies live pending/running jobs, scratch, and the finite
+notice codes `compaction_recovery` and `legacy_window_ignored` when applicable.
+Jobs show bounded id/kind/command/state/age previews and total omissions. Logs are
+**unavailable until published at exit**; composing never opens a job's spool.
+Supported empty jobs, scratch and notices say `none`. VCS, changes, diagnostics,
+tests, plan and checkpoints say `unavailable (not collected)` in the current
+builder: there are no new collectors or plugin registrations. The finite composer
+also supports explicitly supplied available or stale observations, with bounded
+`failed`, `timeout` or `not collected` reasons and stale age.
+
+The startup-only user setting is:
+
+```json
+{ "sensorium": { "maxTokens": 1500 } }
+```
+
+Absent settings or `{ "sensorium": {} }` use **1500**. `maxTokens` must be an
+integer **at least 1310**; null, fractional/string values, scalar sections and
+unknown nested keys are errors naming the exact JSON path. The safe minimum is
+shared with composition: immutable turn/budget/scratch/notices allocations total
+550, all folded source allocations total 740, plus 20 framing tokens. It is not
+a repository setting, hot-reloaded policy or captured provider policy.
+
+| Section | Conservative token cap |
+| --- | ---: |
+| turn / budget | 30 / 40 |
+| vcs / changes_since_last_turn | 250 / 200 |
+| diagnostics / tests / processes | 300 / 150 / 150 |
+| plan / scratch / checkpoints / notices | 60 / 400 / 60 / 80 |
+
+Caps count labels, indentation and omission markers using `ceil(UTF-8 bytes / 3)`.
+Source previews admit at most 12 VCS paths, 10 diagnostics (120 characters per
+message), 8 failing test names and 5 latest checkpoints. Individual fields are
+bounded before assembly; process counting retains only bounded preview storage.
+Explicit `… +N more` markers account for omitted entries. If necessary the global
+fold order is process counts → VCS counts → three diagnostics plus omissions →
+test counts → changed paths without line counts → latest checkpoint plus
+omissions. The complete 40-token budget allocation is reserved before selecting
+folds, so changing the use estimate cannot change previews. Scratch and notices
+are never folded or summarized. Malformed nonempty stored scratch causes a safe,
+value-free local composition error instead of hiding or exposing raw data.
+
+Full mode intentionally costs more context than a small status line. Request
+accounting replaces the previous block contribution once and solves the new
+block's self-reference with a bounded fixed-point calculation; nonconvergence or
+an immutable ceiling failure is refused rather than silently undercounted.
+Instructions are stable between requests but versioned for this framing change;
+this upgrade deliberately changes strict instruction lineage. Full-mode layout
+and prompt-cache effects are not claimed to be neutral.
+
 ## Compaction policy and route capacity configuration
 
 `config.json` accepts strict provider/route/model settings. Each compaction field

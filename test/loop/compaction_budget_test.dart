@@ -23,8 +23,8 @@ void main() {
       estimateRequest: (_) => 41200,
       estimate: (_) => 40,
     ).build(w.tree, turn: 14);
-    expect(budget(b), 'budget: ~41k/200k ctx (~21%) · model gpt-5.5');
-    expect(b.blockText.split('\n'), hasLength(4));
+    expect(budget(b), contains('budget: ~41k/200k ctx (~21%)'));
+    expect(budget(b), contains('model gpt-5.5'));
     expect(
       sensoriumBlock(
         turn: 14,
@@ -141,7 +141,7 @@ void main() {
       await driveNative(w, p, config: config);
       expect(
         (p.requests.single.items.last as UserMessage).text,
-        contains('budget: ?/~160k ctx · model'),
+        allOf(contains('budget: ?/~160k ctx'), contains('model gpt-5.5')),
       );
       final context = lastStep(w)['context'] as Map;
       expect(context['used'], isNull); // Foundation already green in group 4.

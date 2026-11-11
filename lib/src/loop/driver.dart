@@ -231,6 +231,20 @@ final class ExchangeDriver {
                  )
                  .source ==
              'user-configured estimate',
+         sensoriumMaxTokens: runtime.config.sensorium.maxTokens,
+         compactionThreshold: runtime.config
+             .effectiveCompaction(provider.id, 'chatgpt-account', model)
+             .threshold,
+         legacyWindowIgnored:
+             runtime.config
+                 .resolveCapacity(
+                   provider.id,
+                   'chatgpt-account',
+                   model,
+                   backendContextWindow: contextWindow,
+                 )
+                 .migrationNotice !=
+             null,
          clock: clock ?? DateTime.now,
        );
 
@@ -316,7 +330,12 @@ final class ExchangeDriver {
     BuiltRequest? built;
     var continuity = 'compatible';
     try {
-      built = await _builder.build(tree, turn: turn, contextKey: contextKey);
+      built = await _builder.build(
+        tree,
+        turn: turn,
+        contextKey: contextKey,
+        sourceOffset: writer.committedLength,
+      );
     } on StateError catch (e) {
       // Do not expose arbitrary exception text from history or result files.
       continuity = e.message.startsWith('incompatible continuity')
@@ -710,7 +729,11 @@ final class ExchangeDriver {
     );
     final BuiltRequest built;
     try {
-      built = await _builder.build(writer.tree, turn: turn);
+      built = await _builder.build(
+        writer.tree,
+        turn: turn,
+        sourceOffset: writer.committedLength,
+      );
     } on StateError catch (e) {
       await _mergeStep(turn, {'state': 'failed', 'reason': e.message});
       return _End('stopped', e.message);
