@@ -112,11 +112,10 @@ Rows initially green are unchanged regressions passed individually on 2026-11-02
 
 ## 7. Delivery-level verification
 
-- [x] 7.1 Run single-file pinned tests for every map file, check all 65 scenarios have passing named tests and no red rows remain, and mechanically validate the spec-to-map correspondence. Run mise format:check, analyze, strict OpenSpec validation and secrets checks. Verify only intended source/docs/tests changed and record full-suite execution as CI-only.
+- [x] 7.1 Run single-file pinned tests for every map file, check every delta-spec scenario has passing named tests and no red rows remain, and mechanically validate the spec-to-map correspondence. Run mise format:check, analyze, strict OpenSpec validation and secrets checks. Verify only intended source/docs/tests changed and record full-suite execution as CI-only.
 - [x] 7.2 Add/run a deterministic long-history integration fixture with repeated native boundaries, result handles, synthetic verbatim scratch, request/child correlation, cancellation, resume, rewind and fork. Verify identical replayed projections and handle access; measure 10x/100x metadata scans and prove discarded prefixes are not repeatedly composed. Keep output bounded and report calibration/capacity uncertainty.
-- [ ] 7.3 Qualify delivery through the required pre-ship review, one PR, Linux/Windows delivery-head PR CI and manually dispatched delivery-head Nightly. Record receipts and obtain owner acceptance from a real long-change dogfood run with visible compaction/status. No new paid probe without owner approval; no architecture acceptance claim substitutes for those receipts.
+- [x] 7.3 Qualify delivery through the required pre-ship review, one PR, Linux/Windows delivery-head PR CI and manually dispatched delivery-head Nightly. Record receipts and obtain owner acceptance from a real long-change dogfood run with visible compaction/status. No new paid probe without owner approval; no architecture acceptance claim substitutes for those receipts.
 
 ## Workflow follow-up
 
-- This planning session stops before apply; every tracked implementation task above remains unchecked. Apply only after the owner authorizes it, using group-granularity Specwright commits and the required identity/co-author trailer.
 - Archive and finish through the configured PR workflow only after implementation, qualification and acceptance; keep required pre-ship/cross-model reviews enabled. Archive is not a tracked implementation task.
