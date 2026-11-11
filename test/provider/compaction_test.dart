@@ -146,6 +146,7 @@ void main() {
   var script = <Map<String, Object?>>[];
   var requests = 0;
   Map<String, Object?>? rejection;
+  var rejectionStatus = HttpStatus.forbidden;
   final bodies = <Map<String, Object?>>[];
   var resetToolsAtCompaction = false;
   final registeredTools = <Set<String>>[];
@@ -182,6 +183,7 @@ void main() {
     script = [];
     requests = 0;
     rejection = null;
+    rejectionStatus = HttpStatus.forbidden;
     bodies.clear();
     resetToolsAtCompaction = false;
     registeredTools.clear();
@@ -193,7 +195,7 @@ void main() {
             as Map<String, Object?>,
       );
       if (rejection != null) {
-        request.response.statusCode = HttpStatus.forbidden;
+        request.response.statusCode = rejectionStatus;
         request.response.write(jsonEncode({'error': rejection}));
         await request.response.close();
         return;
@@ -349,6 +351,319 @@ void main() {
       1,
       reason: 'Unsupported evidence must prevent another send',
     );
+  });
+
+  test(
+    'persists message-only native rejection without raw error text',
+    () async {
+      rejectionStatus = HttpStatus.badRequest;
+      rejection = {
+        'code': null,
+        'param': null,
+        'message': "Unknown parameter: 'context_management'. SECRET raw text",
+      };
+      var writer = await SessionWriter.create(await tempDir());
+      addTearDown(() => writer.close());
+
+      Future<void> attempt(String id) async {
+        final runtime = await ToolRuntime.attach(
+          writer,
+          ResultStore(writer.sessionDir),
+          workspace: writer.sessionDir,
+          gate: const AllowAllStage(),
+          config: const UserConfig(
+            providers: {
+              'openai': ProviderConfig(
+                compaction: CompactionSettings(
+                  strategy: CompactionStrategy.providerNative,
+                ),
+              ),
+            },
+          ),
+        );
+        final driver = ExchangeDriver(
+          writer: writer,
+          runtime: runtime,
+          provider: adapter,
+          model: 'gpt-5.5',
+        );
+        try {
+          final submitted = await driver.submit(
+            id: id,
+            text: 'go',
+            turn: writer.currentTurn,
+          ) as SubmitAdmitted;
+          final result = await submitted.done;
+          expect(result.state, 'stopped');
+          expect(result.reason, contains('context_management rejected'));
+        } finally {
+          await driver.close();
+          await runtime.close();
+        }
+      }
+
+      await attempt('first');
+      expect(requests, 1);
+      expect(bodies.single, contains('context_management'));
+      await attempt('second');
+      expect(requests, 1);
+      await writer.close();
+      writer = await SessionWriter.open(writer.sessionDir);
+      final steps = writer.tree.get(SessionPath.parse('body/steps')) as Map;
+      final first = steps.values.first as Map;
+      expect(first['capability'], {
+        'state': 'unsupported',
+        'reason': 'context_management rejected',
+      });
+      expect(jsonEncode(steps), isNot(contains('SECRET')));
+      expect(jsonEncode(steps), isNot(contains('Unknown parameter')));
+      await attempt('after-reopen');
+      expect(requests, 1);
+    },
+  );
+
+  test('classifies message-only context management rejection', () async {
+    rejectionStatus = HttpStatus.badRequest;
+    for (final message in [
+      "Unknown parameter: 'context_management'. SECRET",
+      'context_management is not supported. SECRET',
+    ]) {
+      rejection = {'code': null, 'param': null, 'message': message};
+      final failure = (await run()).whereType<Failed>().single.failure;
+      expect(failure.kind, FailureKind.invalidRequest);
+      expect(failure.param, 'context_management');
+      expect(failure.message, isNot(contains('SECRET')));
+      expect(failure.message, isNot(contains('Unknown parameter')));
+    }
+    for (final error in [
+      {'message': 'context_management is supported'},
+      {'message': 'Unknown parameter: reasoning_effort. context_management'},
+      {'message': 'Do not reject context_management'},
+      {
+        'code': 'other_error',
+        'message': "Unknown parameter: 'context_management'.",
+      },
+      {
+        'param': 'reasoning_effort',
+        'message': "Unknown parameter: 'context_management'.",
+      },
+    ]) {
+      rejection = error;
+      final failure = (await run()).whereType<Failed>().single.failure;
+      expect(failure.param, isNot('context_management'), reason: '$error');
+    }
+    rejectionStatus = HttpStatus.internalServerError;
+    rejection = {'message': "Unknown parameter: 'context_management'."};
+    final serverFailure = (await run()).whereType<Failed>().single.failure;
+    expect(serverFailure.kind, FailureKind.server);
+    expect(serverFailure.param, isNull);
+    rejection = null;
+    script = [
+      {
+        'type': 'response.failed',
+        'response': {
+          'error': {
+            'code': 'subscription_sharing_unsupported_capability',
+            'param': 'context_management',
+            'message': 'SECRET',
+          },
+        },
+      },
+    ];
+    final eventFailure = (await run()).whereType<Failed>().single.failure;
+    expect(eventFailure.kind, FailureKind.invalidRequest);
+    expect(eventFailure.param, 'context_management');
+    expect(eventFailure.message, isNot(contains('SECRET')));
+    script = [
+      {
+        'type': 'error',
+        'error': {'message': "Unknown parameter: 'context_management'. SECRET"},
+      },
+    ];
+    final statusless = (await run()).whereType<Failed>().single.failure;
+    expect(statusless.kind, FailureKind.server);
+    expect(statusless.param, isNull);
+    expect(statusless.message, isNot(contains('SECRET')));
+  });
+
+  test('rejects unresolved output positions across compaction', () async {
+    final scenarios = [
+      [
+        _item(_message('missing-index', 'before cut')),
+        _item(_compact('boundary'), 1),
+        _completed,
+      ],
+      [
+        {
+          'type': 'response.output_text.delta',
+          'item_id': 'unknown',
+          'delta': 'live text',
+        },
+        _item(_compact('boundary'), 1),
+        _completed,
+      ],
+      [
+        {'type': 'response.output_text.delta', 'delta': 'live text'},
+        _item(_message('missing-index', 'live text')),
+        _item(_compact('boundary'), 1),
+        _completed,
+      ],
+      [
+        _item({'type': 'reasoning', 'id': 'r'}),
+        _item(_compact('boundary'), 1),
+        _completed,
+      ],
+    ];
+    for (final events in scenarios) {
+      requests = 0;
+      script = events;
+      final result = await run();
+      protocol(result);
+      expect(result.whereType<CompactionItem>(), isEmpty);
+      if (events.first['type'] == 'response.output_text.delta') {
+        expect(result.whereType<TextDelta>().single.text, 'live text');
+      }
+    }
+
+    script = [
+      {
+        'type': 'response.output_text.delta',
+        'item_id': 'known',
+        'output_index': 0,
+        'delta': 'before cut',
+      },
+      _item(_message('known', 'before cut')),
+      _item(_compact('boundary'), 1),
+      _completed,
+    ];
+    final resolved = await run();
+    expect(resolved.last, isA<Completed>());
+    expect(resolved.whereType<CompactionItem>(), hasLength(1));
+    expect(resolved.whereType<TextDelta>().single.outputIndex, 0);
+
+    script = [
+      {
+        'type': 'response.output_text.delta',
+        'item_id': 'known',
+        'delta': 'before ',
+      },
+      {
+        'type': 'response.output_text.delta',
+        'item_id': 'known',
+        'output_index': 0,
+        'delta': 'cut',
+      },
+      _item(_message('known', 'before cut')),
+      _item(_compact('boundary'), 1),
+      _completed,
+    ];
+    final positioned = await run();
+    expect(positioned.last, isA<Completed>());
+    final firstDelta = positioned.whereType<TextDelta>().first;
+    final position = positioned.whereType<TextDeltaPosition>().single;
+    expect(identical(position.delta, firstDelta), isTrue);
+    expect(position.outputIndex, 0);
+
+    for (final indexedDone in [true, false]) {
+      script = [
+        {'type': 'response.output_text.delta', 'delta': 'first'},
+        _item(_message('late-index', 'first')),
+        if (indexedDone)
+          _item(_message('late-index', 'first'), 0)
+        else
+          {
+            'type': 'response.output_text.delta',
+            'item_id': 'late-index',
+            'output_index': 0,
+            'delta': ' second',
+          },
+        _item(_compact('boundary'), 1),
+        _completed,
+      ];
+      final latePosition = await run();
+      expect(latePosition.last, isA<Completed>());
+      final first = latePosition.whereType<TextDelta>().first;
+      final update = latePosition.whereType<TextDeltaPosition>().single;
+      expect(identical(update.delta, first), isTrue);
+      expect(update.outputIndex, 0);
+    }
+
+    script = [
+      {'type': 'response.output_text.delta', 'delta': 'first'},
+      _item(_message('m0', 'first')),
+      _item(_message('m1', 'second'), 1),
+      _completed,
+    ];
+    final uncompacted = await run();
+    expect(uncompacted.last, isA<Completed>());
+    expect(uncompacted.whereType<TextDeltaPosition>(), isEmpty);
+    expect(
+      uncompacted.whereType<TextDelta>().map((event) => event.text).join(),
+      'firstsecond',
+    );
+  });
+
+  test('unresolved compaction output remains inactive after reopen', () async {
+    for (final withDelta in [false, true]) {
+      var writer = await SessionWriter.create(await tempDir());
+      addTearDown(() => writer.close());
+      script = [
+        if (withDelta)
+          {
+            'type': 'response.output_text.delta',
+            'item_id': 'unmatched',
+            'delta': 'pre-cut-text',
+          }
+        else
+          _item(_message('missing-index', 'pre-cut-text')),
+        _item(_compact('secret-boundary'), 1),
+        _completed,
+      ];
+
+      Future<String> submit(String id) async {
+        final runtime = await ToolRuntime.attach(
+          writer,
+          ResultStore(writer.sessionDir),
+          workspace: writer.sessionDir,
+          gate: const AllowAllStage(),
+        );
+        final driver = ExchangeDriver(
+          writer: writer,
+          runtime: runtime,
+          provider: adapter,
+          model: 'gpt-5.5',
+        );
+        try {
+          final admitted = await driver.submit(
+            id: id,
+            text: id,
+            turn: writer.currentTurn,
+          ) as SubmitAdmitted;
+          return (await admitted.done).state;
+        } finally {
+          await driver.close();
+          await runtime.close();
+        }
+      }
+
+      expect(await submit('original'), 'failed');
+      await writer.close();
+      writer = await SessionWriter.open(writer.sessionDir);
+      final stored =
+          writer.tree.get(SessionPath.parse('body/steps/s-00000001')) as Map;
+      expect(stored['state'], 'failed');
+      expect((stored['failure'] as Map)['kind'], 'protocol');
+      expect(stored['output'], isNull);
+      if (withDelta) expect(stored['partial'], 'pre-cut-text');
+      script = [_completed];
+      expect(await submit('next'), 'done');
+      final input = jsonEncode(bodies.last['input']);
+      expect(input, contains('original'));
+      expect(input, contains('next'));
+      expect(input, isNot(contains('pre-cut-text')));
+      expect(input, isNot(contains('secret-boundary')));
+      expect(input, isNot(contains('"type":"compaction"')));
+    }
   });
 
   test(

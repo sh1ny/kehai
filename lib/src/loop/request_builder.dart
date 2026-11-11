@@ -26,8 +26,8 @@ const String interruptedNote =
 /// What a request's instructions were made of (design D16): the built-in
 /// version, the captured context key and the digest of the role section.
 ///
-/// A step's reported usage describes the context in use only for a request
-/// with the same identity.
+/// Legacy usage without lineage is compatible only with the same identity.
+/// Newer steps use their rendered-instructions lineage instead.
 final class InstructionsIdentity {
   /// Creates an identity; [context] and [role] are null when absent.
   const InstructionsIdentity(this.version, this.context, this.role);
@@ -489,12 +489,7 @@ final class RequestBuilder {
         if (!retaining && !selected) continue;
         final measured = _baselineOf(step, turn);
         if (measured != null &&
-            InstructionsIdentity.fromRecorded(step['instructions']) ==
-                identity &&
-            step['boundary'] == boundary &&
-            (boundary == null
-                ? step['lineage'] == null || _same(step['lineage'], lineage)
-                : _same(step['lineage'], lineage))) {
+            _usageCompatible(step, identity, lineage, boundary)) {
           baseline = measured;
         }
         if (selected) retaining = true;
@@ -588,6 +583,19 @@ final class RequestBuilder {
       }
     }
     return (items, baseline, boundary);
+  }
+
+  bool _usageCompatible(
+    Map<String, Object?> step,
+    InstructionsIdentity identity,
+    Map<String, Object?> lineage,
+    String? boundary,
+  ) {
+    if (step['boundary'] != boundary) return false;
+    final recordedLineage = step['lineage'];
+    if (recordedLineage != null) return _same(recordedLineage, lineage);
+    return boundary == null &&
+        InstructionsIdentity.fromRecorded(step['instructions']) == identity;
   }
 
   UsageBaseline? _baselineOf(Map<String, Object?> step, int turn) {

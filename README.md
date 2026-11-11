@@ -200,8 +200,9 @@ Returning to the old failed policy reuses its surviving unsupported evidence.
 The provider API accepts an optional typed native policy and sends inline
 `context_management: [{"type":"compaction","compact_threshold":100000}]`
 when enabled. It retains `store:false`, `stream:true`, top-level instructions,
-`additional_tools` first in input, encrypted reasoning inclusion, and no
-`previous_response_id`. Opaque compaction items are forwarded as complete JSON.
+`additional_tools` first in uncompacted input, or immediately after the selected
+compaction boundary before its retained suffix. Encrypted reasoning inclusion and
+no `previous_response_id` are unchanged. Opaque items remain complete JSON.
 
 Compaction on the ChatGPT-account route is **observed, not guaranteed**. An
 owner-approved check on 2026-11-02 observed successful compaction and continuity
@@ -209,8 +210,10 @@ on `gpt-6.1-sol`; the public token-sharing documentation does not promise route
 support. That response had no Content-Type and empty terminal output, so the
 adapter collects indexed `response.output_item.done` events instead. It keeps
 all compaction items, rejects malformed or conflicting identities/positions
-with sanitized errors, and deduplicates identical copies. Done-message text is
-used only when that message has no streamed text deltas.
+with sanitized errors, and deduplicates identical copies. Output positions must
+resolve before a response containing compaction can complete; ambiguous output
+fails without activating a boundary. Done-message text is used only when that
+message has no streamed text deltas.
 
 Encrypted items and repeated copies count toward the existing 4 MiB aggregate
 output cap; the 8 MiB SSE-event and 1 MiB serialized-request caps are unchanged.
@@ -247,7 +250,9 @@ Compaction invalidates pre-boundary token usage. Until a completed request using
 the same lineage and selected boundary reports usage, total used context is `?`
 with no percentage, even with a configured window. Ciphertext is not a token
 estimate. Compatible completed usage restores the normal baseline; a newer
-boundary invalidates it again. The sensorium remains exactly two request-only
+boundary invalidates it again. Recorded request lineage and boundary determine
+usage compatibility; file-metadata changes that leave rendered instructions
+unchanged do not discard that usage. The sensorium remains exactly two request-only
 lines. Estimated used counts show `~`; route-qualified estimated windows and
 percentages are also approximate, for example `~41k/~160k ctx (~26%)`.
 Unknown used context or window suppresses the percentage. Raw backend windows
@@ -269,7 +274,9 @@ without a compaction item records `no compaction item at threshold` (reported
 input) or `estimated input at threshold without compaction` (missing usage with
 a conservative estimate). Below-threshold absence, interrupted streams and
 unrelated failures are inconclusive. Rejection identifying `context_management`
-records unsupported immediately; no request is retried without that field.
+records unsupported immediately; a bounded message-only HTTP 400 rejection is
+reduced to the fixed field signal before raw text is discarded. No request is
+retried without that field.
 
 Unsupported policy stops before another native request, across reopen and a
 return to that policy. Explicitly choosing a different policy starts unverified;

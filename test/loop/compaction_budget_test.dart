@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:kehai/kehai.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/loop_support.dart';
@@ -180,5 +183,125 @@ void main() {
       (p.requests.single.items.last as UserMessage).text,
       contains('budget: ~1k/? ctx'),
     );
+  });
+  test('reuses calibrated usage after context metadata changes', () async {
+    final w = await createWriter(await tempDir());
+    Directory(p.join(w.sessionDir.path, '.git')).createSync();
+    final agents = File(p.join(w.sessionDir.path, 'AGENTS.md'))
+      ..writeAsStringSync('Be kind.\n');
+
+    final first = NativeFake([
+      [
+        CompactionItem(opaque('A'), outputIndex: 0),
+        const Completed(StopReason.endTurn),
+      ],
+    ]);
+    expect((await driveNative(w, first)).state, 'done');
+    final calibration = NativeFake([
+      [
+        const Usage(input: 1186, output: 8),
+        const Completed(StopReason.endTurn),
+      ],
+    ]);
+    expect((await driveNative(w, calibration)).state, 'done');
+    final calibratedStep = lastStep(w);
+    final oldIdentity = calibratedStep['instructions'] as Map;
+    final oldKey = oldIdentity['context'] as String;
+    final oldLineage = calibratedStep['lineage'];
+    final oldBoundary = calibratedStep['boundary'];
+    expect(calibratedStep['calibration'], isTrue);
+    expect(oldBoundary, isNotNull);
+
+    agents.writeAsStringSync('Be kind.\n\n');
+    final ordinary = NativeFake([
+      [const Completed(StopReason.endTurn)],
+    ]);
+    expect((await driveNative(w, ordinary)).state, 'done');
+    expect(ordinary.requests, hasLength(1));
+    final nextStep = lastStep(w);
+    final newKey = (nextStep['instructions'] as Map)['context'] as String;
+    final contexts =
+        w.tree.get(SessionPath.parse('body/contexts')) as Map<String, Object?>;
+    final before = contexts[oldKey] as Map;
+    final after = contexts[newKey] as Map;
+    expect(newKey, isNot(oldKey));
+    expect(before['files'], [
+      {'path': 'AGENTS.md', 'bytes': 9, 'truncated': false},
+    ]);
+    expect(after['files'], [
+      {'path': 'AGENTS.md', 'bytes': 10, 'truncated': false},
+    ]);
+    expect(after['text'], before['text']);
+    expect(
+      ordinary.requests.single.instructions,
+      calibration.requests.single.instructions,
+    );
+    expect(nextStep['lineage'], oldLineage);
+    expect(nextStep['boundary'], oldBoundary);
+    expect(nextStep['calibration'], isNot(true));
+    final context = nextStep['context'] as Map;
+    expect(context['used'], lessThan(10000));
+    expect(context['quality'], 'estimated from compatible usage');
+
+    agents.writeAsStringSync('Be bold.\n');
+    final changed = NativeFake([
+      [const Completed(StopReason.endTurn)],
+    ]);
+    final rejected = await driveNative(w, changed);
+    expect(rejected.state, 'stopped');
+    expect(rejected.reason, contains('incompatible continuity'));
+    expect(changed.requests, isEmpty);
+  });
+
+  test('usage lineage supersedes identity only when compatible', () async {
+    for (final (hasLineage, sameIdentity, compatible) in [
+      (false, true, true),
+      (false, false, false),
+      (true, false, true),
+      (true, true, false),
+    ]) {
+      final w = await createWriter(await tempDir());
+      for (final key in ['k1', 'k2']) {
+        await w.apply(rec(1, 'body/contexts/$key', Op.set, {'text': 'rules'}));
+      }
+      await seedExchange(w, 1, 'first', context: 'k1');
+      await seedStep(
+        w,
+        1,
+        exchange: 1,
+        output: [textEntry('answer')],
+        usage: {'input': 1000, 'output': 100},
+        instructions: {
+          'version': instructionsVersion,
+          'context': 'k1',
+          'role': null,
+        },
+      );
+      final builder = RequestBuilder(
+        sessionDir: w.sessionDir,
+        model: 'gpt-5.5',
+        workspaceName: 'test',
+        tools: const [],
+        estimateRequest: (_) => 1000000,
+      );
+      if (hasLineage) {
+        final lineage = builder.requestLineage(w.tree, contextKey: 'k1');
+        await w.apply(
+          rec(1, 'body/steps/s-00000001', Op.merge, {
+            'lineage': sameIdentity ? {...lineage, 'model': 'other'} : lineage,
+          }),
+        );
+      }
+      await seedExchange(w, 2, 'second', context: sameIdentity ? 'k1' : 'k2');
+      final built = await builder.build(w.tree, turn: 2);
+      expect(
+        built.quality,
+        compatible
+            ? 'estimated from compatible usage'
+            : 'estimated full request',
+        reason: 'lineage=$hasLineage sameIdentity=$sameIdentity',
+      );
+      expect(built.used, compatible ? lessThan(5000) : greaterThan(900000));
+    }
   });
 }

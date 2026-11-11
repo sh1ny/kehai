@@ -257,6 +257,9 @@ final class _Turn {
   final List<_DoneItem> _messages = [];
   final Set<int> _textDeltaIndexes = {};
   final Set<String> _textDeltaIds = {};
+  final Map<String, int> _textIndexesById = {};
+  final Set<_DoneItem> _unindexedDoneItems = {};
+  final Map<_DoneItem, List<TextDelta>> _unpositionedMessageDeltas = {};
   bool _unidentifiedTextDelta = false;
   final List<(TextDelta, String?)> _unindexedTextDeltas = [];
   int _doneSequence = 0;
@@ -400,7 +403,7 @@ final class _Turn {
       _fail(
         mapBackendError(
           _text,
-          fields: _text.parseErrorBody(errorBody),
+          fields: _nativeHttpErrorFields(_text, errorBody, response.statusCode),
           status: response.statusCode,
           retryAfter: parseRetryAfter(response.headers.value('retry-after')),
         ),
@@ -527,6 +530,33 @@ final class _Turn {
         if (decoded['delta'] case final String delta when delta.isNotEmpty) {
           if (_count(utf8.encode(delta).length)) {
             final itemId = decoded['item_id'];
+            if (itemId is String && !_count(utf8.encode(itemId).length)) return;
+            if (itemId is String && index != null) {
+              final known =
+                  _textIndexesById[itemId] ?? _itemsById[itemId]?.index;
+              if (known != null && known != index) {
+                _fail(
+                  _local(
+                    FailureKind.protocol,
+                    'Response item identity conflicted.',
+                  ),
+                );
+                return;
+              }
+              final done = _itemsById[itemId];
+              if (done != null &&
+                  done.index == null &&
+                  done.json['type'] == 'message' &&
+                  !_positionMessage(done, index)) {
+                return;
+              }
+              _textIndexesById[itemId] = index;
+              _unindexedTextDeltas.removeWhere((pending) {
+                if (pending.$2 != itemId) return false;
+                _emit(TextDeltaPosition(pending.$1, outputIndex: index));
+                return true;
+              });
+            }
             if (index != null) _textDeltaIndexes.add(index);
             if (itemId is String) _textDeltaIds.add(itemId);
             if (index == null && itemId is! String) {
@@ -542,7 +572,10 @@ final class _Turn {
               _unidentifiedTextDelta = true;
             }
             final resolved =
-                index ?? (itemId is String ? _itemsById[itemId]?.index : null);
+                index ??
+                (itemId is String
+                    ? _textIndexesById[itemId] ?? _itemsById[itemId]?.index
+                    : null);
             final event = TextDelta(delta, outputIndex: resolved);
             if (resolved == null) {
               _unindexedTextDeltas.add((
@@ -607,8 +640,22 @@ final class _Turn {
       return;
     }
     final id = item['id'] is String ? item['id'] as String : null;
+    final deltaIndex = id == null ? null : _textIndexesById[id];
+    if (index != null && deltaIndex != null && index != deltaIndex) {
+      _fail(_local(FailureKind.protocol, 'Response item identity conflicted.'));
+      return;
+    }
+    index ??= id == null ? null : _textIndexesById[id] ?? _itemsById[id]?.index;
     final byIndex = index == null ? null : _itemsByIndex[index];
     final byId = id == null ? null : _itemsById[id];
+    if (byId != null &&
+        byId.index == null &&
+        index != null &&
+        byId.json['type'] == 'message' &&
+        _sameJson(byId.json, item)) {
+      if (!_positionMessage(byId, index)) return;
+      return;
+    }
     for (final previous in [byIndex, byId]) {
       if (previous != null &&
           (previous.index != index || !_sameJson(previous.json, item))) {
@@ -625,6 +672,7 @@ final class _Turn {
         item['type'] == 'message' && _unidentifiedTextDelta;
     if (item['type'] == 'message') _unidentifiedTextDelta = false;
     final done = _DoneItem(item, index, _doneSequence++, unidentifiedDelta);
+    if (index == null) _unindexedDoneItems.add(done);
     if (index != null) _itemsByIndex[index] = done;
     if (id != null) _itemsById[id] = done;
     switch (item) {
@@ -638,6 +686,8 @@ final class _Turn {
           if (deltaId != null && deltaId != id) return false;
           if (index != null) {
             _emit(TextDeltaPosition(delta, outputIndex: index));
+          } else {
+            (_unpositionedMessageDeltas[done] ??= []).add(delta);
           }
           return true;
         });
@@ -673,7 +723,36 @@ final class _Turn {
     }
   }
 
+  bool _positionMessage(_DoneItem item, int index) {
+    final occupied = _itemsByIndex[index];
+    if (occupied != null && !identical(occupied, item)) {
+      _fail(_local(FailureKind.protocol, 'Response item identity conflicted.'));
+      return false;
+    }
+    item.index = index;
+    _itemsByIndex[index] = item;
+    _unindexedDoneItems.remove(item);
+    for (final delta
+        in _unpositionedMessageDeltas.remove(item) ?? <TextDelta>[]) {
+      _emit(TextDeltaPosition(delta, outputIndex: index));
+    }
+    return true;
+  }
+
+  bool _hasUnresolvedCompactionOutput() =>
+      _parts.any((part) => part.$2 is CompactionItem) &&
+      (_unindexedDoneItems.isNotEmpty || _unindexedTextDeltas.isNotEmpty);
+
   void _onCompleted(Object? response) {
+    if (_hasUnresolvedCompactionOutput()) {
+      _fail(
+        _local(
+          FailureKind.protocol,
+          'Compaction output positions were unresolved.',
+        ),
+      );
+      return;
+    }
     // The terminal output array is deliberately not an alternate item source.
     // Done messages wait until here so even late deltas suppress the fallback.
     for (final message in _messages) {
@@ -737,9 +816,10 @@ final class _Turn {
         param: param,
       ),
       {'code': final String code} => ErrorFields(code: code),
+      {'param': final String param} => ErrorFields(param: param),
       _ => const ErrorFields(),
     };
-    _fail(mapBackendError(_text, fields: fields));
+    _fail(mapBackendError(_text, fields: _nativeErrorFields(fields, error)));
   }
 
   Usage _usage(Object? response) {
@@ -761,11 +841,59 @@ final class _Turn {
   }
 }
 
+// Only recognize explicit rejection forms, never a generic mention of the field.
+final RegExp _nativeRejection = RegExp(
+  r"""^(?:(?:unknown|unsupported|unrecognized|invalid) (?:request )?(?:parameter|field|argument)\s*:\s*['"`]?context_management['"`]?(?:[.,;:]|$)|(?:the )?['"`]?context_management['"`]?\s+(?:parameter |field )?(?:is |is currently )?(?:not supported|unsupported|not allowed|unrecognized|invalid)(?:[.,;:]|$))""",
+  caseSensitive: false,
+);
+
+ErrorFields _nativeHttpErrorFields(
+  FailureText text,
+  List<int> body,
+  int status,
+) {
+  final fields = text.parseErrorBody(body);
+  if (status != 400 ||
+      fields.code != null ||
+      fields.param != null ||
+      body.isEmpty ||
+      body.length > openAiMaxErrorBodyBytes) {
+    return fields;
+  }
+  try {
+    final decoded = jsonDecode(utf8.decode(body, allowMalformed: true));
+    final error = decoded is Map ? decoded['error'] : null;
+    return _nativeErrorFields(fields, error, status: status);
+  } on FormatException {
+    return fields;
+  }
+}
+
+ErrorFields _nativeErrorFields(
+  ErrorFields fields,
+  Object? error, {
+  int? status,
+}) {
+  if (status != 400 ||
+      error is! Map ||
+      error['code'] != null ||
+      error['param'] != null) {
+    return fields;
+  }
+  final message = error['message'];
+  if (message is String &&
+      message.length <= 4096 &&
+      _nativeRejection.hasMatch(message.trimLeft())) {
+    return const ErrorFields(param: 'context_management');
+  }
+  return fields;
+}
+
 final class _DoneItem {
-  const _DoneItem(this.json, this.index, this.sequence, this.unidentifiedDelta);
+  _DoneItem(this.json, this.index, this.sequence, this.unidentifiedDelta);
 
   final Map<String, Object?> json;
-  final int? index;
+  int? index;
   final int sequence;
   final bool unidentifiedDelta;
 }
