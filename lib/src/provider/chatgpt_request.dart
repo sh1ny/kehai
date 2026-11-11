@@ -24,12 +24,14 @@ const Set<String> chatGptBodyKeys = {
   'store',
   'stream',
   'prompt_cache_key',
+  'context_management',
 };
 
 /// Builds the request body for [request].
 ///
 /// There is no top-level `tools` key. Tools travel in one `additional_tools`
-/// item at the head of `input`, rebuilt on every call.
+/// item, rebuilt on every call: immediately after the selected compaction item,
+/// or at the head of uncompacted `input`.
 Map<String, Object?> buildChatGptBody(ModelRequest request) {
   final input = <Object?>[
     if (request.tools.isNotEmpty)
@@ -49,6 +51,16 @@ Map<String, Object?> buildChatGptBody(ModelRequest request) {
       },
     for (final item in request.items) _inputItem(item),
   ];
+  if (request.tools.isNotEmpty) {
+    final boundary = request.items.lastIndexWhere(
+      (item) => item is OpaqueCompactionItem,
+    );
+    if (boundary >= 0) {
+      // Re-establish tools after the boundary without changing its opaque JSON
+      // or the retained suffix's call/result ordering.
+      input.insert(boundary + 1, input.removeAt(0));
+    }
+  }
   return {
     'model': request.model,
     'instructions': request.instructions,
@@ -60,6 +72,10 @@ Map<String, Object?> buildChatGptBody(ModelRequest request) {
     'store': false,
     'stream': true,
     'prompt_cache_key': request.sessionId,
+    if (request.nativeCompaction case final policy?)
+      'context_management': [
+        {'type': 'compaction', 'compact_threshold': policy.threshold},
+      ],
   };
 }
 
@@ -90,6 +106,7 @@ Object? _inputItem(ConversationItem item) => switch (item) {
     'output': output,
   },
   OpaqueReasoningItem(:final json) => json,
+  OpaqueCompactionItem(:final json) => json,
 };
 
 /// Serializes [body] to UTF-8 JSON, or returns `null` when it exceeds

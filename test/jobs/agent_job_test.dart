@@ -79,6 +79,92 @@ final class _InertProcess implements Process {
   }
 }
 
+/// A supervisor deadline that the test fires after observing child output.
+final class _ManualDeadline implements Timer {
+  _ManualDeadline(this._zone, this._callback);
+
+  final Zone _zone;
+  final void Function() _callback;
+  bool _active = true;
+  int _tick = 0;
+
+  void fire() {
+    if (!_active) throw StateError('deadline is no longer active');
+    _active = false;
+    _tick = 1;
+    _zone.runGuarded(_callback);
+  }
+
+  @override
+  void cancel() => _active = false;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => _tick;
+}
+
+/// Waits for the real child's text delta before firing the supervisor's timer.
+final class _DeadlineGate {
+  _DeadlineGate(this.text);
+
+  static const duration = Duration(seconds: 137);
+  final String text;
+  final Completer<void> _ready = Completer<void>();
+  final Completer<_ManualDeadline> _deadline = Completer<_ManualDeadline>();
+  String _pending = '';
+
+  JobHooks get hooks => JobHooks(
+    afterSpoolWrite: (id, stream, chunk) async {
+      if (stream != 'stdout' || _ready.isCompleted) return;
+      // Protocol delimiters and the expected text are ASCII; preserve split
+      // lines across pipe chunks without depending on chunk boundaries.
+      _pending += String.fromCharCodes(chunk);
+      var newline = _pending.indexOf('\n');
+      while (newline >= 0) {
+        final line = _pending.substring(0, newline);
+        _pending = _pending.substring(newline + 1);
+        if (line.contains('"type":"stream"') &&
+            line.contains('"kind":"text"') &&
+            line.contains('"delta":${jsonEncode(text)}')) {
+          _ready.complete();
+          break;
+        }
+        newline = _pending.indexOf('\n');
+      }
+    },
+  );
+
+  Future<String> run(_Fixture f) async {
+    final running = runZoned(
+      () => f.h.call('agent', {
+        'role': _reviewer,
+        'prompt': 'review',
+        'timeout_s': duration.inSeconds,
+      }),
+      zoneSpecification: ZoneSpecification(
+        createTimer: (self, parent, zone, delay, callback) {
+          if (delay != duration) {
+            return parent.createTimer(zone, delay, callback);
+          }
+          final timer = _ManualDeadline(zone, callback);
+          _deadline.complete(timer);
+          return timer;
+        },
+      ),
+    );
+    await _ready.future.timeout(
+      const Duration(seconds: 90),
+      onTimeout: () => throw StateError('child did not stream $text'),
+    );
+    final timer = await _deadline.future.timeout(const Duration(seconds: 90));
+    expect(timer.isActive, isTrue);
+    timer.fire();
+    return running.timeout(const Duration(seconds: 60));
+  }
+}
+
 String _roleText(String name, {String? model, String? tools}) =>
     '---\n'
     'name: $name\n'
@@ -95,6 +181,7 @@ final class _Fixture {
   static Future<_Fixture> create({
     bool login = true,
     Map<String, Tool>? tools,
+    JobHooks jobHooks = const JobHooks(),
   }) async {
     final home = TestHome();
     final workspace = await tempDir();
@@ -127,6 +214,7 @@ final class _Fixture {
       kehaiHome: Directory(home.path),
       model: 'gpt-fake',
       config: UserConfig.load(home.path),
+      jobHooks: jobHooks,
       tools:
           tools ??
           {
@@ -505,15 +593,12 @@ void main() {
 
     test('a child past its deadline ends with status timeout and its text so '
         'far', () async {
-      final f = await _Fixture.create();
+      final deadline = _DeadlineGate('partial words');
+      final f = await _Fixture.create(jobHooks: deadline.hooks);
       f.writeRole(_reviewer);
       f.stall('partial words');
 
-      final text = await f.h.call('agent', {
-        'role': _reviewer,
-        'prompt': 'review',
-        'timeout_s': 15,
-      });
+      final text = await deadline.run(f);
 
       final agent = f.job['agent']! as Map<String, Object?>;
       expect(agent['status'], 'timeout');
@@ -525,7 +610,8 @@ void main() {
 
     test('a timed-out child returns its latest partial text, not an earlier '
         "step's commentary", () async {
-      final f = await _Fixture.create();
+      final deadline = _DeadlineGate('latest answer so far');
+      final f = await _Fixture.create(jobHooks: deadline.hooks);
       f.writeRole(_reviewer, tools: 'read');
       File(p.join(f.workspace.path, 'notes.txt')).writeAsStringSync('notes');
       f.fake.responsesScripts.add(
@@ -560,11 +646,7 @@ void main() {
       );
       f.stall('latest answer so far');
 
-      final text = await f.h.call('agent', {
-        'role': _reviewer,
-        'prompt': 'review',
-        'timeout_s': 15,
-      });
+      final text = await deadline.run(f);
 
       expect((f.job['agent']! as Map<String, Object?>)['status'], 'timeout');
       expect(f.fake.responsesRequests, hasLength(2));

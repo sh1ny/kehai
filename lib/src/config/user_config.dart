@@ -17,6 +17,9 @@ const Duration defaultHookTimeout = Duration(seconds: 10);
 /// The largest `timeout_ms` a hook may set.
 const int maxHookTimeoutMs = 600000;
 
+/// The maximum decoded UTF-8 size of a captured child policy.
+const int maxCapturedPolicyBytes = 8 * 1024;
+
 /// The tool names a rule or hook may refer to.
 const Set<String> toolRoster = {
   'read',
@@ -108,6 +111,76 @@ final class HookConfig {
   final Duration timeout;
 }
 
+/// Supported policy vocabulary. Local summaries are reserved, not implemented.
+enum CompactionStrategy {
+  providerNative('provider_native'),
+  localSummary('local_summary'),
+  off('off');
+
+  const CompactionStrategy(this.wireName);
+  final String wireName;
+}
+
+/// A partial policy; omitted fields inherit independently.
+final class CompactionSettings {
+  const CompactionSettings({this.strategy, this.threshold});
+  final CompactionStrategy? strategy;
+  final int? threshold;
+}
+
+/// Fully resolved policy and the source of each field.
+final class EffectiveCompactionPolicy {
+  const EffectiveCompactionPolicy({
+    required this.strategy,
+    required this.threshold,
+    required this.strategySource,
+    required this.thresholdSource,
+  });
+  final CompactionStrategy strategy;
+  final int threshold;
+  final String strategySource;
+  final String thresholdSource;
+}
+
+/// Provider defaults and route-specific overrides captured at startup.
+final class ProviderConfig {
+  const ProviderConfig({this.compaction, this.routes = const {}});
+  final CompactionSettings? compaction;
+  final Map<String, RouteConfig> routes;
+}
+
+/// Route defaults and model-specific overrides.
+final class RouteConfig {
+  const RouteConfig({this.compaction, this.models = const {}});
+  final CompactionSettings? compaction;
+  final Map<String, RouteModelConfig> models;
+}
+
+/// A model's route-qualified settings, never generic backend metadata.
+final class RouteModelConfig {
+  const RouteModelConfig({this.compaction, this.contextWindow});
+  final CompactionSettings? compaction;
+  final int? contextWindow;
+}
+
+/// Capacity evidence with raw metadata and legacy hints kept distinct.
+final class RouteCapacity {
+  const RouteCapacity({
+    required this.contextWindow,
+    required this.source,
+    this.configPath,
+    this.backendContextWindow,
+    this.legacyHint,
+    this.migrationNotice,
+  });
+  final int? contextWindow;
+  final String source;
+  final String? configPath;
+  final int? backendContextWindow;
+  final int? legacyHint;
+  final String? migrationNotice;
+}
+
 /// The settings read once from `<kehai home>/config.json`.
 final class UserConfig {
   /// Creates a configuration. With no arguments it is the defaults.
@@ -120,6 +193,7 @@ final class UserConfig {
     this.effort,
     this.contextWindows = const {},
     this.agentModels = const {},
+    this.providers = const {},
   });
 
   /// Reads `config.json` from [home].
@@ -127,12 +201,17 @@ final class UserConfig {
   /// A missing file gives the defaults. Throws a [ConfigError] naming the file
   /// and the first problem when the file is unreadable, is not valid JSON, has
   /// an unknown key, or holds a wrong type or an out-of-range value.
-  factory UserConfig.load(String home) {
+  factory UserConfig.load(String home, {String? capturedProviderPolicy}) {
+    if (capturedProviderPolicy != null) {
+      decodeProviderPolicy(capturedProviderPolicy);
+    }
     final path = p.join(home, configFileName);
     final String text;
     try {
       if (FileSystemEntity.typeSync(path) == FileSystemEntityType.notFound) {
-        return const UserConfig();
+        return capturedProviderPolicy == null
+            ? const UserConfig()
+            : decodeProviderPolicy(capturedProviderPolicy);
       }
       text = File(path).readAsStringSync();
     } on FileSystemException catch (e) {
@@ -145,6 +224,14 @@ final class UserConfig {
       final offset = (e.offset ?? 0).clamp(0, text.length);
       final line = '\n'.allMatches(text.substring(0, offset)).length + 1;
       throw ConfigError(path, 'invalid JSON at line $line');
+    }
+    // A child inherits provider policy, not later edits to that policy. Replace
+    // the raw section before parsing, while validating all other current keys.
+    if (capturedProviderPolicy != null && json is Map<String, Object?>) {
+      final captured = jsonDecode(
+        utf8.decode(base64Decode(capturedProviderPolicy)),
+      ) as Map<String, Object?>;
+      json['providers'] = captured['providers'];
     }
     return _parse(path, json);
   }
@@ -172,6 +259,168 @@ final class UserConfig {
 
   /// The `agents.models` map from a role's model alias to a model id.
   final Map<String, String> agentModels;
+
+  /// Captured provider/route/model settings, independent of backend metadata.
+  final Map<String, ProviderConfig> providers;
+
+  /// Encodes only validated provider policy for an internal child launch.
+  ///
+  /// Throws [ConfigError] rather than omitting fields above the 8 KiB limit.
+  String captureProviderPolicy() {
+    Map<String, Object?> settings(CompactionSettings value) => {
+      if (value.strategy case final strategy?) 'strategy': strategy.wireName,
+      'threshold': ?value.threshold,
+    };
+    final json = <String, Object?>{
+      'providers': {
+        for (final MapEntry(key: id, value: provider) in providers.entries)
+          id: {
+            if (provider.compaction case final policy?)
+              'compaction': settings(policy),
+            'routes': {
+              for (final MapEntry(key: id, value: route)
+                  in provider.routes.entries)
+                id: {
+                  if (route.compaction case final policy?)
+                    'compaction': settings(policy),
+                  'models': {
+                    for (final MapEntry(key: id, value: model)
+                        in route.models.entries)
+                      id: {
+                        if (model.compaction case final policy?)
+                          'compaction': settings(policy),
+                        'contextWindow': ?model.contextWindow,
+                      },
+                  },
+                },
+            },
+          },
+      },
+    };
+    final bytes = utf8.encode(jsonEncode(json));
+    if (bytes.length > maxCapturedPolicyBytes) {
+      throw const ConfigError(
+        'compaction-policy',
+        'captured policy exceeds 8 KiB',
+      );
+    }
+    final encoded = base64Encode(bytes);
+    decodeProviderPolicy(encoded);
+    return encoded;
+  }
+
+  /// Validates a bounded, provider-only internal policy payload.
+  ///
+  /// Malformed encodings, unknown keys and invalid settings fail closed.
+  static UserConfig decodeProviderPolicy(String encoded) {
+    const path = 'compaction-policy';
+    if (encoded.length > ((maxCapturedPolicyBytes + 2) ~/ 3) * 4) {
+      throw const ConfigError(path, 'captured policy exceeds 8 KiB');
+    }
+    try {
+      final bytes = base64Decode(encoded);
+      if (bytes.length > maxCapturedPolicyBytes) {
+        throw const ConfigError(path, 'captured policy exceeds 8 KiB');
+      }
+      final json = jsonDecode(utf8.decode(bytes));
+      if (json case {'providers': final Map<String, Object?> _}) {
+        if (json.length == 1) return _parse(path, json);
+      }
+      throw const ConfigError(path, 'expected provider-policy object');
+    } on FormatException {
+      throw const ConfigError(path, 'invalid captured policy encoding');
+    }
+  }
+
+  /// Replaces provider settings with the parent's validated captured snapshot.
+  ///
+  /// Other startup settings retain their existing semantics, including effort.
+  UserConfig withProviderPolicy(String encoded) => UserConfig(
+    allow: allow,
+    hooks: hooks,
+    rgPath: rgPath,
+    envPassthrough: envPassthrough,
+    model: model,
+    effort: effort,
+    contextWindows: contextWindows,
+    agentModels: agentModels,
+    providers: decodeProviderPolicy(encoded).providers,
+  );
+
+  /// Resolves each field separately, retaining its exact source setting.
+  EffectiveCompactionPolicy effectiveCompaction(
+    String provider,
+    String route,
+    String model,
+  ) {
+    final providerConfig = providers[provider];
+    final routeConfig = providerConfig?.routes[route];
+    final base = 'providers.$provider';
+    final routePath = '$base.routes.$route';
+    var strategy = provider == 'openai' && route == 'chatgpt-account'
+        ? CompactionStrategy.providerNative
+        : CompactionStrategy.off;
+    var threshold = 100000;
+    var strategySource = 'built-in';
+    var thresholdSource = 'built-in';
+    for (final (settings, at) in [
+      (providerConfig?.compaction, '$base.compaction'),
+      (routeConfig?.compaction, '$routePath.compaction'),
+      (
+        routeConfig?.models[model]?.compaction,
+        '$routePath.models.$model.compaction',
+      ),
+    ]) {
+      if (settings?.strategy case final value?) {
+        strategy = value;
+        strategySource = '$at.strategy';
+      }
+      if (settings?.threshold case final value?) {
+        threshold = value;
+        thresholdSource = '$at.threshold';
+      }
+    }
+    return EffectiveCompactionPolicy(
+      strategy: strategy,
+      threshold: threshold,
+      strategySource: strategySource,
+      thresholdSource: thresholdSource,
+    );
+  }
+
+  /// Keeps raw metadata and legacy hints separate from route-qualified capacity.
+  /// Callers must surface [RouteCapacity.migrationNotice] when present.
+  RouteCapacity resolveCapacity(
+    String provider,
+    String route,
+    String model, {
+    int? backendContextWindow,
+  }) {
+    final at = 'providers.$provider.routes.$route.models.$model.contextWindow';
+    final qualified =
+        providers[provider]?.routes[route]?.models[model]?.contextWindow;
+    final legacy = contextWindows[model];
+    final chatgpt = provider == 'openai' && route == 'chatgpt-account';
+    final effective =
+        qualified ?? (chatgpt ? null : legacy ?? backendContextWindow);
+    return RouteCapacity(
+      contextWindow: effective,
+      source: qualified != null
+          ? 'user-configured estimate'
+          : chatgpt || effective == null
+          ? 'unknown'
+          : legacy != null
+          ? 'legacy model override'
+          : 'backend metadata',
+      configPath: qualified != null ? at : null,
+      backendContextWindow: backendContextWindow,
+      legacyHint: legacy,
+      migrationNotice: chatgpt && legacy != null
+          ? 'models.$model.contextWindow is an unqualified hint, not a '
+                'ChatGPT-account capacity. Migrate it to $at.'
+          : null,
+    );
+  }
 }
 
 UserConfig _parse(String path, Object? json) {
@@ -187,6 +436,7 @@ UserConfig _parse(String path, Object? json) {
     'effort',
     'models',
     'agents',
+    'providers',
   });
   final rgPath = json['rgPath'];
   if (json.containsKey('rgPath') && (rgPath is! String || rgPath.isEmpty)) {
@@ -239,6 +489,7 @@ UserConfig _parse(String path, Object? json) {
     effort: effort as String?,
     contextWindows: _models(path, json),
     agentModels: _agents(path, json),
+    providers: _providers(path, json),
   );
 }
 
@@ -408,4 +659,98 @@ void _noUnknown(
       );
     }
   }
+}
+
+Map<String, ProviderConfig> _providers(String path, Map<String, Object?> root) {
+  if (!root.containsKey('providers')) return const {};
+  final providers = _object(path, 'providers', root['providers']);
+  return Map.unmodifiable({
+    for (final MapEntry(:key, :value) in providers.entries)
+      key: _provider(path, 'providers.$key', value),
+  });
+}
+
+ProviderConfig _provider(String path, String at, Object? value) {
+  final map = _object(path, at, value);
+  _noUnknown(path, at, map, const {'compaction', 'routes'});
+  final routes = map.containsKey('routes')
+      ? _object(path, '$at.routes', map['routes'])
+      : const <String, Object?>{};
+  return ProviderConfig(
+    compaction: _compaction(path, at, map),
+    routes: Map.unmodifiable({
+      for (final MapEntry(:key, :value) in routes.entries)
+        key: _route(path, '$at.routes.$key', value),
+    }),
+  );
+}
+
+RouteConfig _route(String path, String at, Object? value) {
+  final map = _object(path, at, value);
+  _noUnknown(path, at, map, const {'compaction', 'models'});
+  final models = map.containsKey('models')
+      ? _object(path, '$at.models', map['models'])
+      : const <String, Object?>{};
+  return RouteConfig(
+    compaction: _compaction(path, at, map),
+    models: Map.unmodifiable({
+      for (final MapEntry(:key, :value) in models.entries)
+        key: _routeModel(path, '$at.models.$key', value),
+    }),
+  );
+}
+
+RouteModelConfig _routeModel(String path, String at, Object? value) {
+  final map = _object(path, at, value);
+  _noUnknown(path, at, map, const {'compaction', 'contextWindow'});
+  int? window;
+  if (map.containsKey('contextWindow')) {
+    final raw = map['contextWindow'];
+    if (raw is! int || raw < 1) {
+      throw ConfigError(path, '$at.contextWindow: must be a positive integer');
+    }
+    window = raw;
+  }
+  return RouteModelConfig(
+    compaction: _compaction(path, at, map),
+    contextWindow: window,
+  );
+}
+
+CompactionSettings? _compaction(
+  String path,
+  String parent,
+  Map<String, Object?> map,
+) {
+  if (!map.containsKey('compaction')) return null;
+  final at = '$parent.compaction';
+  final settings = _object(path, at, map['compaction']);
+  _noUnknown(path, at, settings, const {'strategy', 'threshold'});
+  CompactionStrategy? strategy;
+  if (settings.containsKey('strategy')) {
+    strategy = switch (settings['strategy']) {
+      'provider_native' => CompactionStrategy.providerNative,
+      'off' => CompactionStrategy.off,
+      'local_summary' => throw ConfigError(
+        path,
+        '$at.strategy: local_summary is reserved and not implemented',
+      ),
+      _ => throw ConfigError(
+        path,
+        '$at.strategy: must be provider_native, local_summary or off',
+      ),
+    };
+  }
+  int? threshold;
+  if (settings.containsKey('threshold')) {
+    final raw = settings['threshold'];
+    if (raw is! int || raw < 1000) {
+      throw ConfigError(
+        path,
+        '$at.threshold: must be an integer at least 1000',
+      );
+    }
+    threshold = raw;
+  }
+  return CompactionSettings(strategy: strategy, threshold: threshold);
 }

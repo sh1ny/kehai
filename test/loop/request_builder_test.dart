@@ -23,6 +23,7 @@ List<String> _describe(ModelRequest request) => [
       ToolCallItem(:final callId, :final name) => 'call:$callId:$name',
       ToolOutputItem(:final callId, :final output) => 'output:$callId:$output',
       OpaqueReasoningItem(:final json) => 'reasoning:${json['id']}',
+      OpaqueCompactionItem(:final json) => 'compaction:${json['id']}',
     },
 ];
 
@@ -200,30 +201,56 @@ void main() {
     ]);
   });
 
-  test('a call without a terminal node is left out with its output', () async {
-    final (writer, store) = await _session();
-    await seedExchange(writer, 1, 'go', state: 'running');
-    await seedStep(
-      writer,
-      1,
-      exchange: 1,
-      output: [
-        callEntry('missing', 'ls'),
-        callEntry('pending', 'ls'),
-        callEntry('done', 'ls'),
-      ],
-    );
-    await seedCall(writer, store, callId: 'pending', status: 'pending');
-    await seedCall(writer, store, callId: 'done', modelText: 'listing');
+  test(
+    'a committed call without a terminal outcome blocks until recovery',
+    () async {
+      final (writer, store) = await _session();
+      await seedExchange(writer, 1, 'go', state: 'running');
+      await seedStep(
+        writer,
+        1,
+        exchange: 1,
+        output: [
+          callEntry('missing', 'ls'),
+          callEntry('pending', 'ls'),
+          callEntry('done', 'ls'),
+        ],
+      );
+      await seedCall(
+        writer,
+        store,
+        callId: 'pending',
+        tool: 'ls',
+        status: 'pending',
+      );
+      await seedCall(
+        writer,
+        store,
+        callId: 'done',
+        tool: 'ls',
+        modelText: 'listing',
+      );
 
-    final built = await _builder(writer).build(writer.tree, turn: 2);
-
-    expect(_describe(built.request), [
-      'user:go',
-      'call:done:ls',
-      'output:done:listing',
-    ]);
-  });
+      await expectLater(
+        _builder(writer).build(writer.tree, turn: 2),
+        throwsStateError,
+      );
+      await JobRecovery(writer, store).resume();
+      final built = await _builder(writer).build(writer.tree, turn: 2);
+      expect(
+        built.request.items.whereType<ToolCallItem>().map((c) => c.callId),
+        ['missing', 'pending', 'done'],
+      );
+      expect(
+        built.request.items.whereType<ToolOutputItem>().last.output,
+        'listing',
+      );
+      expect(
+        built.request.items.whereType<ToolOutputItem>().first.output,
+        contains('execution not recorded; not replayed'),
+      );
+    },
+  );
 
   test('items follow the step output order with reasoning unchanged', () async {
     final (writer, store) = await _session();
@@ -256,6 +283,83 @@ void main() {
     expect(reasoning.single.json, {'id': 'rs_1', 'type': 'reasoning', 'x': 1});
     expect(built.request.instructions, builtInInstructions);
   });
+
+  for (final native in [false, true]) {
+    for (final change in ['instructions', 'model', 'tools']) {
+      test('full history without a boundary survives $change changes '
+          '(native=$native)', () async {
+        final (writer, _) = await _session();
+        const reasoning = {
+          'type': 'reasoning',
+          'id': 'rs-full-history',
+          'encrypted_content': 'unchanged-opaque-reasoning',
+        };
+        for (final key in ['before', 'after']) {
+          await writer.apply(
+            rec(1, 'body/contexts/$key', Op.set, {
+              'text': key == 'after' && change == 'instructions'
+                  ? 'Changed instructions'
+                  : 'Original instructions',
+            }),
+          );
+        }
+        await seedExchange(writer, 1, 'first prompt', context: 'before');
+        final original = _builder(writer);
+        await seedStep(
+          writer,
+          1,
+          exchange: 1,
+          output: [
+            {'type': 'reasoning', 'item': reasoning},
+            textEntry('first answer'),
+          ],
+        );
+        await writer.apply(
+          rec(1, 'body/steps/s-00000001', Op.merge, {
+            'lineage': original.requestLineage(writer.tree),
+          }),
+        );
+        await seedExchange(writer, 2, 'second prompt', context: 'after');
+        final rebuilt = await RequestBuilder(
+          sessionDir: writer.sessionDir,
+          model: change == 'model' ? 'different-model' : 'gpt-5.5',
+          workspaceName: 'proj',
+          tools: change == 'tools'
+              ? const [
+                  ToolSpec(
+                    name: 'new_tool',
+                    description: 'A changed tool roster',
+                    parametersJsonSchema: {'type': 'object'},
+                  ),
+                ]
+              : const [],
+          nativeCompaction: native
+              ? const NativeCompactionPolicy(threshold: 100000)
+              : null,
+          estimateRequest: (_) => 0,
+        ).build(writer.tree, turn: 2);
+        expect(rebuilt.boundary, isNull);
+        expect(_describe(rebuilt.request), [
+          'user:first prompt',
+          'reasoning:rs-full-history',
+          'assistant:first answer',
+          'user:second prompt',
+        ]);
+        expect(
+          rebuilt.request.items.whereType<OpaqueReasoningItem>().single.json,
+          reasoning,
+        );
+        expect(
+          rebuilt.request.instructions,
+          contains(
+            change == 'instructions'
+                ? 'Changed instructions'
+                : 'Original instructions',
+          ),
+        );
+      });
+    }
+  }
 
   group('fallbacks without a stored model text', () {
     test('a node with a result is recomposed with its diag lines', () async {

@@ -20,6 +20,9 @@ int estimateItem(ConversationItem item) => switch (item) {
     estimateText(name) + estimateText(argumentsJson),
   ToolOutputItem(:final output) => estimateText(output),
   OpaqueReasoningItem(:final json) => estimateText(jsonEncode(json)),
+  OpaqueCompactionItem() => throw UnsupportedError(
+    'opaque compaction token accounting is unknown',
+  ),
 };
 
 /// Renders a token count as `41k` below a million and `1.2M` above.
@@ -39,16 +42,22 @@ String sensoriumBlock({
   required int turn,
   required DateTime now,
   required String workspaceName,
-  required int used,
+  required int? used,
   required int? window,
   required String model,
+  bool usedEstimated = false,
+  bool windowEstimated = false,
 }) {
   String two(int n) => n.toString().padLeft(2, '0');
-  final percent = window == null ? '' : ' (${(used * 100 / window).round()}%)';
+  final percent = window == null || used == null
+      ? ''
+      : ' (${usedEstimated || windowEstimated ? '~' : ''}${(used * 100 / window).round()}%)';
+  String count(int? n, bool estimated) =>
+      n == null ? '?' : '${estimated ? '~' : ''}${formatTokens(n)}';
   return '<sensorium>\n'
       'turn: $turn · full · ${two(now.hour)}:${two(now.minute)} · '
       'cwd $workspaceName\n'
-      'budget: ${formatTokens(used)}/${window == null ? '?' : formatTokens(window)}'
+      'budget: ${count(used, usedEstimated)}/${count(window, windowEstimated)}'
       ' ctx$percent · model $model\n'
       '</sensorium>';
 }

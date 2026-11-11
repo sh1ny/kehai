@@ -102,6 +102,8 @@ void main() {
                   '--effort',
                   selected,
                 ],
+                '--compaction-policy',
+                const UserConfig().captureProviderPolicy(),
               ]);
               expect(runtime.jobs.liveCount, 0);
               expect(

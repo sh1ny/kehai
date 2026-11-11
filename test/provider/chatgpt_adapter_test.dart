@@ -64,10 +64,12 @@ ModelRequest _request({
 
 String _show(ProviderEvent event) => switch (event) {
   TextDelta(:final text) => 'text:$text',
+  TextDeltaPosition(:final outputIndex) => 'text-position:$outputIndex',
   ReasoningSummaryDelta(:final text) => 'summary:$text',
   ToolCall(:final callId, :final name, :final argumentsJson) =>
     'call:$callId:$name:$argumentsJson',
   OpaqueItem() => 'opaque',
+  CompactionItem() => 'compaction',
   Usage(:final input, :final cachedInput, :final output, :final reasoning) =>
     'usage:$input/$cachedInput/$output/$reasoning',
   Completed(:final stop) => 'completed:${stop.wire}',

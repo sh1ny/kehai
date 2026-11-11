@@ -26,13 +26,22 @@ final class PumpLimits {
 }
 
 /// Produces the events that follow a resync, taken when they are written.
-typedef ResyncEvents = List<Map<String, Object?>> Function();
+typedef ResyncEvents = FutureOr<List<Map<String, Object?>>> Function();
 
 /// One queued line, or the single pending resync when [bytes] is null.
 final class _Line {
-  const _Line(this.bytes, {this.droppable = false});
+  const _Line(this.bytes, {this.droppable = false})
+    : materialize = null,
+      reserved = 0;
+  const _Line.materialized(
+    this.materialize, {
+    this.reserved = 0,
+    this.droppable = false,
+  }) : bytes = null;
 
   final List<int>? bytes;
+  final FutureOr<Map<String, Object?>> Function()? materialize;
+  final int reserved;
   final bool droppable;
 }
 
@@ -102,7 +111,7 @@ final class OutputPump {
     if (!keepQueued) {
       _queue.removeWhere((line) {
         if (!line.droppable) return false;
-        _droppableBytes -= line.bytes!.length;
+        _droppableBytes -= line.bytes?.length ?? line.reserved;
         return true;
       });
     }
@@ -127,6 +136,28 @@ final class OutputPump {
       if (_droppableBytes > limits.droppable) requestResync();
     } else {
       _reliableBytes += bytes.length;
+    }
+    _draining ??= _drain();
+  }
+
+  /// Queues a projection materialized in wire order at write time.
+  ///
+  /// [reserved] counts pending projection work against the existing queue
+  /// bounds. Snapshots retain the reliable semantics of [send].
+  void sendMaterialized(
+    FutureOr<Map<String, Object?>> Function() materialize, {
+    bool droppable = false,
+    int reserved = 32768,
+  }) {
+    if (_broken || (droppable && _resyncPending)) return;
+    _queue.add(
+      _Line.materialized(materialize, reserved: reserved, droppable: droppable),
+    );
+    if (droppable) {
+      _droppableBytes += reserved;
+      if (_droppableBytes > limits.droppable) requestResync();
+    } else {
+      _reliableBytes += reserved;
     }
     _draining ??= _drain();
   }
@@ -156,6 +187,14 @@ final class OutputPump {
         while (_queue.isNotEmpty && size < limits.batch) {
           final line = _queue.removeFirst();
           final bytes = line.bytes;
+          if (line.materialize case final materialize?) {
+            final event = await materialize();
+            final written = _encode(event);
+            _sink.add(written);
+            size += written.length;
+            batch.add(line);
+            continue;
+          }
           if (bytes != null) {
             _sink.add(bytes);
             batch.add(line);
@@ -165,7 +204,7 @@ final class OutputPump {
           // The resync events are taken now, so they are the latest state.
           _resyncPending = false;
           final events =
-              resync?.call() ??
+              await resync?.call() ??
               const [
                 {'type': 'resync'},
               ];
@@ -179,9 +218,9 @@ final class OutputPump {
         final wasSaturated = saturated;
         for (final line in batch) {
           if (line.droppable) {
-            _droppableBytes -= line.bytes!.length;
+            _droppableBytes -= line.bytes?.length ?? line.reserved;
           } else {
-            _reliableBytes -= line.bytes!.length;
+            _reliableBytes -= line.bytes?.length ?? line.reserved;
           }
         }
         if (wasSaturated && !saturated) onRelief?.call();

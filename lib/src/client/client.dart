@@ -303,6 +303,8 @@ final class LineClient {
         _line('session ${event['session']}  model ${event['model']}');
       case 'snapshot':
         _onSnapshot(event);
+      case 'compaction_status':
+        if (_mirror.isValid) _showCompaction(event['compaction']);
       case 'resync':
         _mirror.invalidate();
         _gapOpen = true;
@@ -349,11 +351,26 @@ final class LineClient {
       if (turn > _gapThrough) _gapThrough = turn;
     }
     _reconcile(first: !_ready);
+    _showCompaction(event['compaction']);
     if (!_ready) {
       _ready = true;
       _showPrompt();
     }
     _gate();
+  }
+
+  String? _lastCompaction;
+
+  void _showCompaction(Object? status) {
+    final lines = compactionStatusLines(status);
+    if (lines.isEmpty) return;
+    final rendered = lines.join('\n');
+    if (rendered == _lastCompaction) return;
+    _lastCompaction = rendered;
+    for (final line in lines) {
+      _line(line);
+    }
+    _showPrompt();
   }
 
   void _onUpdate(Map<String, Object?> event) {

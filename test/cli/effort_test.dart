@@ -223,6 +223,8 @@ void main() {
       workspace: workspace,
       args: [
         '--child',
+        '--compaction-policy',
+        const UserConfig().captureProviderPolicy(),
         '--parent',
         parent.path,
         '--job',
@@ -293,7 +295,7 @@ void main() {
         });
         await engine.process.stdin.close();
         expect(await engine.exitCode(), 0, reason: await engine.stderrText);
-        final parent = fixture.args[2];
+        final parent = fixture.args[fixture.args.indexOf('--parent') + 1];
         final session = Directory(
           p.join(parent, 'agents', hello['session']! as String),
         );

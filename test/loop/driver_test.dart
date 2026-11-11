@@ -127,6 +127,7 @@ List<String> _items(ModelRequest request) => [
       ToolCallItem(:final callId) => 'call:$callId',
       ToolOutputItem(:final callId) => 'output:$callId',
       OpaqueReasoningItem(:final json) => 'reasoning:${json['id']}',
+      OpaqueCompactionItem(:final json) => 'compaction:${json['id']}',
     },
 ];
 

@@ -11,8 +11,8 @@
 // Modes:
 //   quick     `out` on stdout and `err` on stderr; the job exits by itself
 //             after the session reached turn 5 (the job started in turn 3).
-//   hang      prints `started`, then sleeps; ready once `started` is spooled.
-//   lines     prints 300 lines, then sleeps; ready once all are spooled.
+//   hang      prints `started`, then waits for a release marker; ready once spooled.
+//   lines     prints 300 lines, then waits for the same release marker.
 //   cancel    like hang, then cancels the job (`user`); parks at the point.
 //   deadline  like hang with a 1 s deadline; parks at the point.
 //   bash      a `bash` call through the tool runtime that runs like hang and
@@ -111,6 +111,8 @@ Future<void> main(List<String> args) async {
       JournalRecord(turn: turn, path: 'body/marker', op: Op.set, value: turn),
     );
   }
+  final go = p.join(root.path, 'go').replaceAll(r'\', '/');
+  final waitForRelease = "while [ ! -e '$go' ]; do sleep 0.05; done";
 
   if (mode == 'bash') {
     final tool = _Bash(request, (id) => jobId = id);
@@ -124,7 +126,7 @@ Future<void> main(List<String> args) async {
     );
     final command =
         "echo run >> '${p.join(root.path, 'count').replaceAll(r'\', '/')}'; "
-        'echo started; sleep 30';
+        'echo started; $waitForRelease';
     unawaited(
       runtime
           .run(
@@ -150,14 +152,12 @@ Future<void> main(List<String> args) async {
   }
 
   final supervisor = JobSupervisor(writer, store, hooks: hooks);
-  final go = p.join(root.path, 'go').replaceAll(r'\', '/');
   final command = switch (mode) {
-    'quick' =>
-      "echo out; echo err 1>&2; while [ ! -e '$go' ]; do sleep 0.05; done",
+    'quick' => 'echo out; echo err 1>&2; $waitForRelease',
     'lines' =>
       'i=0; while [ \$i -lt 300 ]; do echo line\$i; i=\$((i+1)); done; '
-          'sleep 30',
-    _ => 'echo started; sleep 30',
+          '$waitForRelease',
+    _ => 'echo started; $waitForRelease',
   };
   final handle = supervisor.start(
     request(
