@@ -125,7 +125,7 @@
   - bounded output and stderr.
 
   Extend `SensoriumVcs`/`SensoriumReason` and render the vcs section with escaping, indentation and clipping (D6, D8). Verify that the group-2 rows turn green, and that `sensoriumWithBudget` still finds `\nvcs:` after budget.
-- [ ] 2.3 Add `test/workspace/vcs_real_test.dart`, running real jj 0.46.0 and git in disposable repositories, for the rows mapped to it, including autocrlf and the unborn branch. Tag it `slow` where it spawns many processes. Settle the open question about the jj diff template here: use `-T` stats, or fall back to `--git` parsing within the same bounds. Verify these rows pass on native Windows locally and on CI ubuntu + windows. Add a collector test that skips a relative `PATH` (D9).
+- [ ] 2.3 Add `test/workspace/vcs_real_test.dart`, running real jj 0.46.0 and git in disposable repositories, for the rows mapped to it, including autocrlf and the unborn branch. Tag it `slow` where it spawns many processes. Settle the open question about the jj diff template here: use `-T` stats, or fall back to `--git` parsing within the same bounds. Verify these rows pass on native Windows locally; tasks 6.1 and 6.3 retain the Linux and Windows CI qualification after the implementation is committed and pushed. Add a collector test that skips a relative `PATH` (D9).
 - [ ] 2.4 Document the `vcs.backend` and `collectorDeadlineMs` settings, the backends, the filter policy (clean filters and fsmonitor run as for `git status`; no fetch, push or checkout) and the `unavailable`/`stale` reasons in `README.md`. Verify that the examples parse under the strict config tests.
 
 ## 3. Record mutation provenance
