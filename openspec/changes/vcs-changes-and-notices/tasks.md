@@ -100,7 +100,7 @@
 
 ## 1. Record the architecture
 
-- [ ] 1.1 Write ADR 0017 *VCS observation baselines and provenance attribution* as listed in design.md ADRs. It covers:
+- [x] 1.1 Write ADR 0017 *VCS observation baselines and provenance attribution* as listed in design.md ADRs. It covers:
   - content-addressed baselines in step metadata, with `seq` and carry-forward;
   - the private git index and the filter policy;
   - the `target`, `effect.sha256` and identity-guarded `quiesced` call fields;
