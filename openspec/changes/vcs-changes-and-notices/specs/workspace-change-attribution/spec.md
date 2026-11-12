@@ -163,7 +163,7 @@ Recording that a mutation finished SHALL succeed only when the call node still e
 - **THEN** the new attempt is not marked finished and its target stays open
 
 ### Requirement: Removed live mutations stay uncertain
-A live `edit`/`write` call removed by rewind or superseded SHALL leave its target in a rewind-exempt `meta` record. Baselines SHALL carry a capture sequence number that never repeats. A record SHALL apply while unfinished or when the compared baseline was captured before it finished; its target then reads `by: unknown` without `user_edits`. Records SHALL NOT be deleted on release.
+A live `edit`/`write` target lost by rewind or supersession SHALL survive in rewind-exempt `meta`. Rewind SHALL durably preserve it before the cut in the same writer operation; invalid rewinds SHALL append nothing. Baselines SHALL carry unique capture sequences. Records SHALL apply while unfinished or when the baseline predates their finish, making targets `by: unknown` without `user_edits`. Records SHALL NOT be deleted on release.
 
 #### Scenario: Held rename across a rewind and two later captures
 - **WHEN** a `write` of `lib/a.dart` reaches a held rename, the session is rewound past that call, turn 14 captures and admits a baseline, the rename is released before turn 15, turn 15 captures and admits a baseline, and turn 16 is built with no other activity
@@ -185,9 +185,25 @@ A live `edit`/`write` call removed by rewind or superseded SHALL leave its targe
 - **WHEN** a 65th finished orphaned-mutation record is written
 - **THEN** the oldest finished record is evicted and the attribution floor rises to its finish sequence, and every comparison against a baseline captured before the floor reads all rows `by: unknown` without `user_edits`, including after any later rewind
 
-#### Scenario: Request built before the orphan record is written
-- **WHEN** a session is rewound past a `write` of `lib/a.dart` whose rename is held, the next request freezes its tree before the orphaned-mutation record is appended, and the rename lands during that request's capture
+#### Scenario: Request built before post-rewind reconciliation
+- **WHEN** a session is rewound past a `write` of `lib/a.dart` whose rename is held, the next request freezes its tree before post-rewind reconciliation, and the rename lands during that request's capture
 - **THEN** `lib/a.dart` reads `by: unknown` and `user_edits` is not raised
+
+#### Scenario: Engine dies after the rewind commit
+- **WHEN** the session rewinds past a held `write` of `lib/a.dart`, the engine dies after committing the rewind but before recording the late finish, and the rename lands before resume
+- **THEN** replay retains the target in an unfinished orphan record, recovery finishes only its own record with a fresh sequence, and the first comparison against a pre-finish baseline reads `lib/a.dart` as `by: unknown` without `user_edits`
+
+#### Scenario: Engine dies after preservation before the cut
+- **WHEN** the writer durably preserves a held mutation's target but the engine dies before appending the rewind
+- **THEN** replay retains both the call and orphan record, and resume conservatively retains uncertainty without requiring the rewind to have committed
+
+#### Scenario: Rewind removes the target but retains the call
+- **WHEN** a live call exists at the rewind destination but its resolved target was recorded in a later turn
+- **THEN** the writer preserves that target before the cut, so a crash after the cut cannot erase its provenance; after the run finishes, its orphan record carries `finishedSeq` even though the call survived, and a baseline captured after the finish no longer applies it
+
+#### Scenario: Preservation does not advance the rewind turn
+- **WHEN** a valid rewind needs to preserve a held mutation's target
+- **THEN** the preservation records and the once-built, pre-validated rewind carry the original current turn, that rewind commits, and `currentTurn` is unchanged by preservation
 
 ### Requirement: Forks do not finish the parent's mutations
 Orphaned-mutation records SHALL name their session. Forking SHALL copy every open parent mutation, own or inherited, as a foreign record. Recovery SHALL finish only its own records. It MAY quiesce copied calls but SHALL NOT finish foreign records or infer parent completion. Foreign records SHALL apply to every child comparison. Each child SHALL keep at most 16; overflow SHALL make all change rows `by: unknown`.
@@ -196,8 +212,8 @@ Orphaned-mutation records SHALL name their session. Forking SHALL copy every ope
 - **WHEN** a parent `write` of `lib/a.dart` holds its rename, the session is forked, the child resumes, captures and admits a baseline, the parent's rename is then released, and the child builds its next request
 - **THEN** the child's recovery may mark the copied call node `quiesced`, but does not finish the parent's foreign record, and the child lists `lib/a.dart` as `by: unknown` without `user_edits`
 
-#### Scenario: Fork between rewind and orphan record
-- **WHEN** the parent is rewound past a held `write` of `lib/a.dart` and forked before the orphaned-mutation record is appended
+#### Scenario: Fork before post-rewind reconciliation
+- **WHEN** the parent is rewound past a held `write` of `lib/a.dart` and forked before post-rewind reconciliation
 - **THEN** the child holds a foreign record for `lib/a.dart`, and when the parent's rename lands, the child lists it `by: unknown` without `user_edits`
 
 #### Scenario: Parent mutation after the fork

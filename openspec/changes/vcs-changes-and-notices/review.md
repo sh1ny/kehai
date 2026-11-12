@@ -2,10 +2,18 @@
 
 ## Metadata
 
-- **Round:** 12
-- **Prior round:** round 11 APPROVE_WITH_CHANGES
+- **Round:** 14
+- **Prior round:** round 13 APPROVE_WITH_CHANGES, CHANGES_APPLIED: no
 - **Reviewer:** cross-model CLI (claude)
-- **Files read:** `openspec/changes/vcs-changes-and-notices/review.md` (round 11); `design.md` D4 (`:51-57`), the State & Ownership row "Open-mutation key set" (`:163`), and Apply notes (`:284-290`); `specs/workspace-change-attribution/spec.md:170-214`; `tasks.md:70-149`; `docs/adr/0017-vcs-observation-baselines-and-provenance-attribution.md:40-59`. I also grepped `lib/src/jobs/supervisor.dart` to check the cited lines `:770` and `:812-836`. Scope: only the six Required Changes from round 11. This is not a broad audit. I ran no tests, builds or linters.
+- **Files actually read:**
+  - `openspec/changes/vcs-changes-and-notices/review.md` (round 13, all of it).
+  - `design.md:40-239`: D2 tail to D9, the diagrams, State & Ownership (`:155-172`), Failure & Visibility, Resource Bounds, and Flow & State Gaps, including the late-finish (`:223`) and crash-around-rewind (`:224`) edge cases.
+  - `specs/workspace-change-attribution/spec.md:160-219`, plus a grep of the file for preservation and finish terms.
+  - `tasks.md:60-159`: scenario map rows, groups 1–3 and the start of group 4.
+  - `docs/adr/0017-vcs-observation-baselines-and-provenance-attribution.md`, all of it.
+  - I did not re-read writer or state source. The M2 check relies on the `state.dart` behaviour that round 13 cited (`:136`, `:159`, `:164`). Nothing in this round's corrections contradicts it.
+  - I tried to read the `codebase-design` skill (`C:/Users/bgshi/.agents/skills/codebase-design/SKILL.md`), but it was outside the restricted workspace and I could not read it.
+- **Scope:** recheck of round-13 M1 and M2 and the compatible suggestions S1, S2, S4 and S5. This is not a broad audit. I ran no tests, builds, linters or formatters. These are design contracts, not claims that the implementation is complete.
 
 ## Findings
 
@@ -15,32 +23,53 @@ None.
 
 ### Moderate
 
-None. All six Required Changes from round 11 are present and say what was required:
+None. Both prior Required Changes are applied correctly.
 
-1. **D4 registry correction:** done. It is the new bullet **Rewind-to-record gap** (`design.md:54`). It keeps the required wording: an in-memory registry of unfinished edit/write runs, the same set the 16-run cap counts; registry targets are open whatever the tree says; `SessionWriter.fork` takes a provider of those targets, calls it inside its queue decision and writes a foreign record for each; and the window is cited as `supervisor.dart:770,812-836`. The cited lines are still correct: `:770` is the rewind `_requestPass`, `:812` is `_reconcile` and `:835` is `afterReconcile`. The text is a separate bullet after the **Choice** paragraph, not inline after the "`meta/orphans`, `meta/handoffs`" sentence. It still sits inside D4 and means the same, so the placement does not matter.
-2. **State & Ownership row:** done. The "Invalidation / rebuild" cell (`design.md:163`) matches the required text word for word, and the source column now includes "live unfinished runs".
-3. **Spec scenario "Request built before the orphan record is written":** done, under "Removed live mutations stay uncertain" (`spec.md:188-190`), worded as required.
-4. **Spec scenario "Fork between rewind and orphan record":** done, under "Forks do not finish the parent's mutations" (`spec.md:199-201`), worded as required.
-5. **Tasks test map and task 3.3:** done. `tasks.md:77` maps to `test/tools/orphaned_mutation_test.dart` / "build frozen before orphan append keeps held rename unknown" / `red`. `tasks.md:81` maps to `test/session/fork_mutation_test.dart` / "fork before orphan append copies the live run as foreign" / `red`. Task 3.3's fork bullet now includes "the fork's live-run provider" (`tasks.md:145`).
-6. **ADR 0017 draft:** done. The section "Removed runs leave rewind-exempt, session-owned uncertainty" (`0017:52`) now says the registry is authoritative for open targets in attribution and fork, including the gap before an orphan record is appended. It also says meta records persist the uncertainty across restart and baseline rewind. It adds one more sentence, that fork reads its provider inside the writer's queue decision. That matches D4.
+**M1, finish of writer-preserved records: applied.**
+- **D4 (`design.md:53`):** "Every run's finish also checks at the writer queue head for an unfinished orphan record owned by this session and finishes it, whether its quiescence merge was accepted or refused. This includes records the writer preserved for a surviving call."
+- **`design.md:54`:** adds that the finish "raises `seqHigh`, and retires the registry entry only after the required records are durable and before the queue advances". This matches the required ordering: the record is retained until it is durable, and retirement is serialized inside the finish's queue operation.
+- **State & Ownership row `meta/orphanedMutations/<runId>` (`design.md:165`):** adds "every run's finish checks and finishes its owned record regardless of quiescence-guard outcome".
+- **ADR 0017 (`:54`):** carries the same contract, including the surviving-call case and retirement after durability.
+- **Spec scenario "Rewind removes the target but retains the call" (`spec.md:200-202`):** now requires the record to carry `finishedSeq` after the run finishes even though the call survived. It also requires that a baseline captured after the finish no longer applies the record. Together these cover the eventual finish and the behaviour of later baselines.
+- **Tasks:** map row `tasks.md:81` ("surviving call's preserved record is finished when its run ends", `orphaned_mutation_test.dart`, `red`). The finish bullet of task 3.3 (`:149`) and its verification (`:153`, "finish of a surviving call's preserved record") match.
+- **Bound:** "Live: within the 16-run cap" (`design.md:210`, ADR `:60`) holds again. A live record can now outlast its run only until that run's own finish operation, and that operation also retires the registry slot.
 
-**Apply notes:** `design.md:286-290` record readiness checks, a read-only apply attempt that stopped at a permission prompt, and the steps it could not support. They say that no implementation, tests or commits ran, and that task 6.2 is not satisfied. They do not claim any implementation or qualification. They also record that the user approved the round-11 correction before the artifacts changed.
+**M2, preservation record turn: applied.**
+- **D4 (`design.md:54`):** "The writer builds the rewind record once at the current turn, validates it before writing anything … Preservation records carry the rewind record's current turn and cannot advance it."
+- **ADR 0017 (`:50`):** says the same, and adds "cannot invalidate the prepared cut".
+- **The fix is consistent with the commit semantics round 13 cited.** A `meta` record at `_turn` leaves `_turn` unchanged, so the rewind validated beforehand still passes `_validateRewind`'s exact-turn check.
+- **New spec scenario "Preservation does not advance the rewind turn" (`spec.md:204-206`):** asserts that the once-built, pre-validated rewind commits and that `currentTurn` is unchanged.
+- **Tasks:** map row `tasks.md:82`. The first bullet of task 3.3 (`:147`) and its verification (`:153`) both name this.
 
 ### Suggestions
 
-**S1. Make the older "derived from the tree" wording refer to the registry.** D4's **Choice** paragraph (`design.md:53`) still says "Open calls are found from a per-engine set of call keys derived from the tree after resume and after every rewind". ADR 0017 (`:44`) says the same: "Derive the engine's open-call key set from the current tree…". The new bullet and ADR `:52` override both, and the State & Ownership row has the union, so this is not a defect. Adding "unioned with the unfinished-run registry" to those two sentences during apply or ADR finalisation would mean a reader cannot take the tree-only sentence as the whole rule.
+The compatible clarifications are present and consistent:
 
-The round-11 suggestions S1 (foreign records never expire) and S2 (meta records copied verbatim at fork, and the Resource Bounds count) were optional and are not rechecked here.
+- **S1, idempotent preservation:** applied at `design.md:54` ("Existing records are retained without clearing `finishedSeq` or appending redundant preservation"), ADR `:50` and task 3.3 (`:147`).
+- **S2, guarded publication:** applied at `design.md:54` ("published inside the accepted guarded append's queue-head decision … refused targets are not published") and ADR `:52`.
+- **S4, fork run-id deduplication:** applied at `design.md:54` and ADR `:52`.
+- **S5, tree/registry union:** applied at `design.md:53` ("unioned with the unfinished-run registry"), `:163`, `:223` and ADR `:44`.
+
+Optional, non-blocking:
+
+- **S6. State what happens to the registry when the finish write cannot be appended.** Retirement waits for the finish records to be durable. A finish that meets a broken or closing writer therefore keeps its registry entry, and with it a cap slot, until the engine exits. That is conservative and consistent with "Open targets are never evicted" and with recovery finishing own records on resume. One clause in D4 or Failure & Visibility would stop an implementer from releasing the slot on a failed append.
+- **S7. Wording consistency.** `design.md:53` still says "When an orphaned run's future finishes, the runtime merges `finishedSeq`". The State & Ownership row for `seqHigh` (`:167`) says "runtime/recovery on record finish". Both remain accurate because the runtime submits through the writer's queue head. Adding "through the writer's finish operation" in either place would match `:54`.
+- **S8. Round-13 S3, the double replay,** remains open. It is an acceptable O(timeline) cost.
 
 ## Verdict
 
-All six Required Changes from round 11 are present and correct in the current files. Nothing new blocks approval.
+M1 and M2 are applied in D4, State & Ownership, ADR 0017, the spec scenarios, the scenario map and task 3.3, and are verified there:
+
+- Every finish now finishes its own unfinished orphan in the writer's queue operation, whatever the quiescence guard decides. It raises `seqHigh` and retires the registry entry only after the records are durable and before the queue advances.
+- Preservation records are stamped with the turn of a once-built, pre-validated rewind. That rewind is required to commit with `currentTurn` unchanged.
+
+The compatible clarifications (S1, S2, S4 and S5) are consistent with the existing contracts. They introduce no new mechanism or journal format, and no exception to specified behaviour.
 
 VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-None outstanding. All six round-11 Required Changes are applied.
+None outstanding. The round-13 Required Changes 1 (M1) and 2 (M2) are correctly applied. S6–S8 are optional.
 
 CHANGES_APPLIED: yes
 
