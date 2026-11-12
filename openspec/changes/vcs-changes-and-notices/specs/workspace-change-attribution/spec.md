@@ -185,12 +185,20 @@ A live `edit`/`write` call removed by rewind or superseded SHALL leave its targe
 - **WHEN** a 65th finished orphaned-mutation record is written
 - **THEN** the oldest finished record is evicted and the attribution floor rises to its finish sequence, and every comparison against a baseline captured before the floor reads all rows `by: unknown` without `user_edits`, including after any later rewind
 
+#### Scenario: Request built before the orphan record is written
+- **WHEN** a session is rewound past a `write` of `lib/a.dart` whose rename is held, the next request freezes its tree before the orphaned-mutation record is appended, and the rename lands during that request's capture
+- **THEN** `lib/a.dart` reads `by: unknown` and `user_edits` is not raised
+
 ### Requirement: Forks do not finish the parent's mutations
-Orphaned-mutation records SHALL name their owning session. Forking SHALL copy every mutation open in the parent at fork time, own or inherited, into the child as a foreign record. Recovery SHALL finish only records owned by its session. Foreign records SHALL apply to every comparison in the child, at most 16 per session; beyond that, one overflow marker SHALL make every change row `by: unknown`.
+Orphaned-mutation records SHALL name their session. Forking SHALL copy every open parent mutation, own or inherited, as a foreign record. Recovery SHALL finish only its own records. It MAY quiesce copied calls but SHALL NOT finish foreign records or infer parent completion. Foreign records SHALL apply to every child comparison. Each child SHALL keep at most 16; overflow SHALL make all change rows `by: unknown`.
 
 #### Scenario: Parent rename held through child recovery
 - **WHEN** a parent `write` of `lib/a.dart` holds its rename, the session is forked, the child resumes, captures and admits a baseline, the parent's rename is then released, and the child builds its next request
-- **THEN** the child's recovery does not finish the parent's record or mark the inherited call finished on its behalf, and the child lists `lib/a.dart` as `by: unknown` without `user_edits`
+- **THEN** the child's recovery may mark the copied call node `quiesced`, but does not finish the parent's foreign record, and the child lists `lib/a.dart` as `by: unknown` without `user_edits`
+
+#### Scenario: Fork between rewind and orphan record
+- **WHEN** the parent is rewound past a held `write` of `lib/a.dart` and forked before the orphaned-mutation record is appended
+- **THEN** the child holds a foreign record for `lib/a.dart`, and when the parent's rename lands, the child lists it `by: unknown` without `user_edits`
 
 #### Scenario: Parent mutation after the fork
 - **WHEN** the parent starts a new `write` after the fork and it lands while the child runs

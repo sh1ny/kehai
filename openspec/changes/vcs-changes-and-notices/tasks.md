@@ -74,9 +74,11 @@
 | workspace-change-attribution → Removed live mutations stay uncertain | Rewind past the baseline that captured the rename | `test/tools/orphaned_mutation_test.dart` (new) | restored older baseline re-applies the finished record | red |
 | workspace-change-attribution → Removed live mutations stay uncertain | Engine dies with an orphaned mutation | `test/jobs/recovery_mutation_test.dart` (new) | recovery finishes own orphan records with a fresh seq | red |
 | workspace-change-attribution → Removed live mutations stay uncertain | Orphaned records overflow | `test/tools/orphaned_mutation_test.dart` (new) | 65th finished record evicts oldest and raises the floor | red |
+| workspace-change-attribution → Removed live mutations stay uncertain | Request built before the orphan record is written | `test/tools/orphaned_mutation_test.dart` (new) | build frozen before orphan append keeps held rename unknown | red |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Parent rename held through child recovery | `test/session/fork_mutation_test.dart` (new) | child recovery leaves the parent's held rename foreign and unknown | red |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Parent mutation after the fork | `test/session/fork_mutation_test.dart` (new) | parent write after the fork is outside child provenance | red |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Foreign records overflow | `test/session/fork_mutation_test.dart` (new) | more than 16 foreign records set the overflow marker | red |
+| workspace-change-attribution → Forks do not finish the parent's mutations | Fork between rewind and orphan record | `test/session/fork_mutation_test.dart` (new) | fork before orphan append copies the live run as foreign | red |
 | workspace-change-attribution → Unfinished mutations are bounded | Repeated cancellations on a stalled filesystem | `test/tools/cancelled_mutation_test.dart` | 40 cancelled writes keep 16 unfinished and refuse the rest untouched | red |
 | workspace-change-attribution → Unfinished mutations are bounded | Capacity returns | `test/tools/cancelled_mutation_test.dart` | finished held rename admits the next write | red |
 | workspace-change-attribution → Baselines follow the session tree | Rewind | `test/loop/attribution_test.dart` (new) | rewind restores the earlier baseline | red |
@@ -140,7 +142,7 @@
   - `meta/orphanedMutations/<runId> = {target, session}` at rewind or supersession, or when the identity guard refuses;
   - `finishedSeq` on finish, or from recovery for records this session owns;
   - the `meta/vcs/seqHigh` counter and the `attributionFloor` eviction past 64 finished records;
-  - foreign copies at fork inside the parent's writer (`session/writer.dart`), at most 16, then `foreignOverflow`.
+  - foreign copies at fork inside the parent's writer (`session/writer.dart`), including the fork's live-run provider, at most 16, then `foreignOverflow`.
 
   Verify that the orphaned-mutation and fork rows turn green, and that journal replay of the meta fold is unchanged for sessions without these keys.
 - [ ] 3.4 Document in `README.md` how cancelled, rewound and forked writes are attributed, and the error at the 16-run cap. Verify that the wording matches the spec scenarios.
