@@ -56,11 +56,11 @@ Each request's VCS collection SHALL finish within a deadline (default 300 ms, st
 - **THEN** the `vcs` section is available with that observation
 
 #### Scenario: Deadline exceeded with an earlier observation
-- **WHEN** collection exceeds the deadline and an earlier admitted step recorded a VCS observation 2 turns ago
+- **WHEN** VCS capture does not complete before the deadline and an earlier admitted step recorded a VCS observation 2 turns ago
 - **THEN** the process tree is terminated, the section reads `stale (timeout, …)` with that earlier observation and its age, the request is sent, and `notices` carries `vcs_timeout`
 
 #### Scenario: Deadline exceeded without an earlier observation
-- **WHEN** the first collection of a session exceeds its deadline
+- **WHEN** the first VCS capture of a session does not complete before its deadline
 - **THEN** the section reads `unavailable (timeout)` and the request is sent
 
 #### Scenario: Invalid deadline

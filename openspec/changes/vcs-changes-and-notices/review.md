@@ -2,20 +2,57 @@
 
 ## Metadata
 
-- **Round:** 14
-- **Prior round:** round 13 APPROVE_WITH_CHANGES, CHANGES_APPLIED: no
+- **Round:** 19. This retries round 18, which was rejected only for invalid output metadata and recorded no pass. The last valid review is round 17: APPROVE_WITH_CHANGES with one required change, N1.
 - **Reviewer:** cross-model CLI (claude)
+- **Scope:** this recheck covers round-17 N1 only. It checks whether the conservative case-alias rule is consistent with the durable effect ordering approved earlier. I ran no tests, builds, linters or formatters, implemented nothing and ticked no tasks. The effect-sequence implementation isn't claimed yet, so I didn't assess it.
 - **Files actually read:**
-  - `openspec/changes/vcs-changes-and-notices/review.md` (round 13, all of it).
-  - `design.md:40-239`: D2 tail to D9, the diagrams, State & Ownership (`:155-172`), Failure & Visibility, Resource Bounds, and Flow & State Gaps, including the late-finish (`:223`) and crash-around-rewind (`:224`) edge cases.
-  - `specs/workspace-change-attribution/spec.md:160-219`, plus a grep of the file for preservation and finish terms.
-  - `tasks.md:60-159`: scenario map rows, groups 1–3 and the start of group 4.
-  - `docs/adr/0017-vcs-observation-baselines-and-provenance-attribution.md`, all of it.
-  - I did not re-read writer or state source. The M2 check relies on the `state.dart` behaviour that round 13 cited (`:136`, `:159`, `:164`). Nothing in this round's corrections contradicts it.
-  - I tried to read the `codebase-design` skill (`C:/Users/bgshi/.agents/skills/codebase-design/SKILL.md`), but it was outside the restricted workspace and I could not read it.
-- **Scope:** recheck of round-13 M1 and M2 and the compatible suggestions S1, S2, S4 and S5. This is not a broad audit. I ran no tests, builds, linters or formatters. These are design contracts, not claims that the implementation is complete.
+  - `.dart_tool/vcs-design-review-round18.md` (all of it)
+  - `openspec/changes/vcs-changes-and-notices/review.md` (round 17, all of it)
+  - `design.md:40-69` (D3–D5, including D4 **Durable effect order** and **Case-alias uncertainty**)
+  - `design.md:250-312` (mechanism ledger, risks, ADRs, apply notes)
+  - `specs/workspace-change-attribution/spec.md:270-300`
+  - `tasks.md:1-12`, `:55-62` (map rows) and `:140-184` (groups 3 and 4)
+  - `docs/adr/0017-vcs-observation-baselines-and-provenance-attribution.md` (all of it, focusing on `:38-48` and `:72-78`)
+  - `.dart_tool/vcs-review-skills/codebase-design.md`
+  - Greps of the change directory for case/alias/lowercase wording, and of `proposal.md` for case-sensitivity wording (no matches)
+- **Source:** I didn't re-read any source this round. The `PathLocks.run` scope, its lock key (`file_access.dart:74`) and the awaited effect commit were verified in round 17. The artifacts say that behaviour stays unchanged.
 
 ## Findings
+
+### Round-17 N1 recheck
+
+**N1. Resolved by the conservative rule the user chose.** Round 17 offered two fixes. The artifacts adopt the second one, "case-variant targets read `unknown`", and broaden it beyond what round 17 asked for.
+
+**1. The rule is stated the same way everywhere:**
+- D4 **Case-alias uncertainty** (`design.md:55`)
+- ADR 0017 (`:44`)
+- the requirement "Case-variant targets are uncertain" (`spec.md:290-291`)
+
+All three compare each row's raw repo-relative spelling with interval mutation targets and with applying open, orphan and foreign targets. If different spellings are equal after lowercasing, the row reads `unknown`, contributes no `user_edits` and overrides successful-effect proof. None of the three introduces a volume probe, a new persisted field or a change to lock equality.
+
+**2. Both round-17 harms are closed:**
+- **macOS: two lock tails for one file.** Same-step writes to `New.txt` and `new.txt` can interleave because they take different lock tails. The two targets are equal after lowercasing, so any row matching either spelling reads `unknown`. Effect order is never used for them, so the interleaving can't produce a false `agent` (`spec.md:293-295`).
+- **Windows: exact-key grouping.** Before, grouping effects by exact spelling could leave a row seeing only one spelling's effect. Now a row whose spelling differs from any relevant target reads `unknown`. That includes a row with only one recorded target (`spec.md:297-299`, `design.md:55`, ADR `:44`). An exact-key miss therefore can't fall through to `user` and raise `user_edits` either.
+
+**3. The ordering invariant is qualified consistently.** Each artifact limits it to unambiguous spellings:
+- D4 says rename order equals sequence order "for an unambiguous resolved-target key" and "Highest sequence is latest outside case-alias ambiguity" (`design.md:54`).
+- ADR 0017 says the same (`:42`).
+- The requirement says "For unambiguous target spellings, path locks SHALL cover…" (`spec.md:280`).
+
+Same-spelling targets still share one lock key on every platform, so the round-17 verification of the lock still holds for them. Two places do not repeat the qualifier: "Highest sequence SHALL define latest" (`spec.md:280`) and "A later successful effect may prove agent attribution…" (ADR `:78`). Both are explicitly overridden by "SHALL override successful-effect proof" (`spec.md:291`) and by ADR `:44`. So there is no contradiction, only some redundancy you could tighten (S1).
+
+**4. Applying the rule on every platform is deliberate and stated.** D4, the ADR and the requirement all say the rule applies to case-distinct paths on case-sensitive filesystems ("even on case-sensitive filesystems", `spec.md:291`). Apply note `design.md:311` records that the user chose this. This stays conservative: such rows read `unknown`, never a wrong `agent` or `user`.
+
+**5. Tests and tasks cover the requirement:**
+- Map row `tasks.md:60` maps the case-variant writes scenario to `mutation_provenance_test.dart`.
+- Map row `tasks.md:61` maps the differently-cased row scenario to `attribution_test.dart`.
+- Task 3.2 RED-confirms the case-variant regression and says case-variant targets are "unestablished order, not agent proof" (`tasks.md:152`).
+- Task 4.1 adds the final label assertions in the mapped files (`tasks.md:165`).
+- Task 4.2 applies the rule across interval and applying open, orphan and foreign targets. It checks both scenarios and confirms that unrelated user rows still raise `user_edits` (`tasks.md:176`). That keeps the rule from swallowing ordinary user attribution.
+
+**6. Ledger and ADR list are updated.** Ledger row `design.md:264` names the harm (a hidden user restoration even with durable effect order). The ADR is in sync at `:44`.
+
+I found no concrete contradiction between D4, ADR 0017, the requirement, its scenarios, the map rows and the group 3/4 tasks.
 
 ### Critical (blocking)
 
@@ -23,56 +60,35 @@ None.
 
 ### Moderate
 
-None. Both prior Required Changes are applied correctly.
-
-**M1, finish of writer-preserved records: applied.**
-- **D4 (`design.md:53`):** "Every run's finish also checks at the writer queue head for an unfinished orphan record owned by this session and finishes it, whether its quiescence merge was accepted or refused. This includes records the writer preserved for a surviving call."
-- **`design.md:54`:** adds that the finish "raises `seqHigh`, and retires the registry entry only after the required records are durable and before the queue advances". This matches the required ordering: the record is retained until it is durable, and retirement is serialized inside the finish's queue operation.
-- **State & Ownership row `meta/orphanedMutations/<runId>` (`design.md:165`):** adds "every run's finish checks and finishes its owned record regardless of quiescence-guard outcome".
-- **ADR 0017 (`:54`):** carries the same contract, including the surviving-call case and retirement after durability.
-- **Spec scenario "Rewind removes the target but retains the call" (`spec.md:200-202`):** now requires the record to carry `finishedSeq` after the run finishes even though the call survived. It also requires that a baseline captured after the finish no longer applies the record. Together these cover the eventual finish and the behaviour of later baselines.
-- **Tasks:** map row `tasks.md:81` ("surviving call's preserved record is finished when its run ends", `orphaned_mutation_test.dart`, `red`). The finish bullet of task 3.3 (`:149`) and its verification (`:153`, "finish of a surviving call's preserved record") match.
-- **Bound:** "Live: within the 16-run cap" (`design.md:210`, ADR `:60`) holds again. A live record can now outlast its run only until that run's own finish operation, and that operation also retires the registry slot.
-
-**M2, preservation record turn: applied.**
-- **D4 (`design.md:54`):** "The writer builds the rewind record once at the current turn, validates it before writing anything … Preservation records carry the rewind record's current turn and cannot advance it."
-- **ADR 0017 (`:50`):** says the same, and adds "cannot invalidate the prepared cut".
-- **The fix is consistent with the commit semantics round 13 cited.** A `meta` record at `_turn` leaves `_turn` unchanged, so the rewind validated beforehand still passes `_validateRewind`'s exact-turn check.
-- **New spec scenario "Preservation does not advance the rewind turn" (`spec.md:204-206`):** asserts that the once-built, pre-validated rewind commits and that `currentTurn` is unchanged.
-- **Tasks:** map row `tasks.md:82`. The first bullet of task 3.3 (`:147`) and its verification (`:153`) both name this.
+None.
 
 ### Suggestions
 
-The compatible clarifications are present and consistent:
+Optional and non-blocking:
 
-- **S1, idempotent preservation:** applied at `design.md:54` ("Existing records are retained without clearing `finishedSeq` or appending redundant preservation"), ADR `:50` and task 3.3 (`:147`).
-- **S2, guarded publication:** applied at `design.md:54` ("published inside the accepted guarded append's queue-head decision … refused targets are not published") and ADR `:52`.
-- **S4, fork run-id deduplication:** applied at `design.md:54` and ADR `:52`.
-- **S5, tree/registry union:** applied at `design.md:53` ("unioned with the unfinished-run registry"), `:163`, `:223` and ADR `:44`.
+- **S1.** Two sentences could repeat the qualifier directly: `spec.md:280`'s "Highest sequence SHALL define latest" could add "for unambiguous target spellings", and ADR `:78`'s later-effect clause could add "subject to case-alias ambiguity". The override at `spec.md:291` and ADR `:44` already makes the meaning unambiguous.
+- **S2.** Lowercase comparison doesn't catch every filesystem alias:
+  - **macOS:** APFS ignores Unicode normalization, so NFC and NFD spellings of `café.txt` name one file.
+  - **Windows:** NTFS uppercases using its own table, so `ſ` (long s) and `s` name one file even though they differ after lowercasing.
 
-Optional, non-blocking:
-
-- **S6. State what happens to the registry when the finish write cannot be appended.** Retirement waits for the finish records to be durable. A finish that meets a broken or closing writer therefore keeps its registry entry, and with it a cap slot, until the engine exits. That is conservative and consistent with "Open targets are never evicted" and with recovery finishing own records on resume. One clause in D4 or Failure & Visibility would stop an implementer from releasing the slot on a failed append.
-- **S7. Wording consistency.** `design.md:53` still says "When an orphaned run's future finishes, the runtime merges `finishedSeq`". The State & Ownership row for `seqHigh` (`:167`) says "runtime/recovery on record finish". Both remain accurate because the runtime submits through the writer's queue head. Adding "through the writer's finish operation" in either place would match `:54`.
-- **S8. Round-13 S3, the double replay,** remains open. It is an acceptable O(timeline) cost.
+  These are outside N1's case-variant scope and need unusual model-typed spellings. If you want "outside case-alias ambiguity" to be literally exhaustive, you could list them as a known residual under Risks. Otherwise, no action is needed.
+- **S3.** The "Case-variant mutation targets" scenario specifies a case-insensitive volume, while CI runs on both ubuntu and windows. The rule depends only on spelling, so the expected label is `unknown` on both, and the test can run unguarded. You could state that in the test name or comment, so nobody adds a platform skip that would conflict with task 3.1's no-skip rule.
+- **S4.** Round-16 S2–S4 (also listed as round-17 S1) are still optional and not adopted.
 
 ## Verdict
 
-M1 and M2 are applied in D4, State & Ownership, ADR 0017, the spec scenarios, the scenario map and task 3.3, and are verified there:
+N1 is fully addressed. D4, ADR 0017 and the requirement define one conservative case-alias rule. It overrides effect proof, contributes no `user_edits` and covers a row whose spelling differs from a single recorded target. It applies on every platform. Volume probes, new record fields and lock-equality changes are all deliberately ruled out.
 
-- Every finish now finishes its own unfinished orphan in the writer's queue operation, whatever the quiescence guard decides. It raises `seqHigh` and retires the registry entry only after the records are durable and before the queue advances.
-- Preservation records are stamped with the turn of a once-built, pre-validated rewind. That rewind is required to commit with `currentTurn` unchanged.
+The durable-order invariant is limited to unambiguous spellings, where the existing `PathLocks` scope (verified in round 17) still guarantees that rename order and effect-sequence order agree. Both scenarios have mapped tests, task 3.2 RED coverage and task 4.2 label verification, including the check that unrelated user rows still raise `user_edits`. No concrete contradiction remains.
 
-The compatible clarifications (S1, S2, S4 and S5) are consistent with the existing contracts. They introduce no new mechanism or journal format, and no exception to specified behaviour.
-
-VERDICT: APPROVE_WITH_CHANGES
+VERDICT: APPROVE
 
 ## Required Changes
 
-None outstanding. The round-13 Required Changes 1 (M1) and 2 (M2) are correctly applied. S6–S8 are optional.
+None.
 
-CHANGES_APPLIED: yes
+CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-None.
+None. I didn't revisit the volume-aware alternative that round 17 offered and the user rejected; this round's conservative rule fully satisfies round 17's second option.

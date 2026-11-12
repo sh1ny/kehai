@@ -247,7 +247,7 @@ The effective baseline SHALL be read only from admitted step metadata in the ses
 - **THEN** the first request after resume reports files edited while the engine was down as `by: user`
 
 ### Requirement: Attribution work is bounded
-Attribution hashing SHALL run asynchronously inside the collection deadline, only for paths with an effect in the interval: at most 64 paths of at most 4 MiB each. At most 64 attribution reads SHALL be outstanding per engine, abandoned ones included; at that limit no new read starts. A path not hashed in time, at the limit or beyond the bounds SHALL read `by: unknown`.
+Attribution hashing SHALL be asynchronous within the collection deadline and limited to 64 interval-effect paths of at most 4 MiB each. Pre-capture waiting SHALL use at most one third of the remaining budget after acquiring the collection lock. Unfinished or out-of-bounds paths SHALL read `by: unknown`. At most 64 reads SHALL be outstanding per engine, abandoned reads included; at the limit no new read starts. Late results SHALL be ignored.
 
 #### Scenario: Oversized file
 - **WHEN** the agent wrote a 20 MiB file in the interval and it changed
@@ -255,7 +255,11 @@ Attribution hashing SHALL run asynchronously inside the collection deadline, onl
 
 #### Scenario: Read never completes
 - **WHEN** the read of a path with an agent effect never completes
-- **THEN** the request is built at the deadline, that row reads `by: unknown`, and the read's result is ignored if it arrives later
+- **THEN** the request is built within the overall deadline, that row reads `by: unknown`, and the read's result is ignored if it arrives later
+
+#### Scenario: Pre-capture read never completes
+- **WHEN** a pre-capture read stalls after a nonzero wait for the collection lock, and capture and remaining verification can finish before the overall deadline
+- **THEN** the pre-capture wait stops within one third of the budget remaining after that lock wait, the section is available with the fresh capture and baseline, the affected row reads `by: unknown`, `vcs_timeout` is absent, and the abandoned read keeps its slot until it settles
 
 #### Scenario: More than 64 effect paths
 - **WHEN** 100 agent-written files changed in the interval
@@ -264,3 +268,32 @@ Attribution hashing SHALL run asynchronously inside the collection deadline, onl
 #### Scenario: Reads that never complete across many requests
 - **WHEN** every attribution read stalls forever and 100 requests are built
 - **THEN** no more than 64 attribution reads are outstanding at any time, every request is built by its deadline, and affected rows read `by: unknown`
+
+### Requirement: Completed captures survive attribution limits
+A completed VCS capture and its baseline SHALL be retained when remaining attribution verification reaches the overall deadline. Rows without the required before/after verification SHALL read `by: unknown`. Overall deadline expiry SHALL raise `vcs_timeout`; the earlier pre-capture wait cutoff alone SHALL NOT.
+
+#### Scenario: Post-capture read never completes
+- **WHEN** VCS capture succeeds but a required post-capture read never completes
+- **THEN** the request retains the captured VCS value and baseline, the affected row reads `by: unknown`, and overall deadline expiry raises `vcs_timeout` without substituting an older observation
+
+### Requirement: Successful effects have durable order
+Successful edit/write effects SHALL record SHA256 and a shared monotonic `seq`. In one guarded queue operation, the writer SHALL reserve it, durably raise `meta/vcs/seqHigh`, then commit the effect. For unambiguous target spellings, path locks SHALL cover mutation through effect commit or failure, making rename and sequence order agree. Cancelled waiters SHALL not mutate. Highest sequence SHALL define latest. Any interval effect missing `seq` SHALL prevent agent proof for its target.
+
+#### Scenario: Concurrent same-path effects
+- **WHEN** calls A and B are created in that order in one turn but B's successful effect is recorded before A's
+- **THEN** A's effect sequence is higher; verified current bytes matching A may read `by: agent`, while bytes restored to B read `by: unknown`, and resume cannot reuse either committed sequence
+
+#### Scenario: Delayed effect commit on a shared target
+- **WHEN** A's rename is visible but its effect commit is held, B targets the same resolved file, and the user restores A's bytes after both calls finish
+- **THEN** B cannot rename until A's effect commit completes, B receives the higher effect sequence, and the restored bytes read `by: unknown`
+
+### Requirement: Case-variant targets are uncertain
+Attribution SHALL compare each changed row's raw repo-relative path with interval mutation targets and applying open/orphan/foreign targets. Different spellings equal under lowercase comparison SHALL make that row `by: unknown`, even on case-sensitive filesystems. This SHALL override successful-effect proof and SHALL NOT contribute `user_edits`.
+
+#### Scenario: Case-variant mutation targets
+- **WHEN** same-step writes target `New.txt` and `new.txt` on a case-insensitive volume, then the user restores the first write's bytes
+- **THEN** the affected row reads `by: unknown` without contributing `user_edits`, regardless of effect sequence order
+
+#### Scenario: Case-variant row spelling
+- **WHEN** a changed row differs only by case from a relevant recorded mutation target
+- **THEN** it reads `by: unknown` without contributing `user_edits`, including on a case-sensitive filesystem
