@@ -46,11 +46,13 @@ It builds on entry 2, `sensorium-block-and-scratchpad`, which shipped the typed 
 
 ## Release Notes
 
-Add bounded jj/git working-copy observation and strict collection controls.
+Add bounded repository observation and durable filesystem mutation provenance.
 
 ### Added
 - Startup `vcs.backend` selection and `sensorium.collectorDeadlineMs`, with explicit disabled, missing-tool, timeout and failure states.
 - Serialized jj/git capture, fresh private git indexes, bounded output and quarantined process cleanup without changing the user's index, refs or working tree.
+- Resolved edit/write targets, byte hashes and durable effect ordering, with identity-guarded quiescence and a 16-run unfinished-mutation limit.
+- Write-ahead preservation of live targets across rewind, session-owned recovery and bounded foreign uncertainty at fork.
 
 ### Changed
 - VCS presentation now supports backend identity, counts, conflicts and bounded paths, with escaped repository text and explicit omissions.

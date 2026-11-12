@@ -107,6 +107,22 @@ abstract interface class ToolOutput {
   Future<void> writeText(String text);
 }
 
+/// The runtime-owned capability for one filesystem mutation.
+///
+/// [target] records the resolved absolute target before it changes. Returning
+/// `false` means no target was recorded, so the tool must not mutate.
+/// [effect] records the SHA-256 of the exact bytes successfully written.
+final class FileMutation {
+  /// Creates a mutation capability from its target and effect callbacks.
+  const FileMutation({required this.target, required this.effect});
+
+  /// Records [resolvedAbsoluteTarget] before the filesystem changes.
+  final Future<bool> Function(String resolvedAbsoluteTarget) target;
+
+  /// Records [sha256] for the exact bytes written successfully.
+  final Future<void> Function(String sha256) effect;
+}
+
 /// What the runtime gives a tool for one call.
 final class ToolContext {
   /// Creates the context of the call keyed [callKey].
@@ -126,6 +142,7 @@ final class ToolContext {
     this.scratch,
     this.model,
     this.effort,
+    this.mutation,
     this.yolo = false,
   });
 
@@ -193,6 +210,9 @@ final class ToolContext {
   /// even when the permission gate let the call through; null when the
   /// context has none.
   final Directory? kehaiHome;
+
+  /// The mutation capability for this call, or null without a session runtime.
+  final FileMutation? mutation;
 }
 
 /// The runtime-owned capability for mutations in this call's session only.

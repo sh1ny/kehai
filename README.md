@@ -207,6 +207,24 @@ partial lower-bound counts and explicit omissions. Timed-out collections keep
 their private files quarantined until termination is confirmed. If all 16
 cleanup slots are held, no new VCS process starts.
 
+### Filesystem mutation provenance
+
+Cancelling an `edit` or `write` call does not stop a rename already in flight.
+While its actual tool future is unfinished, the recorded target stays
+`by: unknown`, even across further captures.
+
+Before a rewind removes a live target, the writer preserves it outside the
+rewound history. Comparisons against a baseline captured before that mutation
+finished remain uncertain; restoring an older baseline restores that uncertainty.
+A fork keeps the parent's already-open targets as foreign uncertainty for the
+child's lifetime. Child recovery cannot finish the parent's work. If more than
+16 foreign records would be inherited, every change row in the child is unknown.
+
+At most 16 edit/write futures may remain unfinished per engine. Detached,
+cancelled calls still count. At the limit, another edit/write fails before
+changing files and its error names the unfinished count. Capacity returns only
+when the actual tool future finishes.
+
 ### Sensorium section bounds
 
 | Section | Conservative token cap |

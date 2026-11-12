@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+
 import '../permissions/workspace_paths.dart';
 import 'atomic_write.dart';
 import 'block_hash.dart';
@@ -46,6 +48,10 @@ final class WriteTool implements Tool {
       return failure('$path is a directory');
     }
     final bytes = Uint8List.fromList(utf8.encode(content));
+    final mutation = context.mutation;
+    if (mutation != null && !await mutation.target(target)) {
+      return failure('write target was refused');
+    }
     try {
       Directory(File(target).parent.path).createSync(recursive: true);
     } on FileSystemException catch (e) {
@@ -61,6 +67,7 @@ final class WriteTool implements Tool {
     } on WriteFailure catch (e) {
       return failure('could not write $path: ${e.message}');
     }
+    await mutation?.effect(sha256.convert(bytes).toString());
     final counter = BlockHasher(hashing: false, stopAtBlock: false)
       ..feed(bytes, 0, bytes.length)
       ..finishInput();

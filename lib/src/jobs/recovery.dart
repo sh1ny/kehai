@@ -16,6 +16,7 @@ import '../results/descriptor.dart';
 import '../results/composer.dart';
 import '../results/live_result.dart' show checkSpoolName;
 import '../results/result_store.dart';
+import '../session/mutations.dart';
 import '../session/path.dart';
 import '../session/record.dart';
 import '../session/writer.dart';
@@ -113,6 +114,9 @@ final class JobRecovery {
   /// The test seams.
   final JobHooks hooks;
 
+  /// The engine's shared sequence, supplied by runtime or seeded on demand.
+  MutationSequence? mutationSequence;
+
   /// Attach finalization: launch records first, then job nodes, then calls.
   ///
   /// Every step is decided from the tree and the disk alone, so a crash in
@@ -120,6 +124,7 @@ final class JobRecovery {
   /// storage failure ends the walk and is rethrown.
   Future<ResumeReport> resume() async {
     final counts = await _walk(reason: 'interrupted');
+    await _finishOwnedMutationOrphans();
     return ResumeReport(
       jobs: counts.jobs,
       calls: counts.calls,
@@ -200,12 +205,117 @@ final class JobRecovery {
     for (final entry in calls.entries) {
       final node = entry.value;
       if (node is! Map<String, Object?>) continue;
-      if (_terminal.contains(node['status'])) continue;
       if (liveCalls.contains(entry.key)) continue;
-      if (await _finalizeCall(entry.key, node, reason)) counts.calls++;
+      if (_terminal.contains(node['status'])) {
+        if (_needsMutationFinish(node)) {
+          await _finishMutationCall(entry.key, node);
+          counts.calls++;
+        }
+        continue;
+      }
+      if (await _finalizeCall(entry.key, node, reason)) {
+        counts.calls++;
+        await _finishMutationCall(entry.key, node);
+      }
     }
     counts.calls += await _recoverMissingCalls(liveCalls);
     return counts;
+  }
+
+  bool _needsMutationFinish(Map<String, Object?> node) =>
+      (node['tool'] == 'edit' || node['tool'] == 'write') &&
+      node['target'] is String &&
+      node['attempt'] is String &&
+      node['quiesced'] != true;
+
+  Future<void> _finishMutationCall(
+    String key,
+    Map<String, Object?> node,
+  ) async {
+    final tool = node['tool'];
+    final attempt = node['attempt'];
+    final target = node['target'];
+    if ((tool != 'edit' && tool != 'write') ||
+        attempt is! String ||
+        target is! String) {
+      return;
+    }
+    final session = _at('meta/session');
+    if (session is! String) {
+      throw StateError('Invalid session id during mutation recovery.');
+    }
+    await writer.finishMutation(
+      (
+        runId: attempt,
+        callPath: 'body/calls/$key',
+        target: target,
+        session: session,
+      ),
+      sequence: _mutationSequenceForFinish(),
+      retire: (_) {},
+    );
+  }
+
+  Future<void> _finishOwnedMutationOrphans() async {
+    final session = _at('meta/session');
+    if (session is! String) {
+      throw StateError('Invalid session id during mutation recovery.');
+    }
+    final raw = _at('meta/orphanedMutations');
+    if (raw == null) return;
+    if (raw is! Map<String, Object?>) {
+      throw StateError('Invalid orphaned mutation map during recovery.');
+    }
+    final ids = raw.keys.toList()..sort();
+    for (final id in ids) {
+      final record = raw[id];
+      if (record is! Map<String, Object?>) {
+        throw StateError('Invalid orphaned mutation record during recovery.');
+      }
+      if (record['foreign'] == true ||
+          record['session'] != session ||
+          record['finishedSeq'] is int) {
+        continue;
+      }
+      final target = record['target'];
+      if (target is! String) {
+        throw StateError('Invalid orphaned mutation target during recovery.');
+      }
+      await writer.finishMutation(
+        (
+          runId: id,
+          callPath: _mutationCallPath(id),
+          target: target,
+          session: session,
+        ),
+        sequence: _mutationSequenceForFinish(),
+        retire: (_) {},
+      );
+    }
+  }
+
+  String _mutationCallPath(String attempt) {
+    for (final entry in _map('body/calls').entries) {
+      final node = entry.value;
+      if (node is Map<String, Object?> &&
+          (node['tool'] == 'edit' || node['tool'] == 'write') &&
+          node['attempt'] == attempt) {
+        return 'body/calls/${entry.key}';
+      }
+    }
+    return 'meta/session';
+  }
+
+  MutationSequence _mutationSequenceForFinish() {
+    final existing = mutationSequence;
+    if (existing != null) return existing;
+    final high = _map('meta/vcs')['seqHigh'];
+    if (high != null && (high is! int || high < 0)) {
+      throw StateError('Invalid mutation sequence counter during recovery.');
+    }
+    final seeded = MutationSequence(high is int ? high : 0);
+    mutationSequence = seeded;
+    return seeded;
   }
 
   Iterable<

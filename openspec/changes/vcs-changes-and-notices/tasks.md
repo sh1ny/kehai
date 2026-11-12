@@ -55,6 +55,10 @@
 | workspace-change-attribution → Attribution from recorded provenance | Content differs from the agent's effect | `test/loop/attribution_test.dart` (new) | bytes differing from effect read unknown | red |
 | workspace-change-attribution → Attribution from recorded provenance | Change during a shell command | `test/loop/attribution_test.dart` (new) | interval bash makes unmatched rows unknown | red |
 | workspace-change-attribution → Attribution from recorded provenance | Line-ending conversion on Windows | `test/workspace/vcs_real_test.dart` (new) | autocrlf true agent write still reads by agent | red |
+| workspace-change-attribution → Successful effects have durable order | Concurrent same-path effects | `test/tools/mutation_provenance_test.dart` (new) | reversed completion stores increasing effect order and restored older bytes cannot claim agent | red |
+| workspace-change-attribution → Successful effects have durable order | Delayed effect commit on a shared target | `test/tools/mutation_provenance_test.dart` (new) | delayed effect keeps the resolved-target slot and restored older bytes cannot claim agent | red |
+| workspace-change-attribution → Case-variant targets are uncertain | Case-variant mutation targets | `test/tools/mutation_provenance_test.dart` (new) | case-variant writes followed by restoring earlier bytes read unknown | red |
+| workspace-change-attribution → Case-variant targets are uncertain | Case-variant row spelling | `test/loop/attribution_test.dart` (new) | differently cased row cannot claim agent or user even on a case-sensitive filesystem | red |
 | workspace-change-attribution → Unresolved mutations are uncertain provenance | Cancelled during rename | `test/tools/cancelled_mutation_test.dart` | cancelled write with held rename reads unknown | red |
 | workspace-change-attribution → Unresolved mutations are uncertain provenance | Restart after rename | `test/loop/attribution_test.dart` (new) | interrupted write after restart reads unknown | red |
 | workspace-change-attribution → Unresolved mutations are uncertain provenance | Later successful edit of the same path | `test/loop/attribution_test.dart` (new) | latest effect decides after an unresolved earlier write | red |
@@ -89,7 +93,9 @@
 | workspace-change-attribution → Baselines follow the session tree | Rewind | `test/loop/attribution_test.dart` (new) | rewind restores the earlier baseline | red |
 | workspace-change-attribution → Baselines follow the session tree | Resume after engine restart | `test/loop/attribution_test.dart` (new) | resume reads the baseline from the journal | red |
 | workspace-change-attribution → Attribution work is bounded | Oversized file | `test/loop/attribution_test.dart` (new) | file over 4 MiB reads unknown without hashing | red |
-| workspace-change-attribution → Attribution work is bounded | Read never completes | `test/loop/attribution_test.dart` (new) | held read is abandoned at the deadline and the row reads unknown | red |
+| workspace-change-attribution → Attribution work is bounded | Read never completes | `test/loop/attribution_test.dart` (new) | held read is abandoned within the overall deadline and its row reads unknown | red |
+| workspace-change-attribution → Attribution work is bounded | Pre-capture read never completes | `test/loop/attribution_test.dart` (new) | nonzero lock wait reduces pre-hash budget; fresh capture has unknown row without vcs_timeout | red |
+| workspace-change-attribution → Completed captures survive attribution limits | Post-capture read never completes | `test/loop/attribution_test.dart` (new) | post-hash expiry retains fresh capture and baseline with unknown row and vcs_timeout | red |
 | workspace-change-attribution → Attribution work is bounded | More than 64 effect paths | `test/loop/attribution_test.dart` (new) | paths beyond 64 read unknown | red |
 | workspace-change-attribution → Attribution work is bounded | Reads that never complete across many requests | `test/loop/attribution_test.dart` (new) | abandoned reads never exceed 64 engine-wide | red |
 | turn-perception → Ordered self-contained perception | Unchanged memory after earlier block removal | `test/loop/sensorium_test.dart` | full follow-up retains unchanged scratch facts | green |
@@ -135,15 +141,16 @@
 
 ## 3. Record mutation provenance
 
-- [ ] 3.1 Write failing tests for the durable provenance, open-mutation, late-finish, orphan/fork/recovery metadata and capacity portions of the rows in `mutation_provenance_test`, `cancelled_mutation_test`, `orphaned_mutation_test`, `fork_mutation_test` and `recovery_mutation_test`. Use a held atomic-write rename, real session writers, rewind and fork, and deterministic barriers. Verify that each test fails for the missing behaviour. Task 4.1 adds the final agent/user/unknown assertions in these same mapped files once attribution exists; no mapped scenario is removed or skipped.
-- [ ] 3.2 Implement the call fields on `edit` and `write`:
+- [x] 3.1 Write failing tests for the durable provenance, open-mutation, late-finish, orphan/fork/recovery metadata and capacity portions of the rows in `mutation_provenance_test`, `cancelled_mutation_test`, `orphaned_mutation_test`, `fork_mutation_test` and `recovery_mutation_test`. Use a held atomic-write rename, real session writers, rewind and fork, and deterministic barriers. Verify that each test fails for the missing behaviour. Task 4.1 adds the final agent/user/unknown assertions in these same mapped files once attribution exists; no mapped scenario is removed or skipped.
+- [x] 3.2 Implement the call fields on `edit` and `write`:
   - a `target` record (repo-relative realPath) under the ownership guard before mutating;
-  - `effect: {sha256}` on success;
+  - `effect: {sha256, seq}` on success, with sequence reserved at the writer queue head and seqHigh durable before the effect in the same queue operation;
+  - existing resolved-target locks held through rename and effect commit or failure/quiescence, with cancelled waiters aborting before mutation;
   - `quiesced: true` under the identity guard when the future finishes;
   - an engine-wide cap of 16 unfinished runs, refused before mutating.
 
-  Derive the open-mutation set after resume and after every rewind, and extend the recovery walk to terminal cancelled `edit`/`write` calls without `quiesced`. Verify the target/effect/quiescence, identity-guard and capacity contracts here. Task 4.2 verifies the corresponding attribution labels end to end.
-- [ ] 3.3 Implement the orphaned-mutation records:
+  Add and RED-confirm the newly discovered concurrent same-path, delayed-effect and case-variant regressions before implementing effect sequences. Reuse the existing `PathLocks` scope rather than adding another mutex. Hold A after its rename but before its effect commit, queue B on that target, and verify that effect order follows visible rename order. Case-variant targets are unestablished order, not agent proof. Derive the open-mutation set after resume and after every rewind, and extend recovery to terminal cancelled edit/write calls without `quiesced`. Verify target/effect ordering, restart high-water, quiescence, identity and capacity here. Task 4.2 adds the corresponding attribution labels end to end.
+- [x] 3.3 Implement the orphaned-mutation records:
   - `meta/orphanedMutations/<runId> = {target, session}` durably before a valid rewind loses the target, within the same writer queue operation, including a surviving call whose target field would be removed; build and validate the rewind once before writing, stamp preservation with its current turn, and preserve existing records idempotently; invalid rewinds append nothing;
   - orphan preservation at supersession or identity-guard refusal;
   - every run's finish checks at the writer queue head for an owned unfinished orphan and records `finishedSeq` plus `seqHigh`, whether its call's quiescence merge was accepted or refused; retire the registry entry only after all required finish records are durable and before the queue advances; recovery finishes only records this session owns;
@@ -151,7 +158,7 @@
   - foreign copies at fork inside the parent's writer (`session/writer.dart`), including the fork's live-run provider, at most 16, then `foreignOverflow`.
 
   Verify the orphan/fork record contents, write-ahead ordering and crash-window replay, successful commit of the once-built validated rewind with `currentTurn` unchanged by preservation, finish of a surviving call's preserved record, sequence/floor bounds, live-run provider and ownership guards, and that journal replay of the meta fold is unchanged for sessions without these keys. Task 4.2 verifies the resulting attribution labels for every mapped orphan/fork scenario.
-- [ ] 3.4 Document in `README.md` how cancelled, rewound and forked writes are attributed, and the error at the 16-run cap. Verify that the wording matches the spec scenarios.
+- [x] 3.4 Document in `README.md` how cancelled, rewound and forked writes are attributed, and the error at the 16-run cap. Verify that the wording matches the spec scenarios.
 
 ## 4. Baselines and attribution
 
@@ -160,11 +167,13 @@
   - carry-forward on failure;
   - the backward scan, skipping only non-admitted steps, up to 256;
   - the interval over step `call` output entries;
-  - pre/post-capture hashing with size/stamp checks;
+  - collector-owned pre/post hashing and returned per-path samples under the same lock/deadline, with pre-hash wait at most one third of the remaining post-lock budget and a completed-capture branch replacing unconditional timeout failure;
+  - one injectable monotonic clock for both elapsed time and waits, replacing the wait-only scheduler; reserve capture sequence from the shared allocator after the lock and before pre-hashing;
   - the agent/user/unknown rules, including open, orphaned and foreign records and the floor;
   - 64 paths of 4 MiB each, with 64 outstanding reads engine-wide and reads abandoned at the deadline.
 
-  Extend `SensoriumChange` and render `changes_since_last_turn` with folds. Verify all attribution rows across `attribution_test.dart` and the mapped mutation, cancellation, orphan, fork and recovery files, plus the rows in `vcs_real_test.dart` for one file edited and autocrlf agent attribution. Keep the autocrlf case in `test/workspace/vcs_real_test.dart` and exercise real tool provenance against converted repository content. Do not mark a scenario green on metadata evidence alone.
+  Extend `SensoriumChange` and render `changes_since_last_turn` with folds. Re-run affected group-2 deadline, lock-wait and cleanup rows after changing the clock seam. Verify every attribution row across `attribution_test.dart` and the mapped mutation, cancellation, orphan, fork and recovery files, including effect-order labels, plus the real one-file and autocrlf rows in `vcs_real_test.dart`. Keep autocrlf there and exercise real provenance against converted repository content. Do not mark a scenario green on metadata evidence alone.
+  Apply the conservative case-alias rule across interval targets and applying open/orphan/foreign targets. Verify both case-variant writes on a case-insensitive volume and a differently cased row on a case-sensitive filesystem; unrelated user rows still raise `user_edits`.
 - [ ] 4.3 Document in `README.md` what `changes_since_last_turn` means, the meaning of `by: agent/user/unknown`, and the baseline reset. Verify that it agrees with ADR 0017.
 
 ## 5. Notices, admission and status

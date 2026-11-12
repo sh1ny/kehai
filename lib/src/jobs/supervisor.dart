@@ -603,7 +603,7 @@ final class JobSupervisor {
 
   /// Runs at the end of every reconciliation pass; the runtime cancels its
   /// calls whose nodes a rewind removed.
-  void Function() afterReconcile = () {};
+  FutureOr<void> Function() afterReconcile = () {};
 
   /// The session writer.
   final SessionWriter writer;
@@ -820,7 +820,7 @@ final class JobSupervisor {
       liveLaunches: {for (final job in _jobs.values) job.launch},
       liveCalls: liveCallKeys(),
     );
-    afterReconcile();
+    await afterReconcile();
   }
 
   Future<void> _killRewound(_Job job) async {

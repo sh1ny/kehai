@@ -29,6 +29,7 @@ import '../results/descriptor.dart';
 import '../results/result_store.dart';
 import '../results/search.dart';
 import '../session/errors.dart';
+import '../session/mutations.dart';
 import '../session/path.dart';
 import '../session/record.dart';
 import '../session/write_gate.dart';
@@ -37,6 +38,8 @@ import '../session/scratch.dart';
 import '../shell/detect.dart';
 import '../hooks/hook_stage.dart';
 import '../permissions/workspace_paths.dart';
+import '../workspace/project_root.dart';
+
 import 'agent.dart';
 import 'ask.dart';
 import 'child_env.dart';
@@ -50,6 +53,7 @@ import 'schema.dart';
 import 'search.dart';
 import 'scratch.dart';
 import 'skill.dart';
+import 'mutation_runs.dart';
 import 'tool.dart';
 import 'write.dart';
 
@@ -63,6 +67,20 @@ const int maxQueuedCalls = 32;
 const int _maxSettleRetries = 16;
 
 const Set<String> _terminalStatuses = {'settled', 'failed', 'cancelled'};
+
+int _mutationSequenceHigh(Map<String, Object?> meta) {
+  final vcs = meta['vcs'];
+  if (vcs == null) return 0;
+  if (vcs is! Map<String, Object?>) {
+    throw StateError('Invalid mutation sequence metadata.');
+  }
+  final high = vcs['seqHigh'];
+  if (high == null) return 0;
+  if (high is! int || high < 0) {
+    throw StateError('Invalid mutation sequence metadata.');
+  }
+  return high;
+}
 
 /// The tools every runtime has unless [ToolRuntime.attach] is given its own.
 ///
@@ -113,6 +131,7 @@ final class ToolRuntimeSeams {
   const ToolRuntimeSeams({
     this.beforeSettle,
     this.onStale,
+    this.beforeMutationEffect,
     this.rgProbeTimeout = defaultRgProbeTimeout,
   });
 
@@ -125,6 +144,9 @@ final class ToolRuntimeSeams {
 
   /// Runs when a guarded update to the call node [key] came back `stale`.
   final void Function(String key)? onStale;
+
+  /// Runs after a file mutation is visible and before its effect is queued.
+  final Future<void> Function(String key)? beforeMutationEffect;
 }
 
 /// Runs tool calls against one session.
@@ -149,6 +171,8 @@ final class ToolRuntime {
     this.kehaiHome,
     this.shell,
     this.jobs,
+    this.mutations,
+    this._repositoryRoot,
     this.writeGate,
     this.roster,
     this.model,
@@ -220,6 +244,16 @@ final class ToolRuntime {
         shell ??
         detectShell(workspaceRoot: realPath(workspace.path) ?? workspace.path);
     final prompts = PromptChannel(answerer);
+    final mutationMeta = writer.tree.get(SessionPath.parse('meta'));
+    if (mutationMeta is! Map<String, Object?> ||
+        mutationMeta['session'] is! String) {
+      throw StateError('The session has no mutation ownership metadata.');
+    }
+    final mutations = MutationRuns(
+      sequence: MutationSequence(_mutationSequenceHigh(mutationMeta)),
+      session: mutationMeta['session']! as String,
+    );
+    final repositoryRoot = projectRoot(workspace.path);
     writeGate ??= WriteGate();
     final jobs = JobSupervisor(
       writer,
@@ -282,16 +316,24 @@ final class ToolRuntime {
       kehaiHome,
       detection,
       jobs,
+      mutations,
+      repositoryRoot,
       writeGate,
       roster,
       model,
       effort,
     );
     runtime.jobs
-      ..liveCallKeys = (() => runtime._live.keys.toSet())
+      ..liveCallKeys = (() => {
+        ...runtime._live.keys,
+        ...runtime.mutations.activeCallKeys,
+      })
       ..afterReconcile = runtime._cancelRewoundCalls;
+    runtime.jobs.recovery.mutationSequence = runtime.mutations.sequence;
+    writer.liveMutationTargets = () => runtime.mutations.liveTargets;
     try {
       runtime.resumed = await runtime.jobs.recovery.resume();
+      runtime.mutations.rebuildOpenCallKeys(runtime.writer.tree.toJson());
     } on Object {
       await runtime.jobs.close();
       rethrow;
@@ -325,6 +367,11 @@ final class ToolRuntime {
 
   /// The supervisor of every process the tools start (design D8).
   final JobSupervisor jobs;
+
+  /// The engine-wide registry for live filesystem mutation attempts.
+  final MutationRuns mutations;
+
+  final String _repositoryRoot;
 
   /// The gate every writer operation of the runtime passes (design D17); the
   /// supervisor shares it.
@@ -474,8 +521,39 @@ final class ToolRuntime {
   /// Cancels the live calls whose nodes a rewind removed or replaced (design
   /// D11). The call's update would be refused as stale anyway; this stops its
   /// tool early.
-  void _cancelRewoundCalls() {
+  Future<void> _cancelRewoundCalls() async {
+    final targets = mutations.liveTargets.toList();
+    if (targets.isNotEmpty) {
+      await _write(
+        () => writer.applyGuarded((read) {
+          final lost = [
+            for (final mutation in targets)
+              if (read(mutation.callPath) case final Map<String, Object?> node
+                  when node['attempt'] != mutation.runId ||
+                      node['target'] != mutation.target)
+                mutation,
+          ];
+          final meta = read('meta');
+          if (meta is! Map<String, Object?>) {
+            throw StateError('Session mutation metadata is missing.');
+          }
+          final fields = preserveMutationTargets(meta, lost);
+          if (fields.isEmpty) {
+            return const GuardedRefusal('already preserved');
+          }
+          return GuardedAppend(
+            JournalRecord(
+              turn: writer.currentTurn,
+              path: 'meta',
+              op: Op.merge,
+              value: fields,
+            ),
+          );
+        }),
+      );
+    }
     final tree = writer.tree;
+    mutations.rebuildOpenCallKeys(tree.toJson());
     for (final live in _live.values) {
       if (!live.created || live.token.isCancelled) continue;
       final node = tree.get(SessionPath.parse(live.path));
@@ -582,6 +660,42 @@ final class ToolRuntime {
 
   Future<String> _execute(_Live live, Map<String, Object?> input) async {
     if (live.token.isCancelled) return _cancelledBeforeRun(live);
+    final mutationTool = live.tool == 'edit' || live.tool == 'write';
+    final mutationRun = mutationTool
+        ? mutations.reserve(
+            callKey: live.key,
+            attempt: live.attempt,
+            callPath: live.path,
+          )
+        : null;
+    if (mutationTool && mutationRun == null) {
+      final reason =
+          '$maxUnfinishedMutationRuns unfinished runs (limit '
+          '$maxUnfinishedMutationRuns)';
+      return _finishText(
+        live,
+        'failed',
+        ResultStatus.error,
+        reason,
+        '${live.tool} refused: $reason',
+        reason: reason,
+      );
+    }
+    try {
+      return await _executeReserved(live, input, mutationRun);
+    } finally {
+      if (mutationRun != null && mutations.targetOf(mutationRun) == null) {
+        mutations.releaseUntargeted(mutationRun);
+      }
+    }
+  }
+
+  Future<String> _executeReserved(
+    _Live live,
+    Map<String, Object?> input,
+    MutationRun? mutationRun,
+  ) async {
+    if (live.token.isCancelled) return _cancelledBeforeRun(live);
     final stageCall = StageCall(
       tool: live.tool,
       callKey: live.key,
@@ -632,16 +746,29 @@ final class ToolRuntime {
       model: model,
       effort: effort,
       yolo: yolo,
+      mutation: mutationRun == null
+          ? null
+          : _mutationCapability(live, mutationRun),
       scratch: live.tool == 'scratch_set' || live.tool == 'scratch_del'
           ? _CallScratch(this, live)
           : null,
     );
-    final tool = _invoke(_tools[live.tool]!, context, input);
-    var first = await Future.any<_Step>([
-      tool.then(_ToolDone.new),
-      live.token.whenCancelled.then((_) => const _Cancelled()),
-      stored.then(_StoreEnded.new),
-    ]);
+    final actualTool = _invoke(_tools[live.tool]!, context, input);
+    final tool = mutationRun == null
+        ? actualTool
+        : _trackMutationRun(live, mutationRun, actualTool);
+    late _Step first;
+    try {
+      first = await Future.any<_Step>([
+        tool.then(_ToolDone.new),
+        live.token.whenCancelled.then((_) => const _Cancelled()),
+        stored.then(_StoreEnded.new),
+      ]);
+    } on Object {
+      pipe.close();
+      await stored;
+      rethrow;
+    }
     // A tool that returned because its call was cancelled can win the race
     // against the token; the call still ends cancelled.
     if (first is _ToolDone && live.token.isCancelled) {
@@ -709,6 +836,111 @@ final class ToolRuntime {
     }
   }
 
+  FileMutation _mutationCapability(_Live live, MutationRun run) => FileMutation(
+    target: (absolute) => _recordMutationTarget(live, run, absolute),
+    effect: (hash) => _recordMutationEffect(live, run, hash),
+  );
+
+  Future<bool> _recordMutationTarget(
+    _Live live,
+    MutationRun run,
+    String absolute,
+  ) async {
+    final target = _repoRelativeMutationTarget(absolute);
+    if (target == null) return false;
+    final outcome = await _write(
+      () => writer.applyGuarded((read) {
+        final node = read(live.path);
+        if (!identical(_live[live.key], live) ||
+            !mutations.isActive(run) ||
+            live.token.isCancelled ||
+            node is! Map<String, Object?> ||
+            node['attempt'] != run.attempt ||
+            _terminalStatuses.contains(node['status']) ||
+            (node['target'] != null && node['target'] != target)) {
+          return const GuardedRefusal('stale');
+        }
+        if (!mutations.publish(run, target)) {
+          return const GuardedRefusal('stale');
+        }
+        return GuardedAppend(
+          JournalRecord(
+            turn: writer.currentTurn,
+            path: live.path,
+            op: Op.merge,
+            value: {'target': target},
+          ),
+        );
+      }),
+    );
+    return outcome is Applied;
+  }
+
+  String? _repoRelativeMutationTarget(String absolute) {
+    final canonical = realPath(absolute);
+    if (canonical == null) return null;
+    final relative = p.relative(canonical, from: _repositoryRoot);
+    return p.posix.joinAll(p.split(relative));
+  }
+
+  Future<void> _recordMutationEffect(
+    _Live live,
+    MutationRun run,
+    String hash,
+  ) async {
+    await _seams.beforeMutationEffect?.call(live.key);
+    final mutation = mutations.targetOf(run);
+    if (mutation == null) return;
+    await _write(
+      () => writer.recordMutationEffect(
+        mutation,
+        hash,
+        sequence: mutations.sequence,
+        owns: (read) {
+          final node = read(live.path);
+          return identical(_live[live.key], live) &&
+              mutations.isActive(run) &&
+              !live.token.isCancelled &&
+              node is Map<String, Object?> &&
+              node['attempt'] == run.attempt &&
+              node['target'] == mutation.target &&
+              !_terminalStatuses.contains(node['status']);
+        },
+      ),
+    );
+  }
+
+  Future<ToolOutcome> _trackMutationRun(
+    _Live live,
+    MutationRun run,
+    Future<ToolOutcome> tool,
+  ) async {
+    try {
+      return await tool;
+    } finally {
+      final mutation = mutations.targetOf(run);
+      if (mutation == null) {
+        mutations.releaseUntargeted(run);
+      } else {
+        await _write(
+          () => writer.finishMutation(
+            mutation,
+            sequence: mutations.sequence,
+            retire: (read) {
+              final node = read(mutation.callPath);
+              final open =
+                  node is Map<String, Object?> &&
+                  (node['tool'] == 'edit' || node['tool'] == 'write') &&
+                  node['target'] is String &&
+                  node['quiesced'] != true;
+              mutations.retire(run, currentCallOpen: open);
+            },
+          ),
+        );
+      }
+    }
+  }
+
   /// Runs a stage, or returns `null` when the turn is cancelled first.
   Future<StageOutcome?> _runStage(
     CallStage stage,
@@ -736,6 +968,8 @@ final class ToolRuntime {
   ) async {
     try {
       return await tool.run(context, input);
+    } on StorageError {
+      rethrow;
     } on Object catch (e) {
       return ToolOutcome(
         status: ResultStatus.error,
@@ -759,6 +993,8 @@ final class ToolRuntime {
         'summary': outcome.summary,
       });
       if (result is Refused) _seams.onStale?.call(live.key);
+    } on StorageError catch (error) {
+      _fatal ??= error;
     } on Object {
       // The call is final; a late completion must never surface.
     }

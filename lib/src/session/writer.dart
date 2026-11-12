@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'errors.dart';
 import 'fork.dart';
 import 'journal.dart';
+import 'mutations.dart';
 import 'ownership.dart';
 import '../results/descriptor.dart';
 import 'path.dart';
@@ -317,6 +318,9 @@ final class SessionWriter {
 
   final List<_Subscriber> _subscribers = [];
 
+  /// Supplies resolved targets retained until their finish records are durable.
+  Iterable<MutationTarget> Function()? liveMutationTargets;
+
   /// The current turn of the acknowledged state.
   int get currentTurn => _state.currentTurn;
 
@@ -406,6 +410,123 @@ final class SessionWriter {
     finish: (update) => update!,
   );
 
+  /// Records a successful filesystem effect if [owns] accepts at queue head.
+  ///
+  /// Raises the durable high-water mark before committing the effect. The
+  /// caller retains its resolved-path mutation slot until this completes.
+  Future<void> recordMutationEffect(
+    MutationTarget mutation,
+    String hash, {
+    required MutationSequence sequence,
+    required bool Function(GuardedRead read) owns,
+  }) => _enqueue<void>(
+    op: Op.merge,
+    path: mutation.callPath,
+    decide: () => null,
+    finish: (_) {},
+    action: () async {
+      if (!owns(_state.get)) return;
+      if (_state.get('meta/session') != mutation.session) {
+        throw StateError('Mutation session ownership changed.');
+      }
+      sequence.raise(_mutationCounter(_state.get('meta/vcs/seqHigh')));
+      final seq = sequence.reserve();
+      final high = JournalRecord(
+        turn: currentTurn,
+        path: 'meta/vcs',
+        op: Op.merge,
+        value: {'seqHigh': seq},
+      );
+      final effect = JournalRecord(
+        turn: currentTurn,
+        path: mutation.callPath,
+        op: Op.merge,
+        value: {
+          'effect': {'sha256': hash, 'seq': seq},
+        },
+      );
+      _state.validate(high);
+      _state.validate(effect);
+      await _appendRecord(high);
+      await _appendRecord(effect);
+    },
+  );
+
+  /// Finishes a filesystem mutation and retires it after durable bookkeeping.
+  ///
+  /// The call is quiesced only while [mutation]'s attempt still owns its path.
+  /// An owned orphan is independently finished, even when that identity guard
+  /// no longer matches.
+  Future<void> finishMutation(
+    MutationTarget mutation, {
+    required MutationSequence sequence,
+    required void Function(GuardedRead read) retire,
+  }) => _enqueue<void>(
+    op: Op.merge,
+    path: mutation.callPath,
+    decide: () => null,
+    finish: (_) {},
+    action: () async {
+      final meta = _mutationMap(_state.get('meta'));
+      if (meta['session'] != mutation.session) {
+        throw StateError('Mutation session ownership changed.');
+      }
+      final vcs = _mutationMap(meta['vcs']);
+      sequence.raise(_mutationCounter(vcs['seqHigh']));
+
+      final call = _state.get(mutation.callPath);
+      final callMap = call is Map<String, Object?> ? call : null;
+      final matches = callMap?['attempt'] == mutation.runId;
+      final quiescence = matches && callMap?['quiesced'] != true
+          ? JournalRecord(
+              turn: currentTurn,
+              path: mutation.callPath,
+              op: Op.merge,
+              value: {'quiesced': true, 'quiescedTurn': currentTurn},
+            )
+          : null;
+
+      final orphaned = _mutationMap(meta['orphanedMutations']);
+      final rawExisting = orphaned[mutation.runId];
+      final existing =
+          rawExisting is Map<String, Object?> && rawExisting.isEmpty
+          ? null
+          : rawExisting;
+      final existingMap = existing is Map<String, Object?> ? existing : null;
+      if (existing != null && existingMap == null) {
+        throw StateError('Invalid orphaned mutation record.');
+      }
+      final foreign =
+          existingMap != null &&
+          (existingMap['foreign'] == true ||
+              existingMap['session'] != mutation.session);
+      Map<String, Object?> orphanFields = const {};
+      if (!foreign &&
+          (existingMap != null && existingMap['finishedSeq'] is! int ||
+              existingMap == null && !matches)) {
+        orphanFields = orphanMutationMerge(
+          meta,
+          mutation,
+          finishedSeq: sequence.reserve(),
+        );
+      }
+      final orphanRecord = orphanFields.isEmpty
+          ? null
+          : JournalRecord(
+              turn: currentTurn,
+              path: 'meta',
+              op: Op.merge,
+              value: orphanFields,
+            );
+
+      if (quiescence != null) _state.validate(quiescence);
+      if (orphanRecord != null) _state.validate(orphanRecord);
+      if (quiescence != null) await _appendRecord(quiescence);
+      if (orphanRecord != null) await _appendRecord(orphanRecord);
+      retire(_state.get);
+    },
+  );
+
   /// Creates a new session from the state at the end of turn [atTurn].
   ///
   /// The fork runs at the head of the queue from the acknowledged in-memory
@@ -437,8 +558,10 @@ final class SessionWriter {
         final parentMetaMap = parentMeta is Map<String, Object?>
             ? parentMeta
             : const <String, Object?>{};
+        final live = liveMutationTargets?.call() ?? const <MutationTarget>[];
+        final childMeta = forkMutationMeta(parentMetaMap, whole, live);
         final meta = {
-          ...parentMetaMap,
+          ...childMeta,
           'session': newSessionId(),
           'lineage': {'parent': parentMetaMap['session'], 'parentTurn': atTurn},
           'requests': <String, Object?>{},
@@ -786,26 +909,78 @@ final class SessionWriter {
     } on RequestCollision catch (e) {
       pending.onError(e);
       return;
+    } on Object catch (e) {
+      pending.onError(e);
+      return;
     }
     if (record == null) {
       pending.onDone(null);
       return;
     }
+
+    final CommittedUpdate update;
+    try {
+      if (record.op == Op.rewind) {
+        final projectedBody = _state.bodyAtTurn(record.value);
+        final targets = liveMutationTargets?.call();
+        if (targets != null) {
+          final lost = <MutationTarget>[];
+          for (final mutation in targets) {
+            final node = projectedBody.get(
+              SessionPath.parse(mutation.callPath),
+            );
+            if (node is! Map<String, Object?> ||
+                node['attempt'] != mutation.runId ||
+                node['target'] != mutation.target) {
+              lost.add(mutation);
+            }
+          }
+          final fields = preserveMutationTargets(
+            _mutationMap(_state.get('meta')),
+            lost,
+          );
+          if (fields.isNotEmpty) {
+            final preservation = _snapshot(
+              JournalRecord(
+                turn: record.turn,
+                path: 'meta',
+                op: Op.merge,
+                value: fields,
+              ),
+            );
+            _state.validate(preservation);
+            await _appendRecord(preservation);
+          }
+        }
+        update = await _appendRecord(record, rewindBody: projectedBody);
+      } else {
+        update = await _appendRecord(record);
+      }
+    } on Object catch (e) {
+      pending.onError(e);
+      return;
+    }
+    pending.onDone(update);
+  }
+
+  Future<CommittedUpdate> _appendRecord(
+    JournalRecord record, {
+    SessionTree? rewindBody,
+  }) async {
     final bytes = utf8.encode(record.encode());
     try {
       await _io.writeFrom(bytes);
       await _io.flush();
     } on Object catch (e) {
       _writerState = WriterState.broken;
-      pending.onError(StorageError('could not append the record', e));
-      return;
+      throw StorageError('could not append the record', e);
     }
     final update = CommittedUpdate(record, _length, _lines + 1);
     _length += bytes.length;
     _lines++;
-    _state.commit(record);
+    _state.commit(record, rewindBody: rewindBody);
     _publish(update);
-    pending.onDone(update);
+    return update;
   }
 
   void _publish(CommittedUpdate update) {
@@ -821,6 +996,18 @@ final class SessionWriter {
       }
     }
   }
+}
+
+Map<String, Object?> _mutationMap(Object? value) {
+  if (value == null) return const {};
+  if (value is Map<String, Object?>) return value;
+  throw StateError('Invalid mutation metadata map.');
+}
+
+int _mutationCounter(Object? value) {
+  if (value == null) return 0;
+  if (value is int && value >= 0) return value;
+  throw StateError('Invalid mutation sequence counter.');
 }
 
 /// The containers already frozen by [_freeze], so they are never copied again.

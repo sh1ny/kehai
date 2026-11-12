@@ -125,6 +125,10 @@ final class EditTool implements Tool {
 
     final output = plan.apply(lines);
     if (_sameBytes(output, bytes)) return failure('edit made no change');
+    final mutation = context.mutation;
+    if (mutation != null && !await mutation.target(target)) {
+      return failure('edit target was refused');
+    }
 
     try {
       await writeAtomically(
@@ -137,6 +141,7 @@ final class EditTool implements Tool {
     } on WriteFailure catch (e) {
       return failure(e.message);
     }
+    await mutation?.effect(sha256.convert(output).toString());
 
     final result = _Lines(output);
     final hashes = blockHashes([output]);
