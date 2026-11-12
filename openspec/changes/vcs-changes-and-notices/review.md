@@ -2,57 +2,79 @@
 
 ## Metadata
 
-- **Round:** 19. This retries round 18, which was rejected only for invalid output metadata and recorded no pass. The last valid review is round 17: APPROVE_WITH_CHANGES with one required change, N1.
+- **Round:** 20. The last valid review was round 19: APPROVE, no required changes.
 - **Reviewer:** cross-model CLI (claude)
-- **Scope:** this recheck covers round-17 N1 only. It checks whether the conservative case-alias rule is consistent with the durable effect ordering approved earlier. I ran no tests, builds, linters or formatters, implemented nothing and ticked no tasks. The effect-sequence implementation isn't claimed yet, so I didn't assess it.
+- **Scope:** I checked only two things:
+  - the user-approved `targetAfterSeq` boundary for unresolved attempts;
+  - the derived quiescence-turn/step-link index that group 4 needs.
+
+  This was not a broad audit. I ran no tests, builds, linters or formatters, implemented nothing and ticked no tasks. The boundary and index source isn't implemented yet, so I only checked whether it can be built on the current source.
 - **Files actually read:**
-  - `.dart_tool/vcs-design-review-round18.md` (all of it)
-  - `openspec/changes/vcs-changes-and-notices/review.md` (round 17, all of it)
-  - `design.md:40-69` (D3–D5, including D4 **Durable effect order** and **Case-alias uncertainty**)
-  - `design.md:250-312` (mechanism ledger, risks, ADRs, apply notes)
-  - `specs/workspace-change-attribution/spec.md:270-300`
-  - `tasks.md:1-12`, `:55-62` (map rows) and `:140-184` (groups 3 and 4)
-  - `docs/adr/0017-vcs-observation-baselines-and-provenance-attribution.md` (all of it, focusing on `:38-48` and `:72-78`)
+  - `openspec/changes/vcs-changes-and-notices/review.md` (round 19, all of it)
+  - `design.md:38-67` (D2–D5, including the D4 sections **Unresolved-attempt boundary** and **Derived interval index**), `:155-188` (persisted shapes, State & Ownership), `:250-317` (ledger, risks, ADRs, apply notes)
+  - `specs/workspace-change-attribution/spec.md:85-124` and `:265-315`
+  - `tasks.md:1-75` (test map) and `:140-189` (groups 3 and 4)
+  - `docs/adr/0017-vcs-observation-baselines-and-provenance-attribution.md:36-85`
   - `.dart_tool/vcs-review-skills/codebase-design.md`
-  - Greps of the change directory for case/alias/lowercase wording, and of `proposal.md` for case-sensitivity wording (no matches)
-- **Source:** I didn't re-read any source this round. The `PathLocks.run` scope, its lock key (`file_access.dart:74`) and the awaited effect commit were verified in round 17. The artifacts say that behaviour stays unchanged.
+  - Source: `lib/src/session/writer.dart:300-528` (`applyGuarded`, `recordMutationEffect`, `finishMutation`), `lib/src/tools/runtime.dart:839-942` (`_recordMutationTarget`, `_recordMutationEffect`, `_trackMutationRun`), `lib/src/tools/edit.dart:60-139`, `lib/src/tools/write.dart` (all of it)
+  - Greps of the change directory for `targetAfterSeq|quiescedTurn|quiescence`, and of `lib/src` for the mutation/lock call sites
 
 ## Findings
 
-### Round-17 N1 recheck
+### The ordering proof holds against the current source
 
-**N1. Resolved by the conservative rule the user chose.** Round 17 offered two fixes. The artifacts adopt the second one, "case-variant targets read `unknown`", and broaden it beyond what round 17 asked for.
+1. **Target, rename and effect run under one lock.** `edit.dart:82` and `write.dart:33` enter `PathLocks.run(target, …)` before calling `mutation.target(target)` (`edit.dart:129`, `write.dart:52`). They then do the rename and await `mutation.effect` while still holding the lock. So for one lock key, the accepted target append, the rename and the effect commit all happen inside one lock span.
 
-**1. The rule is stated the same way everywhere:**
-- D4 **Case-alias uncertainty** (`design.md:55`)
-- ADR 0017 (`:44`)
-- the requirement "Case-variant targets are uncertain" (`spec.md:290-291`)
+   This matters because the opposite order would break the rule. If the target were recorded before taking the lock, the earlier holder's effect could commit with a sequence above the waiter's boundary, and then the waiter's cancelled rename would land after it. That would produce a false `agent`. The current order rules this out.
 
-All three compare each row's raw repo-relative spelling with interval mutation targets and with applying open, orphan and foreign targets. If different spellings are equal after lowercasing, the row reads `unknown`, contributes no `user_edits` and overrides successful-effect proof. None of the three introduces a volume probe, a new persisted field or a change to lock equality.
+2. **The boundary can be read in the existing target append.** `_recordMutationTarget` (`runtime.dart:851-875`) already decides inside `applyGuarded`, whose `build` gets a `GuardedRead` over acknowledged state at the queue head (`writer.dart:370-398`). Reading `meta/vcs/seqHigh` there and adding `targetAfterSeq` to the same `{'target': …}` merge needs:
+   - no new queue operation;
+   - no reservation (no `sequence.reserve()`);
+   - no extra flush.
 
-**2. Both round-17 harms are closed:**
-- **macOS: two lock tails for one file.** Same-step writes to `New.txt` and `new.txt` can interleave because they take different lock tails. The two targets are equal after lowercasing, so any row matching either spelling reads `unknown`. Effect order is never used for them, so the interleaving can't produce a false `agent` (`spec.md:293-295`).
-- **Windows: exact-key grouping.** Before, grouping effects by exact spelling could leave a row seeing only one spelling's effect. Now a row whose spelling differs from any relevant target reads `unknown`. That includes a row with only one recorded target (`spec.md:297-299`, `design.md:55`, ADR `:44`). An exact-key miss therefore can't fall through to `user` and raise `user_edits` either.
+   It is also the same build that already calls `mutations.publish`, so registry publication and the boundary come from one queue-head decision.
 
-**3. The ordering invariant is qualified consistently.** Each artifact limits it to unambiguous spellings:
-- D4 says rename order equals sequence order "for an unambiguous resolved-target key" and "Highest sequence is latest outside case-alias ambiguity" (`design.md:54`).
-- ADR 0017 says the same (`:42`).
-- The requirement says "For unambiguous target spellings, path locks SHALL cover…" (`spec.md:280`).
+3. **An earlier committed effect is at or below a later target's boundary.** `recordMutationEffect` (`writer.dart:427-452`) runs as a single queue `action`: it raises the counter from durable `seqHigh`, reserves, appends `meta/vcs {seqHigh: seq}`, then appends the effect. No other queue decision can run between those two appends. So any target decided later reads `seqHigh ≥ e`, and `e > boundary` is false, which blocks the proof. That is the required outcome for the "successful B, then cancelled A, then user restores B" case.
 
-Same-spelling targets still share one lock key on every platform, so the round-17 verification of the lock still holds for them. Two places do not repeat the qualifier: "Highest sequence SHALL define latest" (`spec.md:280`) and "A later successful effect may prove agent attribution…" (ADR `:78`). Both are explicitly overridden by "SHALL override successful-effect proof" (`spec.md:291`) and by ADR `:44`. So there is no contradiction, only some redundancy you could tighten (S1).
+4. **An effect committed after a target decision is above its boundary.** That later effect raises the counter from durable `seqHigh`, which is at least the boundary, and then reserves above it. The in-memory counter running ahead because of unused capture reservations only makes the gap bigger. It can never make the effect's sequence equal to or below the boundary. Within one lock key, any effect committed after T's target decision belongs to a later lock holder, so its rename came after T's. "Effect sequence greater than the boundary" therefore means "mutated after T", and the "cancelled A, then successful B" case can read `agent`.
 
-**4. Applying the rule on every platform is deliberate and stated.** D4, the ADR and the requirement all say the rule applies to case-distinct paths on case-sensitive filesystems ("even on case-sensitive filesystems", `spec.md:291`). Apply note `design.md:311` records that the user chose this. This stays conservative: such rows read `unknown`, never a wrong `agent` or `user`.
+5. **Zero-when-absent is sound.** Every effect raises `seqHigh` before committing, and fork copies `meta`. So an absent counter means no sequenced effect exists in this lineage, and any later effect reserves at least 1. A rewind never lowers `seqHigh` (meta is rewind-exempt).
 
-**5. Tests and tasks cover the requirement:**
-- Map row `tasks.md:60` maps the case-variant writes scenario to `mutation_provenance_test.dart`.
-- Map row `tasks.md:61` maps the differently-cased row scenario to `attribution_test.dart`.
-- Task 3.2 RED-confirms the case-variant regression and says case-variant targets are "unestablished order, not agent proof" (`tasks.md:152`).
-- Task 4.1 adds the final label assertions in the mapped files (`tasks.md:165`).
-- Task 4.2 applies the rule across interval and applying open, orphan and foreign targets. It checks both scenarios and confirms that unrelated user rows still raise `user_edits` (`tasks.md:176`). That keeps the rule from swallowing ordinary user attribution.
+6. **Missing means unestablished.** This is stated the same way in D4 (`design.md:56`), the ADR (`:46`) and the requirement (`spec.md:302`), and scenario `spec.md:312-314` covers it. Calls recorded under group 3's target-only append fall into this conservative case, which is acceptable.
 
-**6. Ledger and ADR list are updated.** Ledger row `design.md:264` names the harm (a hidden user restoration even with durable effect order). The ADR is in sync at `:44`.
+7. **The existing masks still win.** D4 `:56` and ADR `:46` keep open/orphan/foreign, floor/overflow and case-alias uncertainty above effect proof.
+   - **Superseded attempts:** a new attempt on the same node overwrites `targetAfterSeq`, but supersession already preserves an orphan record for the old run, so that run stays masked.
+   - **Case variants:** these keep separate lock tails, so the per-key proof doesn't hold for them. They are already forced to `unknown` by the case-alias rule.
 
-I found no concrete contradiction between D4, ADR 0017, the requirement, its scenarios, the map rows and the group 3/4 tasks.
+### The derived index lifecycle is consistent and feasible
+
+8. **Late quiescence is covered.** `finishMutation` already records `quiescedTurn` (`writer.dart:485`). Indexing calls by that turn is what makes late quiescence findable: a scan of only the interval steps' call outputs would miss a call whose `quiesced` record lands in a later turn. The index sits alongside the open-key set and is rebuilt on resume and rewind (D4 `:57`, ownership row `:178`, ADR `:48`, task 4.2 `tasks.md:177`).
+
+9. **The publish/retire gap is closed.** `finishMutation` appends quiescence and the orphan finish, then calls `retire(_state.get)` synchronously at the end of the same queue action (`writer.dart:524-526`).
+   - A capture that freezes the tree while those appends are awaited can see `quiesced: true` before the index entry exists.
+   - The unfinished-run registry still holds that run until `retire`, so the frozen union reads its target as open (`unknown`).
+   - Updating the index inside that same synchronous `retire` callback leaves no window where a quiesced call is in neither the registry nor the index. S1 below suggests saying this explicitly.
+
+10. **Frozen keys are checked.** Capture checks frozen keys against the frozen tree (attempt and link facts), so stale entries left by a rewind can't add or redirect provenance. Live runs removed by the rewind stay covered by the write-ahead orphan records. The index is described as derived lookup state, never as authority (D4 `:57`, ADR `:48`, ownership row `:178` "Authoritative copy: Journal and live unfinished runs"). That respects D3's rule against side stores.
+
+11. **Design shape.** This is one in-memory structure behind the runtime's existing rebuild/finish seams, with no new authority, setting or format. It adds behaviour without widening any interface callers depend on.
+
+### Artifacts and traceability
+
+12. **All the expected places are updated.** Persisted shape `design.md:166`, ownership rows `:175` and `:178`, ledger `:267`, apply note `:316` and ADR `:46-48` all carry the boundary and index.
+
+13. **The three new scenarios are mapped:**
+    - boundary recorded before mutation → `mutation_provenance_test.dart` (`tasks.md:65`)
+    - later cancelled rename plus user restoration → `cancelled_mutation_test.dart` (`:66`)
+    - missing legacy boundary → `attribution_test.dart` (`:67`)
+
+    The existing later-success row is strengthened to the same turn (`:64`).
+
+14. **The new work lands only in pending group 4.** Task 4.1 (`:168`) and task 4.2 (`:176-177`) pick it up. Completed tasks 3.1–3.4 are unchanged.
+
+15. **The rejected alternative wasn't brought back.** No artifact makes every same-turn mixture read `unknown`. The "Later successful edit" scenario (`spec.md:108-110`) is still satisfiable, so the existing contract hasn't been narrowed.
+
+I found no concrete contradiction or proof gap.
 
 ### Critical (blocking)
 
@@ -66,20 +88,21 @@ None.
 
 Optional and non-blocking:
 
-- **S1.** Two sentences could repeat the qualifier directly: `spec.md:280`'s "Highest sequence SHALL define latest" could add "for unambiguous target spellings", and ADR `:78`'s later-effect clause could add "subject to case-alias ambiguity". The override at `spec.md:291` and ADR `:44` already makes the meaning unambiguous.
-- **S2.** Lowercase comparison doesn't catch every filesystem alias:
-  - **macOS:** APFS ignores Unicode normalization, so NFC and NFD spellings of `café.txt` name one file.
-  - **Windows:** NTFS uppercases using its own table, so `ſ` (long s) and `s` name one file even though they differ after lowercasing.
-
-  These are outside N1's case-variant scope and need unusual model-typed spellings. If you want "outside case-alias ambiguity" to be literally exhaustive, you could list them as a known residual under Risks. Otherwise, no action is needed.
-- **S3.** The "Case-variant mutation targets" scenario specifies a case-insensitive volume, while CI runs on both ubuntu and windows. The rule depends only on spelling, so the expected label is `unknown` on both, and the test can run unguarded. You could state that in the test name or comment, so nobody adds a platform skip that would conflict with task 3.1's no-skip rule.
-- **S4.** Round-16 S2–S4 (also listed as round-17 S1) are still optional and not adopted.
+- **S1.** D4 `:57` and ADR `:48` say the index is updated "during durable finish/retirement before the writer queue advances". You could pin this down as "in the same synchronous step as registry retirement, never after it". Item 9's no-gap argument relies on that ordering, and it is already what `writer.dart:526` makes natural.
+- **S2.** `spec.md:98` and ADR `:82` still say "a later successful effect". You could add "(sequence greater than the target's `targetAfterSeq`)" so "later" can't be read as response order or creation order. The new requirement at `spec.md:302` already settles this.
+- **S3.** You could say that a non-integer `targetAfterSeq` is treated like a missing one (unestablished). You could also say that a malformed `seqHigh` at the target decision refuses or fails the same way `_mutationCounter` does for effects, rather than reading as zero.
+- **S4.** Two "no new record fields" statements (D4 `:55`, ADR `:44`) are scoped to the case-alias rule but now sit next to the new `targetAfterSeq` field. The **Reversal cost** line (`design.md:60`) and the "To record during apply" ADR list (`:298`) don't mention `targetAfterSeq` either. Small wording updates would keep these consistent.
+- **S5.** Round-19 S1–S4 are still optional and not adopted.
 
 ## Verdict
 
-N1 is fully addressed. D4, ADR 0017 and the requirement define one conservative case-alias rule. It overrides effect proof, contributes no `user_edits` and covers a row whose spelling differs from a single recorded target. It applies on every platform. Volume probes, new record fields and lock-equality changes are all deliberately ruled out.
+The user's `targetAfterSeq` design is internally consistent and can be built on the current source:
+- The target append already runs inside the same-key `PathLocks` span and inside a queue-head `applyGuarded` decision.
+- The effect path raises `seqHigh` and appends the effect within one queue action.
+- So "effect sequence greater than the boundary" is exactly "mutated after this attempt's target decision" for an unambiguous key.
+- A missing boundary stays unestablished, and the existing masks still win.
 
-The durable-order invariant is limited to unambiguous spellings, where the existing `PathLocks` scope (verified in round 17) still guarantees that rename order and effect-sequence order agree. Both scenarios have mapped tests, task 3.2 RED coverage and task 4.2 label verification, including the check that unrelated user rows still raise `user_edits`. No concrete contradiction remains.
+The derived quiescence index fixes the late-quiescence lookup gap without becoming an authority. The registry union covers the window between the quiescence publish and retirement. The scenarios, test-map rows and group-4 tasks are complete, and group 3 is untouched.
 
 VERDICT: APPROVE
 
@@ -91,4 +114,4 @@ CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-None. I didn't revisit the volume-aware alternative that round 17 offered and the user rejected; this round's conservative rule fully satisfies round 17's second option.
+None. As instructed, I didn't revisit the rejected alternative of making every same-turn mixture read `unknown`. The approved boundary keeps the existing later-success contract and closes the later-cancelled-rename case.

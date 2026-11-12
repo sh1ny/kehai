@@ -61,7 +61,10 @@
 | workspace-change-attribution → Case-variant targets are uncertain | Case-variant row spelling | `test/loop/attribution_test.dart` (new) | differently cased row cannot claim agent or user even on a case-sensitive filesystem | red |
 | workspace-change-attribution → Unresolved mutations are uncertain provenance | Cancelled during rename | `test/tools/cancelled_mutation_test.dart` | cancelled write with held rename reads unknown | red |
 | workspace-change-attribution → Unresolved mutations are uncertain provenance | Restart after rename | `test/loop/attribution_test.dart` (new) | interrupted write after restart reads unknown | red |
-| workspace-change-attribution → Unresolved mutations are uncertain provenance | Later successful edit of the same path | `test/loop/attribution_test.dart` (new) | latest effect decides after an unresolved earlier write | red |
+| workspace-change-attribution → Unresolved mutations are uncertain provenance | Later successful edit of the same path | `test/loop/attribution_test.dart` (new) | same-turn later successful effect proves agent after an unresolved earlier write | red |
+| workspace-change-attribution → Unresolved attempts retain an effect-order boundary | Boundary recorded before mutation | `test/tools/mutation_provenance_test.dart` (new) | target boundary includes earlier durable effects before rename | red |
+| workspace-change-attribution → Unresolved attempts retain an effect-order boundary | Unresolved write after a successful effect | `test/tools/cancelled_mutation_test.dart` | later cancelled rename prevents older effect proof after user restoration | red |
+| workspace-change-attribution → Unresolved attempts retain an effect-order boundary | Legacy unresolved target without a boundary | `test/loop/attribution_test.dart` (new) | missing target boundary cannot claim agent | red |
 | workspace-change-attribution → Mutation targets are recorded before mutation | Successful write through a symlink | `test/tools/mutation_provenance_test.dart` (new) | target records the resolved symlink destination | red |
 | workspace-change-attribution → Mutation targets are recorded before mutation | Interrupted write through a symlink | `test/tools/mutation_provenance_test.dart` (new) | target is recorded before the rename starts | red |
 | workspace-change-attribution → Mutation targets are recorded before mutation | Symlink retargeted before resume | `test/tools/mutation_provenance_test.dart` (new) | retargeted symlink does not redirect provenance | red |
@@ -162,7 +165,7 @@
 
 ## 4. Baselines and attribution
 
-- [ ] 4.1 Write failing `test/loop/attribution_test.dart` cases for the baseline, interval, attribution, rewind/resume, bound and repeated-condition rows. Also add the final agent/user/unknown assertions for every mapped mutation, cancellation, orphan, fork and recovery scenario in its existing test-map file. Use fake collectors and a held file reader, plus real tool calls recorded through the writer and deterministic held renames. Verify that each new attribution assertion fails for the missing behaviour.
+- [ ] 4.1 Write failing `test/loop/attribution_test.dart` cases for the baseline, interval, attribution, rewind/resume, bound and repeated-condition rows, including same-turn unresolved/effect ordering and missing legacy boundaries. Also add the final agent/user/unknown assertions for every mapped mutation, cancellation, orphan, fork and recovery scenario in its existing test-map file. Use fake collectors and a held file reader, plus real tool calls recorded through the writer and deterministic held renames. Verify that each new attribution assertion fails for the missing behaviour.
 - [ ] 4.2 Implement the step-metadata shape `sensorium.vcs = {state, reason?, observed, value, baseline?:{backend, id, seq, jobsLive}}`. Then add:
   - carry-forward on failure;
   - the backward scan, skipping only non-admitted steps, up to 256;
@@ -170,6 +173,8 @@
   - collector-owned pre/post hashing and returned per-path samples under the same lock/deadline, with pre-hash wait at most one third of the remaining post-lock budget and a completed-capture branch replacing unconditional timeout failure;
   - one injectable monotonic clock for both elapsed time and waits, replacing the wait-only scheduler; reserve capture sequence from the shared allocator after the lock and before pre-hashing;
   - the agent/user/unknown rules, including open, orphaned and foreign records and the floor;
+  - `targetAfterSeq` in the first accepted pre-mutation target append, read from durable seqHigh at queue head without reserving a sequence or adding a flush; require greater effect sequences to override unresolved targets, with missing boundaries unknown;
+  - a derived quiescence-turn/step-link index alongside open keys, rebuilt on resume/rewind and updated before queue advance, with one entry per surviving mutation call; freeze relevant keys with the request snapshot and verify late quiescence without per-request scans of all calls;
   - 64 paths of 4 MiB each, with 64 outstanding reads engine-wide and reads abandoned at the deadline.
 
   Extend `SensoriumChange` and render `changes_since_last_turn` with folds. Re-run affected group-2 deadline, lock-wait and cleanup rows after changing the clock seam. Verify every attribution row across `attribution_test.dart` and the mapped mutation, cancellation, orphan, fork and recovery files, including effect-order labels, plus the real one-file and autocrlf rows in `vcs_real_test.dart`. Keep autocrlf there and exercise real provenance against converted repository content. Do not mark a scenario green on metadata evidence alone.

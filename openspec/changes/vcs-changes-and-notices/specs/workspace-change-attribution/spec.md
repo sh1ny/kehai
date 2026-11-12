@@ -297,3 +297,18 @@ Attribution SHALL compare each changed row's raw repo-relative path with interva
 #### Scenario: Case-variant row spelling
 - **WHEN** a changed row differs only by case from a relevant recorded mutation target
 - **THEN** it reads `by: unknown` without contributing `user_edits`, including on a case-sensitive filesystem
+
+### Requirement: Unresolved attempts retain an effect-order boundary
+The first accepted target record of a new edit/write attempt SHALL include `targetAfterSeq`: durable `meta/vcs/seqHigh` at that queue head, zero if the counter is absent, without a reservation or extra flush. An unresolved interval target SHALL block agent proof unless the latest verified same-target effect has a greater sequence. A missing boundary SHALL leave the order unestablished and the row `by: unknown`.
+
+#### Scenario: Boundary recorded before mutation
+- **WHEN** an edit/write attempt accepts its first target after a successful effect was durably recorded
+- **THEN** the target and its boundary are recorded together before mutation, and the boundary is at least that earlier effect's sequence
+
+#### Scenario: Unresolved write after a successful effect
+- **WHEN** a successful write is followed in the same turn by a cancelled write whose rename lands and quiesces, then the user restores the successful write's bytes before capture
+- **THEN** the row reads `by: unknown`, even though both verification hashes match the older successful effect
+
+#### Scenario: Legacy unresolved target without a boundary
+- **WHEN** an unresolved interval target has no recorded boundary and a successful same-target effect matches both verification reads
+- **THEN** the row reads `by: unknown`, without substituting zero for the missing boundary
