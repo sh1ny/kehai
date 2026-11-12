@@ -125,6 +125,98 @@ void main() {
         }
       });
     });
+    group('collector deadline configuration', () {
+      test('sensorium.collectorDeadlineMs accepts 100 through 10000 with VCS settings', () {
+        for (final backend in ['auto', 'jj', 'git', 'none']) {
+          for (final deadline in [100, 300, 10000]) {
+            write({
+              'vcs': {'backend': backend},
+              'sensorium': {'collectorDeadlineMs': deadline},
+            });
+            final dynamic config = UserConfig.load(home.path);
+            expect(config.vcs.backend, backend);
+            expect(config.sensorium.collectorDeadlineMs, deadline);
+          }
+        }
+      });
+
+      test(
+        'sensorium.collectorDeadlineMs outside 100–10000 refuses configuration',
+        () {
+          for (final deadline in [99, 10001, 0, -1]) {
+            write({
+              'sensorium': {'collectorDeadlineMs': deadline},
+            });
+            final error = refused();
+            expect(error.path, path());
+            expect(error.problem, startsWith('sensorium.collectorDeadlineMs:'));
+          }
+        },
+      );
+
+      test('sensorium.collectorDeadlineMs refuses non-integer values', () {
+        for (final deadline in <Object?>[
+          null,
+          true,
+          '300',
+          300.0,
+          300.5,
+          [],
+          {},
+        ]) {
+          write({
+            'sensorium': {'collectorDeadlineMs': deadline},
+          });
+          final error = refused();
+          expect(error.path, path());
+          expect(error.problem, startsWith('sensorium.collectorDeadlineMs:'));
+        }
+      });
+    });
+
+    group('vcs configuration', () {
+      test('vcs.backend defaults to auto and accepts supported values', () {
+        write({});
+        final dynamic defaults = UserConfig.load(home.path);
+        expect(defaults.vcs.backend, 'auto');
+        expect(defaults.sensorium.collectorDeadlineMs, 300);
+        write({'vcs': <String, Object?>{}});
+        final dynamic emptyVcs = UserConfig.load(home.path);
+        expect(emptyVcs.vcs.backend, 'auto');
+
+        for (final backend in ['auto', 'jj', 'git', 'none']) {
+          write({
+            'vcs': {'backend': backend},
+          });
+          final dynamic config = UserConfig.load(home.path);
+          expect(config.vcs.backend, backend);
+        }
+      });
+
+      test('invalid vcs.backend refuses configuration', () {
+        for (final backend in <Object?>['svn', null, true, 1, [], {}]) {
+          write({
+            'vcs': {'backend': backend},
+          });
+          final error = refused();
+          expect(error.path, path());
+          expect(error.problem, startsWith('vcs.backend:'));
+        }
+      });
+
+      test('vcs must be an object and rejects unknown nested keys', () {
+        for (final vcs in <Object?>[null, true, 'git', 1, []]) {
+          write({'vcs': vcs});
+          final error = refused();
+          expect(error.path, path());
+          expect(error.problem, startsWith('vcs:'));
+        }
+        write({
+          'vcs': {'backend': 'auto', 'branch': 'main'},
+        });
+        expect(refused().message, '${path()}: vcs: unknown key branch');
+      });
+    });
 
     for (final tool in ['scratch_set', 'scratch_del']) {
       test(

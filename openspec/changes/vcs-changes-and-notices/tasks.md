@@ -6,40 +6,40 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| vcs-observation → Backend detection prefers jj | Colocated repository | `test/workspace/vcs_backend_test.dart` (new) | colocated .jj and .git selects jj | red |
-| vcs-observation → Backend detection prefers jj | Plain git repository | `test/workspace/vcs_backend_test.dart` (new) | .git without .jj selects git | red |
-| vcs-observation → Backend detection prefers jj | No repository | `test/workspace/vcs_backend_test.dart` (new) | no repository reads unavailable (no repository) | red |
-| vcs-observation → Backend detection prefers jj | Invalid backend setting | `test/config/config_test.dart` | invalid vcs.backend refuses configuration | red |
-| vcs-observation → Backend detection prefers jj | Observation disabled | `test/workspace/vcs_backend_test.dart` (new) | vcs.backend none starts no process and reads disabled | red |
-| vcs-observation → Working-copy state is reported | Dirty jj working copy | `test/workspace/vcs_real_test.dart` (new) | real jj working copy renders change, description, parent and counts | red |
-| vcs-observation → Working-copy state is reported | Many changed paths | `test/loop/sensorium_composition_test.dart` | vcs section lists 12 paths then … +N more | red |
-| vcs-observation → Working-copy state is reported | Conflicted files | `test/workspace/vcs_collector_test.dart` (new) | conflicted paths are listed for jj and git | red |
-| vcs-observation → Working-copy state is reported | Unborn git branch | `test/workspace/vcs_real_test.dart` (new) | real git unborn branch reports branch without HEAD id | red |
-| vcs-observation → Collection is bounded by a deadline | Collection within deadline | `test/workspace/vcs_collector_test.dart` (new) | completed fake collection returns available | red |
-| vcs-observation → Collection is bounded by a deadline | Deadline exceeded with an earlier observation | `test/workspace/vcs_collector_test.dart` (new) | held fake process at deadline yields stale with timeout and earlier value | red |
-| vcs-observation → Collection is bounded by a deadline | Deadline exceeded without an earlier observation | `test/workspace/vcs_collector_test.dart` (new) | held fake process at deadline yields unavailable (timeout) | red |
-| vcs-observation → Collection is bounded by a deadline | Invalid deadline | `test/config/config_test.dart` | sensorium.collectorDeadlineMs outside 100–10000 refuses configuration | red |
-| vcs-observation → Failures are named, never clean | jj not installed | `test/workspace/vcs_collector_test.dart` (new) | missing executable reads unavailable (jj not found) and (git not found) | red |
-| vcs-observation → Failures are named, never clean | Command fails | `test/workspace/vcs_collector_test.dart` (new) | non-zero exit reads failed with clipped stderr reason | red |
-| vcs-observation → Failures are named, never clean | Output exceeds the read bound | `test/workspace/vcs_collector_test.dart` (new) | oversized output marks partial, never clean | red |
-| vcs-observation → Observation does not alter the user's repository state | Git index untouched | `test/workspace/vcs_real_test.dart` (new) | git collection leaves .git/index bytes and refs unchanged | red |
-| vcs-observation → Observation does not alter the user's repository state | Concurrent user git command | `test/workspace/vcs_real_test.dart` (new) | collection takes no index.lock and user git add succeeds | red |
-| vcs-observation → Observation does not alter the user's repository state | Configured clean filter hangs | `test/workspace/vcs_collector_test.dart` (new) | hanging clean filter is bounded by the deadline and terminated | red |
-| vcs-observation → Observation does not alter the user's repository state | Remote-touching subcommands never run | `test/workspace/vcs_collector_test.dart` (new) | recorded argv stays within the allowlist for jj and git | red |
-| vcs-observation → Collections in one engine are serialized | Status during a request build | `test/workspace/vcs_collector_test.dart` (new) | status preview waits on the engine lock behind a build | red |
-| vcs-observation → Collections in one engine are serialized | Wait exceeds the deadline | `test/workspace/vcs_collector_test.dart` (new) | lock wait past deadline returns stale without starting a process | red |
-| vcs-observation → Collections in one engine are serialized | Ignored file becomes tracked | `test/workspace/vcs_real_test.dart` (new) | fresh private index sees a force-added ignored file | red |
-| vcs-observation → Collections in one engine are serialized | File untracked by the user | `test/workspace/vcs_real_test.dart` (new) | fresh private index follows git rm --cached | red |
-| vcs-observation → Timed-out collections are isolated | Termination cannot be verified | `test/workspace/vcs_cleanup_test.dart` (new) | unverifiable termination holds its slot until engine exit | red |
-| vcs-observation → Timed-out collections are isolated | Termination stalls | `test/workspace/vcs_cleanup_test.dart` (new) | stalled termination returns at deadline and keeps the slot | red |
-| vcs-observation → Timed-out collections are isolated | Cleanup limit reached with git | `test/workspace/vcs_cleanup_test.dart` (new) | 16 held git slots read cleanup pending and resume after release | red |
-| vcs-observation → Timed-out collections are isolated | Repeated jj timeouts with termination that never completes | `test/workspace/vcs_cleanup_test.dart` (new) | 100 jj timeouts never exceed 16 slots and every build meets its deadline | red |
-| vcs-observation → Repository text cannot forge block structure | Description with a fake closing tag | `test/loop/sensorium_test.dart` | vcs description with closing tag is escaped and indented | red |
-| vcs-observation → Repository text cannot forge block structure | Path with a newline | `test/loop/sensorium_test.dart` | path with newline renders escaped on one row | red |
+| vcs-observation → Backend detection prefers jj | Colocated repository | `test/workspace/vcs_backend_test.dart` (new) | colocated .jj and .git selects jj | green |
+| vcs-observation → Backend detection prefers jj | Plain git repository | `test/workspace/vcs_backend_test.dart` (new) | .git without .jj selects git | green |
+| vcs-observation → Backend detection prefers jj | No repository | `test/workspace/vcs_backend_test.dart` (new) | no repository reads unavailable (no repository) | green |
+| vcs-observation → Backend detection prefers jj | Invalid backend setting | `test/config/config_test.dart` | invalid vcs.backend refuses configuration | green |
+| vcs-observation → Backend detection prefers jj | Observation disabled | `test/workspace/vcs_backend_test.dart` (new) | vcs.backend none starts no process and reads disabled | green |
+| vcs-observation → Working-copy state is reported | Dirty jj working copy | `test/workspace/vcs_real_test.dart` (new) | real jj working copy renders change, description, parent and counts | green |
+| vcs-observation → Working-copy state is reported | Many changed paths | `test/loop/sensorium_composition_test.dart` | vcs section lists 12 paths then … +N more | green |
+| vcs-observation → Working-copy state is reported | Conflicted files | `test/workspace/vcs_collector_test.dart` (new) | conflicted paths are listed for jj and git | green |
+| vcs-observation → Working-copy state is reported | Unborn git branch | `test/workspace/vcs_real_test.dart` (new) | real git unborn branch reports branch without HEAD id | green |
+| vcs-observation → Collection is bounded by a deadline | Collection within deadline | `test/workspace/vcs_collector_test.dart` (new) | completed fake collection returns available | green |
+| vcs-observation → Collection is bounded by a deadline | Deadline exceeded with an earlier observation | `test/workspace/vcs_collector_test.dart` (new) | held fake process at deadline yields stale with timeout and earlier value | green |
+| vcs-observation → Collection is bounded by a deadline | Deadline exceeded without an earlier observation | `test/workspace/vcs_collector_test.dart` (new) | held fake process at deadline yields unavailable (timeout) | green |
+| vcs-observation → Collection is bounded by a deadline | Invalid deadline | `test/config/config_test.dart` | sensorium.collectorDeadlineMs outside 100–10000 refuses configuration | green |
+| vcs-observation → Failures are named, never clean | jj not installed | `test/workspace/vcs_collector_test.dart` (new) | missing executable reads unavailable (jj not found) and (git not found) | green |
+| vcs-observation → Failures are named, never clean | Command fails | `test/workspace/vcs_collector_test.dart` (new) | non-zero exit reads failed with clipped stderr reason | green |
+| vcs-observation → Failures are named, never clean | Output exceeds the read bound | `test/workspace/vcs_collector_test.dart` (new) | oversized output marks partial, never clean | green |
+| vcs-observation → Observation does not alter the user's repository state | Git index untouched | `test/workspace/vcs_real_test.dart` (new) | git collection leaves .git/index bytes and refs unchanged | green |
+| vcs-observation → Observation does not alter the user's repository state | Concurrent user git command | `test/workspace/vcs_real_test.dart` (new) | collection takes no index.lock and user git add succeeds | green |
+| vcs-observation → Observation does not alter the user's repository state | Configured clean filter hangs | `test/workspace/vcs_collector_test.dart` (new) | hanging clean filter is bounded by the deadline and terminated | green |
+| vcs-observation → Observation does not alter the user's repository state | Remote-touching subcommands never run | `test/workspace/vcs_collector_test.dart` (new) | recorded argv stays within the allowlist for jj and git | green |
+| vcs-observation → Collections in one engine are serialized | Status during a request build | `test/workspace/vcs_collector_test.dart` (new) | status preview waits on the engine lock behind a build | green |
+| vcs-observation → Collections in one engine are serialized | Wait exceeds the deadline | `test/workspace/vcs_collector_test.dart` (new) | lock wait past deadline returns stale without starting a process | green |
+| vcs-observation → Collections in one engine are serialized | Ignored file becomes tracked | `test/workspace/vcs_real_test.dart` (new) | fresh private index sees a force-added ignored file | green |
+| vcs-observation → Collections in one engine are serialized | File untracked by the user | `test/workspace/vcs_real_test.dart` (new) | fresh private index follows git rm --cached | green |
+| vcs-observation → Timed-out collections are isolated | Termination cannot be verified | `test/workspace/vcs_cleanup_test.dart` (new) | unverifiable termination holds its slot until engine exit | green |
+| vcs-observation → Timed-out collections are isolated | Termination stalls | `test/workspace/vcs_cleanup_test.dart` (new) | stalled termination returns at deadline and keeps the slot | green |
+| vcs-observation → Timed-out collections are isolated | Cleanup limit reached with git | `test/workspace/vcs_cleanup_test.dart` (new) | 16 held git slots read cleanup pending and resume after release | green |
+| vcs-observation → Timed-out collections are isolated | Repeated jj timeouts with termination that never completes | `test/workspace/vcs_cleanup_test.dart` (new) | 100 jj timeouts never exceed 16 slots and every build meets its deadline | green |
+| vcs-observation → Repository text cannot forge block structure | Description with a fake closing tag | `test/loop/sensorium_test.dart` | vcs description with closing tag is escaped and indented | green |
+| vcs-observation → Repository text cannot forge block structure | Path with a newline | `test/loop/sensorium_test.dart` | path with newline renders escaped on one row | green |
 | workspace-change-attribution → Content-addressed baseline per admitted request | Baseline recorded on admission | `test/loop/attribution_test.dart` (new) | admitted step metadata carries backend, id, seq and jobsLive | red |
 | workspace-change-attribution → Content-addressed baseline per admitted request | Collection failed | `test/loop/attribution_test.dart` (new) | failed collection carries the previous baseline forward | red |
 | workspace-change-attribution → Content-addressed baseline per admitted request | Long run of failures | `test/loop/attribution_test.dart` (new) | 300 failed collections still find the carried baseline | red |
-| workspace-change-attribution → Changes since the last baseline | One file edited | `test/workspace/vcs_real_test.dart` (new) | real jj and git diff report one edited file with counts | red |
+| workspace-change-attribution → Changes since the last baseline | One file edited | `test/workspace/vcs_real_test.dart` (new) | real jj and git diff report one edited file with counts | green |
 | workspace-change-attribution → Changes since the last baseline | Nothing changed | `test/loop/attribution_test.dart` (new) | unchanged baseline renders changes none | red |
 | workspace-change-attribution → Changes since the last baseline | First request of a session | `test/loop/attribution_test.dart` (new) | first request reads unavailable (no baseline) | red |
 | workspace-change-attribution → Changes since the last baseline | Baseline lost | `test/loop/attribution_test.dart` (new) | unresolvable baseline id reads baseline lost and raises baseline_reset | red |
@@ -74,11 +74,16 @@
 | workspace-change-attribution → Removed live mutations stay uncertain | Rewind past the baseline that captured the rename | `test/tools/orphaned_mutation_test.dart` (new) | restored older baseline re-applies the finished record | red |
 | workspace-change-attribution → Removed live mutations stay uncertain | Engine dies with an orphaned mutation | `test/jobs/recovery_mutation_test.dart` (new) | recovery finishes own orphan records with a fresh seq | red |
 | workspace-change-attribution → Removed live mutations stay uncertain | Orphaned records overflow | `test/tools/orphaned_mutation_test.dart` (new) | 65th finished record evicts oldest and raises the floor | red |
-| workspace-change-attribution → Removed live mutations stay uncertain | Request built before the orphan record is written | `test/tools/orphaned_mutation_test.dart` (new) | build frozen before orphan append keeps held rename unknown | red |
+| workspace-change-attribution → Removed live mutations stay uncertain | Request built before post-rewind reconciliation | `test/tools/orphaned_mutation_test.dart` (new) | build frozen before reconciliation keeps held rename unknown | red |
+| workspace-change-attribution → Removed live mutations stay uncertain | Engine dies after the rewind commit | `test/jobs/recovery_mutation_test.dart` (new) | replay and resume retain the pre-cut orphan target after the late rename lands | red |
+| workspace-change-attribution → Removed live mutations stay uncertain | Engine dies after preservation before the cut | `test/jobs/recovery_mutation_test.dart` (new) | replay retains the call and durable orphan if the rewind append never commits | red |
+| workspace-change-attribution → Removed live mutations stay uncertain | Rewind removes the target but retains the call | `test/tools/orphaned_mutation_test.dart` (new) | pre-cut preservation retains a live target recorded after the surviving call | red |
+| workspace-change-attribution → Removed live mutations stay uncertain | Rewind removes the target but retains the call | `test/tools/orphaned_mutation_test.dart` (new) | surviving call's preserved record is finished when its run ends | red |
+| workspace-change-attribution → Removed live mutations stay uncertain | Preservation does not advance the rewind turn | `test/tools/orphaned_mutation_test.dart` (new) | preservation and the validated rewind retain the original current turn and the cut commits | red |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Parent rename held through child recovery | `test/session/fork_mutation_test.dart` (new) | child recovery leaves the parent's held rename foreign and unknown | red |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Parent mutation after the fork | `test/session/fork_mutation_test.dart` (new) | parent write after the fork is outside child provenance | red |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Foreign records overflow | `test/session/fork_mutation_test.dart` (new) | more than 16 foreign records set the overflow marker | red |
-| workspace-change-attribution → Forks do not finish the parent's mutations | Fork between rewind and orphan record | `test/session/fork_mutation_test.dart` (new) | fork before orphan append copies the live run as foreign | red |
+| workspace-change-attribution → Forks do not finish the parent's mutations | Fork before post-rewind reconciliation | `test/session/fork_mutation_test.dart` (new) | fork before reconciliation retains the live target as foreign | red |
 | workspace-change-attribution → Unfinished mutations are bounded | Repeated cancellations on a stalled filesystem | `test/tools/cancelled_mutation_test.dart` | 40 cancelled writes keep 16 unfinished and refuse the rest untouched | red |
 | workspace-change-attribution → Unfinished mutations are bounded | Capacity returns | `test/tools/cancelled_mutation_test.dart` | finished held rename admits the next write | red |
 | workspace-change-attribution → Baselines follow the session tree | Rewind | `test/loop/attribution_test.dart` (new) | rewind restores the earlier baseline | red |
@@ -113,8 +118,8 @@
 
 ## 2. Collect VCS observations
 
-- [ ] 2.1 Write failing tests for the `vcs_backend_test`, `vcs_collector_test`, `vcs_cleanup_test` and config rows, plus the vcs rows in `sensorium_test`/`sensorium_composition_test` (many paths, forged tags, newline paths). Use a fake process runner with held completion, held termination and recorded argv. Verify that each test fails for the missing behaviour, not because of a fixture or import error.
-- [ ] 2.2 Implement backend detection and the strict startup keys `vcs.backend` (`auto`/`jj`/`git`/`none`) and `sensorium.collectorDeadlineMs` (100–10000, default 300; the first collection of a run gets at least 3000 ms) in `config/user_config.dart`. Then implement the collector:
+- [x] 2.1 Write failing tests for the `vcs_backend_test`, `vcs_collector_test`, `vcs_cleanup_test` and config rows, plus the vcs rows in `sensorium_test`/`sensorium_composition_test` (many paths, forged tags, newline paths). Use a fake process runner with held completion, held termination and recorded argv. Verify that each test fails for the missing behaviour, not because of a fixture or import error.
+- [x] 2.2 Implement backend detection and the strict startup keys `vcs.backend` (`auto`/`jj`/`git`/`none`) and `sensorium.collectorDeadlineMs` (100–10000, default 300; the first collection of a run gets at least 3000 ms) in `config/user_config.dart`. Then implement the collector:
   - an engine lock;
   - one deadline per collection, with termination issued and not awaited;
   - 16 cleanup slots;
@@ -125,31 +130,32 @@
   - bounded output and stderr.
 
   Extend `SensoriumVcs`/`SensoriumReason` and render the vcs section with escaping, indentation and clipping (D6, D8). Verify that the group-2 rows turn green, and that `sensoriumWithBudget` still finds `\nvcs:` after budget.
-- [ ] 2.3 Add `test/workspace/vcs_real_test.dart`, running real jj 0.46.0 and git in disposable repositories, for the rows mapped to it, including autocrlf and the unborn branch. Tag it `slow` where it spawns many processes. Settle the open question about the jj diff template here: use `-T` stats, or fall back to `--git` parsing within the same bounds. Verify these rows pass on native Windows locally; tasks 6.1 and 6.3 retain the Linux and Windows CI qualification after the implementation is committed and pushed. Add a collector test that skips a relative `PATH` (D9).
-- [ ] 2.4 Document the `vcs.backend` and `collectorDeadlineMs` settings, the backends, the filter policy (clean filters and fsmonitor run as for `git status`; no fetch, push or checkout) and the `unavailable`/`stale` reasons in `README.md`. Verify that the examples parse under the strict config tests.
+- [x] 2.3 Add `test/workspace/vcs_real_test.dart`, running real jj 0.46.0 and git in disposable repositories, for its collection rows, including the unborn branch and current-index membership. Tag it `slow` where it spawns many processes. Settle the open question about the jj diff template here: use `-T` stats, or fall back to `--git` parsing within the same bounds. Verify the collection rows pass on native Windows locally; task 4.2 verifies the real autocrlf attribution row after provenance and attribution exist, and tasks 6.1 and 6.3 retain Linux and Windows CI qualification after the implementation is committed and pushed. Add a collector test that skips a relative `PATH` (D9).
+- [x] 2.4 Document the `vcs.backend` and `collectorDeadlineMs` settings, the backends, the filter policy (clean filters and fsmonitor run as for `git status`; no fetch, push or checkout) and the `unavailable`/`stale` reasons in `README.md`. Verify that the examples parse under the strict config tests.
 
 ## 3. Record mutation provenance
 
-- [ ] 3.1 Write failing tests for the provenance rows in `mutation_provenance_test`, `cancelled_mutation_test`, `orphaned_mutation_test`, `fork_mutation_test` and `recovery_mutation_test`. Use a held atomic-write rename, real session writers, rewind and fork, and deterministic barriers. Verify that each test fails for the missing behaviour.
+- [ ] 3.1 Write failing tests for the durable provenance, open-mutation, late-finish, orphan/fork/recovery metadata and capacity portions of the rows in `mutation_provenance_test`, `cancelled_mutation_test`, `orphaned_mutation_test`, `fork_mutation_test` and `recovery_mutation_test`. Use a held atomic-write rename, real session writers, rewind and fork, and deterministic barriers. Verify that each test fails for the missing behaviour. Task 4.1 adds the final agent/user/unknown assertions in these same mapped files once attribution exists; no mapped scenario is removed or skipped.
 - [ ] 3.2 Implement the call fields on `edit` and `write`:
   - a `target` record (repo-relative realPath) under the ownership guard before mutating;
   - `effect: {sha256}` on success;
   - `quiesced: true` under the identity guard when the future finishes;
   - an engine-wide cap of 16 unfinished runs, refused before mutating.
 
-  Derive the open-mutation set after resume and after every rewind, and extend the recovery walk to terminal cancelled `edit`/`write` calls without `quiesced`. Verify that the provenance, open-mutation, late-finish and cap rows turn green.
+  Derive the open-mutation set after resume and after every rewind, and extend the recovery walk to terminal cancelled `edit`/`write` calls without `quiesced`. Verify the target/effect/quiescence, identity-guard and capacity contracts here. Task 4.2 verifies the corresponding attribution labels end to end.
 - [ ] 3.3 Implement the orphaned-mutation records:
-  - `meta/orphanedMutations/<runId> = {target, session}` at rewind or supersession, or when the identity guard refuses;
-  - `finishedSeq` on finish, or from recovery for records this session owns;
+  - `meta/orphanedMutations/<runId> = {target, session}` durably before a valid rewind loses the target, within the same writer queue operation, including a surviving call whose target field would be removed; build and validate the rewind once before writing, stamp preservation with its current turn, and preserve existing records idempotently; invalid rewinds append nothing;
+  - orphan preservation at supersession or identity-guard refusal;
+  - every run's finish checks at the writer queue head for an owned unfinished orphan and records `finishedSeq` plus `seqHigh`, whether its call's quiescence merge was accepted or refused; retire the registry entry only after all required finish records are durable and before the queue advances; recovery finishes only records this session owns;
   - the `meta/vcs/seqHigh` counter and the `attributionFloor` eviction past 64 finished records;
   - foreign copies at fork inside the parent's writer (`session/writer.dart`), including the fork's live-run provider, at most 16, then `foreignOverflow`.
 
-  Verify that the orphaned-mutation and fork rows turn green, and that journal replay of the meta fold is unchanged for sessions without these keys.
+  Verify the orphan/fork record contents, write-ahead ordering and crash-window replay, successful commit of the once-built validated rewind with `currentTurn` unchanged by preservation, finish of a surviving call's preserved record, sequence/floor bounds, live-run provider and ownership guards, and that journal replay of the meta fold is unchanged for sessions without these keys. Task 4.2 verifies the resulting attribution labels for every mapped orphan/fork scenario.
 - [ ] 3.4 Document in `README.md` how cancelled, rewound and forked writes are attributed, and the error at the 16-run cap. Verify that the wording matches the spec scenarios.
 
 ## 4. Baselines and attribution
 
-- [ ] 4.1 Write failing `test/loop/attribution_test.dart` cases for the baseline, interval, attribution, rewind/resume, bound and repeated-condition rows. Use fake collectors and a held file reader, plus real tool calls recorded through the writer. Verify that each test fails for the missing behaviour.
+- [ ] 4.1 Write failing `test/loop/attribution_test.dart` cases for the baseline, interval, attribution, rewind/resume, bound and repeated-condition rows. Also add the final agent/user/unknown assertions for every mapped mutation, cancellation, orphan, fork and recovery scenario in its existing test-map file. Use fake collectors and a held file reader, plus real tool calls recorded through the writer and deterministic held renames. Verify that each new attribution assertion fails for the missing behaviour.
 - [ ] 4.2 Implement the step-metadata shape `sensorium.vcs = {state, reason?, observed, value, baseline?:{backend, id, seq, jobsLive}}`. Then add:
   - carry-forward on failure;
   - the backward scan, skipping only non-admitted steps, up to 256;
@@ -158,7 +164,7 @@
   - the agent/user/unknown rules, including open, orphaned and foreign records and the floor;
   - 64 paths of 4 MiB each, with 64 outstanding reads engine-wide and reads abandoned at the deadline.
 
-  Extend `SensoriumChange` and render `changes_since_last_turn` with folds. Verify that the group-4 rows and the row mapped to `vcs_real_test` (one file edited) turn green.
+  Extend `SensoriumChange` and render `changes_since_last_turn` with folds. Verify all attribution rows across `attribution_test.dart` and the mapped mutation, cancellation, orphan, fork and recovery files, plus the rows in `vcs_real_test.dart` for one file edited and autocrlf agent attribution. Keep the autocrlf case in `test/workspace/vcs_real_test.dart` and exercise real tool provenance against converted repository content. Do not mark a scenario green on metadata evidence alone.
 - [ ] 4.3 Document in `README.md` what `changes_since_last_turn` means, the meaning of `by: agent/user/unknown`, and the baseline reset. Verify that it agrees with ADR 0017.
 
 ## 5. Notices, admission and status

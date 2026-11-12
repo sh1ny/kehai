@@ -157,10 +157,13 @@ builder: there are no new collectors or plugin registrations. The finite compose
 also supports explicitly supplied available or stale observations, with bounded
 `failed`, `timeout` or `not collected` reasons and stale age.
 
-The startup-only user setting is:
+The startup-only user settings are:
 
 ```json
-{ "sensorium": { "maxTokens": 1500 } }
+{
+  "vcs": { "backend": "auto" },
+  "sensorium": { "maxTokens": 1500, "collectorDeadlineMs": 300 }
+}
 ```
 
 Absent settings or `{ "sensorium": {} }` use **1500**. `maxTokens` must be an
@@ -169,6 +172,42 @@ unknown nested keys are errors naming the exact JSON path. The safe minimum is
 shared with composition: immutable turn/budget/scratch/notices allocations total
 550, all folded source allocations total 740, plus 20 framing tokens. It is not
 a repository setting, hot-reloaded policy or captured provider policy.
+
+### VCS observation settings
+
+`vcs.backend` accepts `auto`, `jj`, `git` or `none`. The default `auto` observes
+the nearest ancestor containing `.jj` or `.git` and selects jj when both exist.
+Explicit `jj` and `git` select that backend. `none` starts no VCS process and
+reports `unavailable (disabled)`. Paths are repository-relative and use `/`,
+including on native Windows; observation does not recurse into submodules.
+
+`sensorium.collectorDeadlineMs` must be an integer from 100 to 10000 and defaults
+to 300. The first collection in an engine run gets at least 3000 ms for cold
+startup. The deadline includes waiting for the engine's collection lock and all
+capture work. At expiry, observation issues process-tree termination and returns
+without waiting for cleanup. These settings require an engine restart.
+
+jj observation performs its ordinary working-copy snapshot and may add operation
+log entries. Git observation copies the current user index into a fresh private
+index, then captures a tree with `git add -A` and `git write-tree`. It never writes
+the user's index, refs, HEAD or working-tree files. Unreferenced blob/tree objects
+remain until git's normal prune.
+
+Repository-configured clean filters and fsmonitor may run during capture, as for
+status-equivalent reads, under the same deadline. Kehai does not emulate or
+disable them. It invokes no fetch, push, pull, clone, checkout, switch, restore or
+smudge. Set `vcs.backend` to `none` for a repository whose filters are unsafe to
+run unattended. Git receives `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0`.
+
+Observation reports `no repository`, `disabled`, `jj not found`, `git not found`,
+`timeout`, `failed` or `cleanup pending` rather than pretending the repository is
+clean. With an earlier admitted value, a failed collection reports that value as
+`stale`, with its original age and the current reason. Truncated listings carry
+partial lower-bound counts and explicit omissions. Timed-out collections keep
+their private files quarantined until termination is confirmed. If all 16
+cleanup slots are held, no new VCS process starts.
+
+### Sensorium section bounds
 
 | Section | Conservative token cap |
 | --- | ---: |

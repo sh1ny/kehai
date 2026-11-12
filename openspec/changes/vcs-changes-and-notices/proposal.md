@@ -43,3 +43,14 @@ It builds on entry 2, `sensorium-block-and-scratchpad`, which shipped the typed 
 - **User repository:** jj observation snapshots the working copy (ordinary jj behaviour, adding operation-log entries). Git observation writes unreferenced tree/blob objects through a temporary index. Neither moves refs, the user's index, HEAD or the working tree.
 - **External tools:** `jj` (pinned 0.46.0 in `mise.toml`) and `git` must be on PATH, or the section says unavailable. Tests use disposable repositories, and CI must provide both tools on Linux and Windows.
 - **Instructions/tool identity:** none. Section text changes only the per-request block, so it does not affect opaque lineage.
+
+## Release Notes
+
+Add bounded jj/git working-copy observation and strict collection controls.
+
+### Added
+- Startup `vcs.backend` selection and `sensorium.collectorDeadlineMs`, with explicit disabled, missing-tool, timeout and failure states.
+- Serialized jj/git capture, fresh private git indexes, bounded output and quarantined process cleanup without changing the user's index, refs or working tree.
+
+### Changed
+- VCS presentation now supports backend identity, counts, conflicts and bounded paths, with escaped repository text and explicit omissions.
