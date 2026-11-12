@@ -10,6 +10,7 @@ import '../provider/provider.dart';
 import '../results/composer.dart';
 import '../results/handles.dart';
 import '../session/path.dart';
+import '../session/scratch.dart';
 import '../session/tree.dart';
 import 'compaction_state.dart';
 import 'instructions.dart';
@@ -86,6 +87,8 @@ final class BuiltRequest {
     required this.boundary,
     required this.retained,
     required this.quality,
+    this.source,
+    this.folds = const [],
   });
 
   /// The provider, route, model and captured instruction/tool identity.
@@ -115,6 +118,12 @@ final class BuiltRequest {
   /// The sensorium block text.
   final String blockText;
 
+  /// The frozen source observation; optional for legacy manually built values.
+  final SensoriumSource? source;
+
+  /// The source-order reductions applied to this observation.
+  final List<SensoriumFold> folds;
+
   /// Whether the context in use exceeds a known window.
   bool get overflow => window != null && used != null && used! > window!;
 }
@@ -140,7 +149,23 @@ final class RequestBuilder {
     this.providerId = 'openai',
     this.routeId = 'chatgpt-account',
     this.nativeCompaction,
+    this.sensoriumMaxTokens = SensoriumAllocations.defaultMaxTokens,
+    this.onCaptured,
+    this.compactionThreshold,
+    this.legacyWindowIgnored = false,
   });
+
+  /// The startup composition ceiling, permitting lower direct test seams.
+  final int sensoriumMaxTokens;
+
+  /// The resolved threshold, independently of whether native policy is active.
+  final int? compactionThreshold;
+
+  /// Whether validated startup capacity inputs ignored a legacy window hint.
+  final bool legacyWindowIgnored;
+
+  /// The optional test barrier after the tree and clock have been frozen.
+  final Future<void> Function()? onCaptured;
 
   /// The provider identity recorded at admission.
   final String providerId;
@@ -245,7 +270,26 @@ final class RequestBuilder {
     SessionTree tree, {
     required int turn,
     String? contextKey,
+    int? sourceOffset,
   }) async {
+    // The caller may retain and mutate its acknowledged copy across awaits.
+    // Own one frozen copy, and read the clock exactly once for this build.
+    tree = tree.copy();
+    final source = SensoriumSource(
+      turn: turn,
+      time: clock(),
+      offset: sourceOffset,
+    );
+    final ScratchState scratch;
+    try {
+      scratch = ScratchState.read(tree.get(SessionPath.parse('scratch')));
+    } on ScratchStateError catch (error) {
+      throw SensoriumCompositionError(
+        code: 'scratch_state',
+        message: 'Invalid scratch state: ${error.message}',
+      );
+    }
+    await onCaptured?.call();
     contextKey ??= _currentContext(tree);
     // A child's role is read from the tree: the text captured at its start
     // wins over the constructor's hook, whatever the role file says now.
@@ -283,35 +327,70 @@ final class RequestBuilder {
       sessionId: session is String ? session : '',
     );
 
-    String render(int? used) => sensoriumBlock(
-      turn: turn,
-      now: clock(),
-      workspaceName: workspaceName,
+    final boundaryTurn = boundary == null
+        ? null
+        : _turnOf(boundary.substring(0, boundary.indexOf(':')));
+    SensoriumBudget budget(int? used) => SensoriumBudget(
+      model: model,
       used: used,
       window: window,
-      model: model,
       usedEstimated: true,
       windowEstimated: windowEstimated,
+      compactionThreshold: compactionThreshold ?? nativeCompaction?.threshold,
+      turnsSinceCompaction: boundaryTurn == null ? null : turn - boundaryTurn,
     );
-
+    final composition = composeSensorium(
+      SensoriumSnapshot(
+        source: source,
+        workspaceName: workspaceName,
+        budget: budget(0),
+        scratch: scratch,
+        processes: _processes(tree),
+        notices: {
+          if (notice != null) SensoriumNotice.compactionRecovery,
+          if (legacyWindowIgnored) SensoriumNotice.legacyWindowIgnored,
+        },
+      ),
+      maxTokens: sensoriumMaxTokens,
+    );
+    SensoriumComposition render(int? used) => sensoriumWithBudget(
+      composition,
+      budget(used),
+      maxTokens: sensoriumMaxTokens,
+    );
     int blockTokens(String block) => estimate(UserMessage(block));
 
-    final provisional = render(0);
-    final provisionalTokens = blockTokens(provisional);
-    final int? base = boundary != null && baseline == null
+    final provisionalTokens = blockTokens(composition.text);
+    final int? withoutBlock = boundary != null && baseline == null
         ? null
         : baseline == null
-        ? estimateRequest(requestWith(provisional))
+        ? estimateRequest(requestWith(composition.text)) - provisionalTokens
         : baseline.tokens -
               baseline.block +
-              uncoveredTokens(items, baseline, estimate) +
-              provisionalTokens;
-    // The block holds the number it reports, so its own size can differ a
-    // little from the provisional one; the count is adjusted once for that.
-    final used = base == null
-        ? null
-        : base - provisionalTokens + blockTokens(render(base));
-    final finalBlock = render(used);
+              uncoveredTokens(items, baseline, estimate);
+    int? used = withoutBlock == null ? null : withoutBlock + provisionalTokens;
+    var finalComposition = composition;
+    var converged = false;
+    var accountedBlock = provisionalTokens;
+    // Keep all source facts and fold choices fixed; only budget text can change.
+    for (var pass = 0; pass < 8; pass++) {
+      finalComposition = render(used);
+      accountedBlock = blockTokens(finalComposition.text);
+      final next = withoutBlock == null ? null : withoutBlock + accountedBlock;
+      if (next == used) {
+        converged = true;
+        break;
+      }
+      used = next;
+    }
+    if (!converged) {
+      throw const SensoriumCompositionError(
+        code: 'accounting',
+        message:
+            'Sensorium context accounting did not converge within 8 passes.',
+      );
+    }
+    final finalBlock = finalComposition.text;
     final request = requestWith(finalBlock);
     final nonOpaque = request.items
         .where(
@@ -354,11 +433,31 @@ final class RequestBuilder {
           : 'estimated from compatible usage',
       used: used,
       window: window,
-      block: blockTokens(finalBlock),
+      block: accountedBlock,
       blockText: finalBlock,
       lineage: lineage,
       boundary: boundary,
+      source: source,
+      folds: finalComposition.folds,
     );
+  }
+
+  Iterable<SensoriumProcess> _processes(SessionTree tree) sync* {
+    final jobs = tree.get(SessionPath.parse('jobs'));
+    if (jobs is! Map<String, Object?>) return;
+    for (final MapEntry(:key, :value) in jobs.entries) {
+      if (value is! Map<String, Object?>) continue;
+      final state = value['state'];
+      if (state != 'pending' && state != 'running') continue;
+      final started = value['started'];
+      yield SensoriumProcess(
+        id: key,
+        kind: value['kind'] is String ? value['kind']! as String : '?',
+        command: value['cmd'] is String ? value['cmd']! as String : '?',
+        state: state as String,
+        started: started is String ? DateTime.tryParse(started) : null,
+      );
+    }
   }
 
   /// The context key of the last exchange, which the step being built

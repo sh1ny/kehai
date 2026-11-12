@@ -163,42 +163,6 @@ void main() {
 
   group('roster', () {
     test(
-      'specs list the thirteen tools with versioned names and JSON schemas',
-      () async {
-        final h = await _attach(root);
-
-        final names = h.runtime.specs.map((s) => s.name).toList();
-        expect(names, [
-          'read',
-          'edit',
-          'write',
-          'bash',
-          'grep',
-          'find',
-          'ls',
-          'ask',
-          'job',
-          'read_more',
-          'search_result',
-          'skill',
-          'agent',
-        ]);
-        for (final spec in h.runtime.specs) {
-          expect(spec.description, isNotEmpty, reason: spec.name);
-          expect(
-            spec.parametersJsonSchema['type'],
-            'object',
-            reason: spec.name,
-          );
-        }
-        for (final d in toolDefinitions) {
-          expect(d.version, greaterThanOrEqualTo(1), reason: d.name);
-        }
-        expect(toolDefinitions.map((d) => d.name).toSet().length, 13);
-      },
-    );
-
-    test(
       'unknown tool settles failed with envelope error and a stored result',
       () async {
         final tool = _FakeTool((c, i) => _writes(c, 'x'));

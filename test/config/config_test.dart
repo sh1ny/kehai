@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:kehai/src/config/user_config.dart';
+import 'package:kehai/src/loop/sensorium.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -31,6 +32,158 @@ void main() {
   }
 
   group('config', () {
+    group('sensorium configuration', () {
+      test('absent and empty sensorium settings accept startup defaults', () {
+        write({});
+        expect(() => UserConfig.load(home.path), returnsNormally);
+        write({'sensorium': <String, Object?>{}});
+        expect(() => UserConfig.load(home.path), returnsNormally);
+        expect(SensoriumAllocations.defaultMaxTokens, 1500);
+        expect(
+          SensoriumAllocations.defaultMaxTokens,
+          greaterThanOrEqualTo(SensoriumAllocations.minimumMaxTokens),
+        );
+      });
+
+      test(
+        'valid sensorium minimum default and custom ceilings are accepted',
+        () {
+          for (final ceiling in [
+            SensoriumAllocations.minimumMaxTokens,
+            1500,
+            2400,
+          ]) {
+            write({
+              'sensorium': {'maxTokens': ceiling},
+            });
+            expect(
+              () => UserConfig.load(home.path),
+              returnsNormally,
+              reason: 'valid startup ceiling $ceiling',
+            );
+          }
+        },
+      );
+
+      test(
+        'invalid sensorium maxTokens refuses configuration: below minimum',
+        () {
+          for (final ceiling in [-1, 0, 1, 1309]) {
+            write({
+              'sensorium': {'maxTokens': ceiling},
+            });
+            final error = refused();
+            expect(error.path, path());
+            expect(error.problem, startsWith('sensorium.maxTokens:'));
+            expect(error.problem, contains('1310'));
+          }
+        },
+      );
+
+      test(
+        'invalid sensorium maxTokens refuses configuration: non-integer',
+        () {
+          for (final ceiling in <Object?>[
+            null,
+            true,
+            '1500',
+            1500.0,
+            1500.5,
+            [],
+            {},
+          ]) {
+            write({
+              'sensorium': {'maxTokens': ceiling},
+            });
+            final error = refused();
+            expect(error.path, path());
+            expect(error.problem, startsWith('sensorium.maxTokens:'));
+            expect(
+              error.problem,
+              contains('integer'),
+              reason: jsonEncode(ceiling),
+            );
+          }
+        },
+      );
+
+      test('sensorium rejects unknown nested settings', () {
+        write({
+          'sensorium': {'maxTokens': 1500, 'maxToken': 1600},
+        });
+        expect(refused().message, '${path()}: sensorium: unknown key maxToken');
+      });
+
+      test('sensorium requires an object rather than null or scalar', () {
+        for (final value in <Object?>[null, true, '1500', 1500, []]) {
+          write({'sensorium': value});
+          expect(
+            refused().message,
+            '${path()}: sensorium: must be an object',
+            reason: jsonEncode(value),
+          );
+        }
+      });
+    });
+
+    for (final tool in ['scratch_set', 'scratch_del']) {
+      test(
+        '$tool explicit allow rule parses without autoapproval defaults',
+        () {
+          expect(UserConfig.load(home.path).allow, isEmpty);
+          write({
+            'allow': [
+              {'tool': tool},
+            ],
+          });
+          final config = UserConfig.load(home.path);
+          expect(config.allow, hasLength(1));
+          expect(config.allow.single.tool, tool);
+          expect(config.allow.single.argv, isNull);
+          expect(config.hooks, isEmpty);
+        },
+      );
+
+      test('$tool hook selector parses with its configured policy', () {
+        write({
+          'hooks': [
+            {
+              'name': 'scratch-check',
+              'argv': ['policy-check'],
+              'tools': [tool],
+              'policy': 'deny',
+            },
+          ],
+        });
+        final config = UserConfig.load(home.path);
+        expect(config.allow, isEmpty);
+        expect(config.hooks, hasLength(1));
+        expect(config.hooks.single.tools, [tool]);
+        expect(config.hooks.single.policy, HookPolicy.deny);
+        expect(config.hooks.single.argv, ['policy-check']);
+      });
+    }
+
+    test('scratch_pin remains unsupported in allow and hook rules', () {
+      write({
+        'allow': [
+          {'tool': 'scratch_pin'},
+        ],
+      });
+      expect(refused().message, contains('allow[0].tool: must be one of'));
+      write({
+        'hooks': [
+          {
+            'name': 'pin-check',
+            'argv': ['policy-check'],
+            'tools': ['scratch_pin'],
+            'policy': 'deny',
+          },
+        ],
+      });
+      expect(refused().message, contains('hooks[0].tools[0]: must be one of'));
+    });
+
     test('effort accepts every exact allowed value', () {
       for (final effort in [
         'none',

@@ -73,7 +73,11 @@ void main() {
       'child': 'child-1',
       'outcome': 'done',
     };
-    await w.apply(rec(1, 'scratch', Op.set, {'text': scratch}));
+    await w.apply(
+      rec(1, 'scratch', Op.set, {
+        'goal': {'value': scratch},
+      }),
+    );
     await w.apply(rec(1, 'meta/test-correlation', Op.set, correlation));
     final handles = <String, String>{};
     for (var turn = 1; turn <= 20; turn++) {
@@ -140,7 +144,9 @@ void main() {
         jsonEncode(session.tree.get(SessionPath.parse('body/calls'))),
         calls,
       );
-      expect(session.tree.get(SessionPath.parse('scratch')), {'text': scratch});
+      expect(session.tree.get(SessionPath.parse('scratch')), {
+        'goal': {'value': scratch},
+      });
       expect(
         session.tree.get(SessionPath.parse('meta/test-correlation')),
         correlation,

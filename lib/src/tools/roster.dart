@@ -3,6 +3,7 @@ library;
 
 import '../provider/provider.dart';
 import 'ask.dart';
+import 'scratch.dart';
 
 /// One tool of the roster: what the model is told and what is validated.
 final class ToolDefinition {
@@ -251,5 +252,27 @@ final List<ToolDefinition> toolDefinitions = List.unmodifiable([
       },
       required: ['role', 'prompt'],
     ),
+  ),
+  ToolDefinition(
+    name: 'scratch_set',
+    version: 1,
+    description:
+        'Set a verbatim session-only scratch value. Limits: 20 keys, '
+        '80 tokens per value, 400 tokens for the complete rendered section '
+        '(ceil UTF-8 bytes/3). Refuses overflow without changing scratch.',
+    schema: _object(
+      {'key': _path, 'value': _string},
+      required: ['key', 'value'],
+    ),
+    check: scratchKeyRules,
+  ),
+  ToolDefinition(
+    name: 'scratch_del',
+    version: 1,
+    description:
+        'Delete one session-only scratch key. An already absent key is '
+        'an explicit successful no-op. There is no persistent pin store.',
+    schema: _object({'key': _path}, required: ['key']),
+    check: scratchKeyRules,
   ),
 ]);

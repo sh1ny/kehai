@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../loop/sensorium.dart' show SensoriumAllocations;
 import 'effort.dart';
 
 /// The file name inside the Kehai home.
@@ -35,6 +36,8 @@ const Set<String> toolRoster = {
   'search_result',
   'skill',
   'agent',
+  'scratch_set',
+  'scratch_del',
 };
 
 /// A configuration file that cannot be used.
@@ -181,6 +184,16 @@ final class RouteCapacity {
   final String? migrationNotice;
 }
 
+/// The startup-only ceiling for a full sensorium observation.
+final class SensoriumSettings {
+  const SensoriumSettings({
+    this.maxTokens = SensoriumAllocations.defaultMaxTokens,
+  });
+
+  /// The conservative UTF-8-bytes-over-three composition ceiling.
+  final int maxTokens;
+}
+
 /// The settings read once from `<kehai home>/config.json`.
 final class UserConfig {
   /// Creates a configuration. With no arguments it is the defaults.
@@ -194,6 +207,7 @@ final class UserConfig {
     this.contextWindows = const {},
     this.agentModels = const {},
     this.providers = const {},
+    this.sensorium = const SensoriumSettings(),
   });
 
   /// Reads `config.json` from [home].
@@ -262,6 +276,9 @@ final class UserConfig {
 
   /// Captured provider/route/model settings, independent of backend metadata.
   final Map<String, ProviderConfig> providers;
+
+  /// The validated startup sensorium settings, not captured provider policy.
+  final SensoriumSettings sensorium;
 
   /// Encodes only validated provider policy for an internal child launch.
   ///
@@ -345,6 +362,7 @@ final class UserConfig {
     contextWindows: contextWindows,
     agentModels: agentModels,
     providers: decodeProviderPolicy(encoded).providers,
+    sensorium: sensorium,
   );
 
   /// Resolves each field separately, retaining its exact source setting.
@@ -437,6 +455,7 @@ UserConfig _parse(String path, Object? json) {
     'models',
     'agents',
     'providers',
+    'sensorium',
   });
   final rgPath = json['rgPath'];
   if (json.containsKey('rgPath') && (rgPath is! String || rgPath.isEmpty)) {
@@ -490,7 +509,27 @@ UserConfig _parse(String path, Object? json) {
     contextWindows: _models(path, json),
     agentModels: _agents(path, json),
     providers: _providers(path, json),
+    sensorium: _sensorium(path, json),
   );
+}
+
+SensoriumSettings _sensorium(String path, Map<String, Object?> root) {
+  if (!root.containsKey('sensorium')) return const SensoriumSettings();
+  final settings = _object(path, 'sensorium', root['sensorium']);
+  _noUnknown(path, 'sensorium', settings, const {'maxTokens'});
+  if (!settings.containsKey('maxTokens')) return const SensoriumSettings();
+  final value = settings['maxTokens'];
+  if (value is! int) {
+    throw ConfigError(path, 'sensorium.maxTokens: must be an integer');
+  }
+  if (value < SensoriumAllocations.minimumMaxTokens) {
+    throw ConfigError(
+      path,
+      'sensorium.maxTokens: must be at least '
+      '${SensoriumAllocations.minimumMaxTokens}',
+    );
+  }
+  return SensoriumSettings(maxTokens: value);
 }
 
 Map<String, String> _agents(String path, Map<String, Object?> root) {

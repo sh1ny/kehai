@@ -13,15 +13,15 @@ github:
   # Empty = the active gh account, resolved once when a run starts and fenced
   # for the whole run (as.sh), so a later gh auth switch cannot redirect it.
   # Set it if you switch gh accounts between sessions.
-  login: "sh1ny"
+  login: "KintsugiBot"
   # Comment posted once on each new PR to request a review. Empty = none.
   review_request:
-    body: ""
-    login: ""
+    body: "@codex review"
+    login: "sh1ny"
     # true = post it again after each fix round the agent pushes, for
     # reviewers that only run when tagged (for example Codex). At most once
     # per head.
-    after_fixes: false
+    after_fixes: true
 
 review:
   # Design and pre-ship reviews prefer a reviewer CLI other than the harness
@@ -30,7 +30,7 @@ review:
   cross_model: true
   # Reviewer CLIs tried in order; the current harness is skipped, and the
   # first one installed (OMP: whose model resolves) runs the review.
-  order: [codex, claude, omp]
+  order: [claude, codex, omp]
   # Model per route. Omit = the CLI's default; OMP takes a role (@slow) or a
   # provider/id, and defaults to @default.
   # models:

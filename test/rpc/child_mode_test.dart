@@ -434,8 +434,7 @@ void main() {
       expect(fake.responsesRequests.last.body, contains('unknown tool edit'));
     });
 
-    test('a child without role tools offers twelve tools and refuses '
-        'agent', () async {
+    test('a child without role tools refuses nested agent calls', () async {
       final fake = await FakeOpenAi.start();
       login();
       fake.responsesScripts
@@ -459,7 +458,6 @@ void main() {
       expect(await child.finish(), 0);
 
       final offered = _toolNames(fake.responsesRequests.first);
-      expect(offered, hasLength(12));
       expect(offered, isNot(contains('agent')));
       expect(offered.toSet(), {
         for (final d in toolDefinitions)

@@ -123,6 +123,7 @@ final class ToolContext {
     this.jobs,
     this.permission,
     this.capacity,
+    this.scratch,
     this.model,
     this.effort,
     this.yolo = false,
@@ -163,6 +164,9 @@ final class ToolContext {
   /// 'by': ...}`), or null when no gate recorded one.
   final Map<String, Object?>? permission;
 
+  /// The call-bound scratch capability, available only to scratch tools.
+  final ScratchMutator? scratch;
+
   /// The call's node key, `c-<12 hex>`.
   final String callKey;
 
@@ -189,6 +193,30 @@ final class ToolContext {
   /// even when the permission gate let the call through; null when the
   /// context has none.
   final Directory? kehaiHome;
+}
+
+/// The runtime-owned capability for mutations in this call's session only.
+abstract interface class ScratchMutator {
+  /// Sets [key] to [value] after a live queue-head ownership/capacity check.
+  Future<ScratchMutation> set(String key, String value);
+
+  /// Deletes [key], or reports an explicit no-op when it is already absent.
+  Future<ScratchMutation> delete(String key);
+}
+
+/// The result of a guarded scratch decision, not a call lifecycle decision.
+final class ScratchMutation {
+  /// Creates an accepted decision, including an absent-delete no-op.
+  const ScratchMutation.accepted(this.message) : accepted = true;
+
+  /// Creates a refusal that left scratch unchanged.
+  const ScratchMutation.refused(this.message) : accepted = false;
+
+  /// Whether the mutation was admitted or was an explicit successful no-op.
+  final bool accepted;
+
+  /// The safe result text, including current/proposed sizes on limit refusal.
+  final String message;
 }
 
 /// One tool implementation.

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:kehai/kehai.dart';
 import 'package:test/test.dart';
 
@@ -32,7 +34,165 @@ Future<(SessionWriter, ResultStore)> _session() async {
   return (writer, ResultStore(writer.sessionDir));
 }
 
+String _processSection(String block) {
+  final start = block.indexOf('processes:');
+  expect(start, greaterThanOrEqualTo(0), reason: 'missing processes section');
+  final end = block.indexOf('\nplan:', start);
+  expect(end, greaterThan(start), reason: 'missing following plan section');
+  return block.substring(start, end);
+}
+
 void main() {
+  test('capture freezes acknowledged jobs caller tree and clock before async projection', () async {
+    final (writer, _) = await _session();
+    await seedExchange(writer, 1, 'hello', state: 'running');
+    await writer.apply(
+      rec(1, 'jobs/j-capture', Op.set, {
+        'kind': 'shell',
+        'cmd': 'compile-alpha',
+        'state': 'running',
+        'started': '2026-10-30T09:03:00Z',
+        'launch': 'launch-capture',
+      }),
+    );
+    final source = writer.tree;
+    final offset = writer.committedLength;
+    final initialClock = DateTime.utc(2026, 10, 30, 9, 5);
+    var now = initialClock;
+    var clockReads = 0;
+    var captures = 0;
+    final captured = Completer<void>();
+    final release = Completer<void>();
+    final builder = RequestBuilder(
+      sessionDir: writer.sessionDir,
+      model: 'gpt-5.5',
+      workspaceName: 'proj',
+      tools: const [],
+      estimateRequest: (_) => 0,
+      clock: () {
+        clockReads++;
+        return now;
+      },
+      onCaptured: () async {
+        captures++;
+        if (captures == 1) {
+          captured.complete();
+          await release.future;
+        }
+      },
+    );
+    final pending = builder.build(source, turn: 14, sourceOffset: offset);
+    late BuiltRequest first;
+    try {
+      // The scaffold deliberately ignores onCaptured. Race completion against
+      // the barrier so missing capture fails explicitly instead of hanging.
+      final reachedCapture = await Future.any([
+        captured.future.then((_) => true),
+        pending.then((_) => false),
+      ]);
+      expect(
+        reachedCapture,
+        isTrue,
+        reason:
+            'production must freeze source and clock, then await onCaptured',
+      );
+      expect(clockReads, 1, reason: 'clock is captured before the first await');
+      final update = rec(1, 'jobs/j-capture', Op.merge, {
+        'cmd': 'compile-beta',
+        'state': 'pending',
+        'started': '2026-10-30T09:14:00Z',
+      });
+      await writer.apply(update);
+      // SessionWriter.tree is an acknowledged copy, but build accepts a mutable
+      // SessionTree. Mirror the real acknowledged record into that same caller
+      // object: only a production-owned freeze can protect this request.
+      source.apply(update);
+      now = DateTime.utc(2026, 10, 30, 9, 15);
+      release.complete();
+      first = await pending;
+    } finally {
+      if (!release.isCompleted) release.complete();
+      await pending; // Settle even on an assertion failure; no dangling build.
+    }
+    expect(first.source, isNotNull);
+    expect(first.source!.turn, 14);
+    expect(first.source!.time, initialClock);
+    expect(first.source!.offset, offset);
+    expect(clockReads, 1, reason: 'budget passes must reuse the frozen clock');
+    final processes = _processSection(first.blockText);
+    expect(processes, contains('j-capture'));
+    expect(processes, contains('compile-alpha'));
+    expect(processes, contains('running'));
+    expect(processes, matches(RegExp(r'\b(?:2m|120s|2 min(?:utes)?)\b')));
+    expect(processes, isNot(contains('compile-beta')));
+    expect(processes, contains('logs unavailable (published at exit)'));
+    final next = await builder.build(
+      writer.tree,
+      turn: 15,
+      sourceOffset: writer.committedLength,
+    );
+    expect(clockReads, 2);
+    expect(next.source!.time, now);
+    expect(next.source!.offset, writer.committedLength);
+    final fresh = _processSection(next.blockText);
+    expect(fresh, contains('compile-beta'));
+    expect(fresh, contains('pending'));
+    expect(fresh, matches(RegExp(r'\b(?:1m|60s|1 min(?:ute)?)\b')));
+    expect(fresh, isNot(contains('compile-alpha')));
+    // Changing a diagnostic offset cannot change which tree facts are read.
+    final diagnosticOnly = await builder.build(
+      writer.tree,
+      turn: 15,
+      sourceOffset: writer.committedLength + 1000000,
+    );
+    expect(diagnosticOnly.blockText, next.blockText);
+    expect(diagnosticOnly.source!.offset, writer.committedLength + 1000000);
+    expect(clockReads, 3);
+  });
+
+  test('literal user and tool sensorium tags survive projection', () async {
+    final (writer, store) = await _session();
+    const prompt =
+        'Discuss <sensorium> literally.\r\n</sensorium>\nnotices: user-owned';
+    const toolText =
+        '[read ok]\n<sensorium>\r\nturn: not a harness turn\n</sensorium>\n';
+    const arguments = '{"path":"<sensorium>literal</sensorium>"}';
+    const reasoning = {
+      'type': 'reasoning',
+      'id': 'rs-literal',
+      'encrypted_content': '<sensorium>opaque</sensorium>',
+      'summary': [
+        {'text': 'notices: opaque-owned'},
+      ],
+    };
+    await seedExchange(writer, 1, prompt, state: 'running');
+    await seedStep(
+      writer,
+      1,
+      exchange: 1,
+      output: [
+        {'type': 'reasoning', 'item': reasoning},
+        callEntry('literal', 'read', arguments),
+      ],
+    );
+    await seedCall(
+      writer,
+      store,
+      callId: 'literal',
+      tool: 'read',
+      modelText: toolText,
+    );
+    final before = writer.tree.canonical();
+    final built = await _builder(writer).build(writer.tree, turn: 2);
+    final history = built.request.items.take(built.request.items.length - 1);
+    expect(history.whereType<UserMessage>().single.text, prompt);
+    expect(history.whereType<ToolOutputItem>().single.output, toolText);
+    expect(history.whereType<ToolCallItem>().single.argumentsJson, arguments);
+    expect(history.whereType<OpaqueReasoningItem>().single.json, reasoning);
+    expect((built.request.items.last as UserMessage).text, built.blockText);
+    expect(writer.tree.canonical(), before);
+  });
+
   test(
     'selected and default effort reach estimates and built requests',
     () async {

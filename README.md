@@ -70,6 +70,174 @@ path, before creating a session or contacting the provider. RPC reports startup
 failures as a JSON `fatal` event; the line client prints the failure to standard
 error.
 
+## Session-local scratch
+
+The model can call `scratch_set` with `{"key":"goal","value":"Keep RPC v1 unchanged"}`
+and `scratch_del` with `{"key":"goal"}`. Set overwrites the current value
+verbatim; delete of an already absent key succeeds and explicitly reports a no-op.
+Keys are single journal path segments: **1–128 ASCII characters** from
+`A-Z a-z 0-9 _ . : -` (no slash, backslash, whitespace or Unicode key characters).
+An empty value is valid. Unknown argument fields are refused.
+
+Scratch holds at most **20 keys**, **80 estimated tokens per value** and
+**400 estimated tokens for the complete rendered scratch section**. These are
+conservative `ceil(UTF-8 bytes / 3)` counts, not provider-tokenizer measurements.
+The section count includes `scratch:`, lexically sorted key lines, separators,
+newlines and presentation indentation, so legal keys/values can still exceed the
+section cap. A refused write identifies the limit and current/proposed sizes,
+leaving every existing entry unchanged. Values are never trimmed or summarized.
+
+Stored entries are `scratch/<key> = {"value": "plain text"}`. Presentation puts
+each key on a two-space-indented line and prefixes every value line with four
+spaces. CRLF is one boundary; LF, lone CR, VT, FF, NEL, LS and PS are also
+boundaries. Every original delimiter survives, including a trailing empty line's
+prefix. Literal tags and labels remain scratch data, never permissions or
+instructions. Unsupported nonempty stored representations are errors, not silently
+converted values.
+
+Both tools use the normal validation → hooks → permission gate → execution →
+central stored-result path. They are **not automatically approved**. In headless
+mode, calls without an applicable allow rule are denied. To explicitly allow
+these session mutations, the user can add supported rules to `config.json`:
+
+```json
+{
+  "allow": [
+    { "tool": "scratch_set" },
+    { "tool": "scratch_del" }
+  ]
+}
+```
+
+A configured hook can select them with the ordinary schema, for example
+`{"name":"scratch-policy","argv":["policy-check"],"tools":["scratch_set","scratch_del"],"policy":"deny"}`
+as an entry in `hooks`. This requires an installed user-chosen `policy-check`
+program; the example does not install or execute one. Allow rules do not bypass
+hooks. These are user startup settings, not repository-granted permissions.
+
+The single writer checks call ownership, cancellation and live capacity together
+at the **queue-head mutation decision**, without an intervening await. Cancellation
+or rewind before that decision prevents a late mutation. Once the decision passes,
+a successfully persisted mutation is not rolled back even if cancellation arrives
+during flush and the tool result ends cancelled. Reopen never reexecutes uncertain
+scratch calls. Concurrent writes follow commit order; the last committed write to
+the same key wins. Ordinary serialized rewind restores the prior value or absence.
+
+Scratch is **session-only**, journal-derived and turn-anchored: replay, fork and
+rewind use normal tree semantics; native compaction does not modify it. A permitted
+child writes only its own independent journal, subject to its role's tool subset;
+children still cannot call `agent`. There is no `scratch_pin`, cross-session pinning,
+export store, backup file or scratch-specific recovery authority.
+
+## Full request sensorium
+
+Every request ends with one generated, request-only `<sensorium>` user message.
+It is composed from one frozen acknowledged tree and one clock reading, after
+canonical conversation projection; it is not stored as a conversation item.
+Literal tags in prompts, tool output, scratch and opaque provider items are never
+searched out or rewritten. The eleven sections always appear in this order:
+`turn`, `budget`, `vcs`, `changes_since_last_turn`, `diagnostics`, `tests`,
+`processes`, `plan`, `scratch`, `checkpoints`, `notices`.
+
+`turn` reports full mode, local time and the workspace name. `budget` reports
+context use/window and percentage when known, model, unavailable session cost
+(`cost ?`), and independently known compaction threshold/turns since compaction.
+`?` is unknown, and `~` marks estimates, including a route-qualified configured
+window. These display estimates do not grant permission or establish provider
+capacity. Long workspace/model display names are shortened at UTF-8 boundaries
+with a counted `…`; canonical identities remain unchanged.
+
+Currently the builder supplies live pending/running jobs, scratch, and the finite
+notice codes `compaction_recovery` and `legacy_window_ignored` when applicable.
+Jobs show bounded id/kind/command/state/age previews and total omissions. Logs are
+**unavailable until published at exit**; composing never opens a job's spool.
+Supported empty jobs, scratch and notices say `none`. VCS, changes, diagnostics,
+tests, plan and checkpoints say `unavailable (not collected)` in the current
+builder: there are no new collectors or plugin registrations. The finite composer
+also supports explicitly supplied available or stale observations, with bounded
+`failed`, `timeout` or `not collected` reasons and stale age.
+
+The startup-only user setting is:
+
+```json
+{ "sensorium": { "maxTokens": 1500 } }
+```
+
+Absent settings or `{ "sensorium": {} }` use **1500**. `maxTokens` must be an
+integer **at least 1310**; null, fractional/string values, scalar sections and
+unknown nested keys are errors naming the exact JSON path. The safe minimum is
+shared with composition: immutable turn/budget/scratch/notices allocations total
+550, all folded source allocations total 740, plus 20 framing tokens. It is not
+a repository setting, hot-reloaded policy or captured provider policy.
+
+| Section | Conservative token cap |
+| --- | ---: |
+| turn / budget | 30 / 40 |
+| vcs / changes_since_last_turn | 250 / 200 |
+| diagnostics / tests / processes | 300 / 150 / 150 |
+| plan / scratch / checkpoints / notices | 60 / 400 / 60 / 80 |
+
+Caps count labels, indentation and omission markers using `ceil(UTF-8 bytes / 3)`.
+Source previews admit at most 12 VCS paths, 10 diagnostics (120 characters per
+message), 8 failing test names and 5 latest checkpoints. Individual fields are
+bounded before assembly; process counting retains only bounded preview storage.
+Explicit `… +N more` markers account for omitted entries. If necessary the global
+fold order is process counts → VCS counts → three diagnostics plus omissions →
+test counts → changed paths without line counts → latest checkpoint plus
+omissions. The complete 40-token budget allocation is reserved before selecting
+folds, so changing the use estimate cannot change previews. Scratch and notices
+are never folded or summarized. Malformed nonempty stored scratch causes a safe,
+value-free local composition error instead of hiding or exposing raw data.
+
+Full mode intentionally costs more context than a small status line. Request
+accounting replaces the previous block contribution once and solves the new
+block's self-reference with a bounded fixed-point calculation; nonconvergence or
+an immutable ceiling failure is refused rather than silently undercounted.
+Instructions are stable between requests but versioned for this framing change;
+this upgrade deliberately changes strict instruction lineage. Full-mode layout
+and prompt-cache effects are not claimed to be neutral.
+
+### Inspecting admitted observations over RPC
+
+After request construction and the existing local safety checks, the driver
+commits `sensorium` alongside `context` at `body/steps/<step-key>`, before the
+first provider stream attempt. RPC v1 `snapshot.tree` contains this metadata;
+`update.record` carries the journal merge at that step path. Materialize updates
+into the tree to inspect the same fields after reconnect or resync:
+
+```json
+{
+  "sensorium": {
+    "text": "<sensorium>\n...\n</sensorium>",
+    "tokens": 420,
+    "mode": "full",
+    "folds": [],
+    "source": { "turn": 14, "time": "2026-11-11T09:05:00.000", "offset": 12345 }
+  }
+}
+```
+
+The numbers above illustrate the field shape, not a measured block. `text` is
+exactly the final generated user item in that request; `tokens` is its
+conservative estimate, also recorded as `context.block`. `folds` lists applied
+source reductions (`processes`, `vcs`, `diagnostics`, `tests`, `changes`,
+`checkpoints`) in order. Source `turn` and `time` are frozen at capture, so later
+job/scratch updates do not alter the admitted view. Source `offset` is only a
+same-journal diagnostic cursor: it is invalid after fork/migration and must never
+be used as an identity or lookup key.
+
+This is **local admission**, not proof of provider receipt or completion.
+Failed/cancelled streams retain their observation with their terminal state;
+local composition refusals have a failed step/stopped exchange but no admitted
+observation and no provider submission. Cancellation or rewind before the
+guarded admission prevents submission; a removed step cannot be recreated by its
+late build. Rewind removes later observations with their owning steps. Historical
+steps without `sensorium` remain without it, not backfilled from current scratch.
+The metadata is not replayed as conversation content. Native compaction does not
+remove it from the canonical tree, so per-step bounded copies still accumulate
+for the session lifetime. This is an inspection seam, not a `/sense` command or
+new UI.
+
 ## Compaction policy and route capacity configuration
 
 `config.json` accepts strict provider/route/model settings. Each compaction field
@@ -186,6 +354,25 @@ item JSON, ciphertext or raw server error text. The existing authoritative RPC
 `tree` still contains opaque items, just as it contains encrypted reasoning;
 this is not a redaction or a change to journal privacy.
 
+The RPC `compaction.perception` field reports `{ "state": "available" }` after
+successful current projection. A composition refusal reports
+`{ "state": "unavailable", "code": "...", "message": "..." }`, with codes such
+as `scratch_state`, `ceiling` or `accounting`; the safe diagnostic is at most
+500 characters and excludes stored scratch values and ciphertext. Current `used`
+is unknown, `budgetQuality` identifies perception blocking, and native calibration
+is `blocked`. Independently known policy/field sources, provider/route/model,
+capability, boundary, continuity and capacity facts remain available. A perception
+failure is not evidence of incompatible opaque lineage or unsupported compaction.
+Status is a read-only preview: it neither appends journal bytes nor submits a
+request and never replaces a historical step's admitted observation.
+
+An insufficient ceiling supplied through an older configuration can be corrected
+on restart; fresh status and requests can then succeed without modifying scratch
+or inventing a refused observation. Normal startup enforces the safe minimum
+above. Malformed nonempty scratch needs a new session unless the caller already
+has a supported serialized rewind API and can rewind before the malformed state.
+There is no new scratch migration fallback or user-facing rewind/edit command.
+
 An unsupported native attempt stops without retrying with the field removed.
 The owner must explicitly select `off` or another policy, rewind before the
 incompatible/failed history, or start a new session. `off` disables **new** native
@@ -256,8 +443,9 @@ with no percentage, even with a configured window. Ciphertext is not a token
 estimate. Compatible completed usage restores the normal baseline; a newer
 boundary invalidates it again. Recorded request lineage and boundary determine
 usage compatibility; file-metadata changes that leave rendered instructions
-unchanged do not discard that usage. The sensorium remains exactly two request-only
-lines. Estimated used counts show `~`; route-qualified estimated windows and
+unchanged do not discard that usage. The full request-only sensorium includes
+current scratch; accounting replaces the previous full block contribution once.
+Estimated used counts show `~`; route-qualified estimated windows and
 percentages are also approximate, for example `~41k/~160k ctx (~26%)`.
 Unknown used context or window suppresses the percentage. Raw backend windows
 and legacy hints are recorded separately, never promoted to ChatGPT-account
@@ -267,6 +455,17 @@ capacity.
 existing journal format. Older binaries that ignore these variants are not safe
 writers for such sessions. This reader fails visibly on an unknown committed
 output kind rather than silently dropping continuity.
+
+Installing the scratch tools and updated built-in instructions changes both tool
+and instruction lineage. Pre-upgrade opaque continuity can therefore refuse
+with `incompatible continuity`; start a new session or use an already supported
+serialized rewind API to return before the incompatible output. The latest
+boundary is still selected first: there is no old-roster exemption, fallback to
+an older compatible boundary, or reconstruction of a discarded prefix. Turning
+native compaction `off` does not make incompatible ciphertext compatible.
+Absent/empty legacy scratch is supported; unsupported nonempty representations
+are never silently interpreted. Observation fields are additive metadata, not a
+new journal schema, and old steps are not rewritten.
 
 ### Native capability evidence and admission safety
 

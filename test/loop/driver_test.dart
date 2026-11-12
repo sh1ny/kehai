@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:kehai/kehai.dart';
@@ -88,6 +87,9 @@ Future<_Rig> _rig(
   int? window,
   String? effort,
   DriverSeams seams = const DriverSeams(),
+  Future<void> Function()? onRequestCaptured,
+  DateTime Function()? clock,
+  UserConfig config = const UserConfig(),
   bool skipFlush = false,
 }) async {
   final root = await tempDir();
@@ -102,6 +104,7 @@ Future<_Rig> _rig(
     workspace: ws,
     tools: tools,
     gate: gate ?? const AllowAllStage(),
+    config: config,
   );
   addTearDown(runtime.close);
   final driver = ExchangeDriver(
@@ -111,7 +114,8 @@ Future<_Rig> _rig(
     model: 'gpt-5.5',
     effort: effort,
     contextWindow: window,
-    clock: () => DateTime(2026, 10, 30, 9, 5),
+    clock: clock ?? () => DateTime(2026, 10, 30, 9, 5),
+    onRequestCaptured: onRequestCaptured,
     seams: seams,
   );
   return _Rig(writer, io, runtime, provider, driver, ws);
@@ -138,6 +142,287 @@ ProviderFailure _failure(
 }) => ProviderFailure(kind: kind, message: 'it failed', code: code, sent: sent);
 
 void main() {
+  group('Sensorium admission', () {
+    test('rewind during build removes captured step without observation or provider call', () async {
+      final captured = Completer<void>();
+      final release = Completer<void>();
+      final provider = FakeProvider.steps([
+        [const TextDelta('must not stream'), _endTurn],
+      ]);
+      final rig = await _rig(
+        provider,
+        onRequestCaptured: () async {
+          captured.complete();
+          await release.future;
+        },
+      );
+      addTearDown(rig.driver.close);
+      final admitted = await rig.driver.submit(
+        id: 'rewind-build',
+        text: 'start',
+        turn: rig.writer.currentTurn,
+      ) as SubmitAdmitted;
+      try {
+        await captured.future;
+        expect(rig.step(1)['state'], 'running');
+        expect(rig.step(1), isNot(contains('sensorium')));
+        expect(provider.requests, isEmpty);
+        await rig.writer.rewind(0);
+        expect(rig.at('body/steps/s-00000001'), isNull);
+        expect(rig.at('body/exchanges/x-00000001'), isNull);
+      } finally {
+        release.complete();
+        await admitted.done;
+      }
+      expect(
+        provider.requests,
+        isEmpty,
+        reason:
+            'a removed owning step cannot admit or submit its captured request',
+      );
+      expect(
+        rig.at('body/steps/s-00000001'),
+        isNull,
+        reason:
+            'late observation/completion merges must not resurrect the step',
+      );
+      final replay = scanJournal(journalOf(rig.writer.sessionDir)).state
+          .combined();
+      expect(replay.get(SessionPath.parse('body/steps/s-00000001')), isNull);
+      expect(rig.driver.busy, isFalse);
+    });
+
+    test('cancellation during build admits no observation and never calls provider', () async {
+      final captured = Completer<void>();
+      final release = Completer<void>();
+      final provider = FakeProvider.steps([
+        [const TextDelta('must not stream'), _endTurn],
+      ]);
+      final rig = await _rig(
+        provider,
+        onRequestCaptured: () async {
+          captured.complete();
+          await release.future;
+        },
+      );
+      addTearDown(rig.driver.close);
+      final admitted = await rig.driver.submit(
+        id: 'cancel-build',
+        text: 'start',
+        turn: rig.writer.currentTurn,
+      ) as SubmitAdmitted;
+      late ExchangeResult result;
+      try {
+        await captured.future;
+        expect(rig.step(1)['state'], 'running');
+        expect(rig.step(1), isNot(contains('sensorium')));
+        expect(await rig.driver.interrupt(), isTrue);
+        expect(rig.driver.exchangeToken!.isCancelled, isTrue);
+        expect(provider.requests, isEmpty);
+      } finally {
+        release.complete();
+        result = await admitted.done;
+      }
+      expect(result.state, 'cancelled');
+      expect(rig.step(1)['state'], 'cancelled');
+      expect(rig.exchange(1)['state'], 'cancelled');
+      expect(
+        rig.map('meta/requests/cancel-build')['outcome'],
+        containsPair('state', 'cancelled'),
+      );
+      expect(rig.step(1), isNot(contains('sensorium')));
+      expect(
+        provider.requests,
+        isEmpty,
+        reason: 'cancellation before observation admission must prevent provider.stream',
+      );
+      final replay = scanJournal(journalOf(rig.writer.sessionDir)).state
+          .combined();
+      final step =
+          replay.get(SessionPath.parse('body/steps/s-00000001'))! as Map;
+      expect(step['state'], 'cancelled');
+      expect(step, isNot(contains('sensorium')));
+      expect(rig.driver.busy, isFalse);
+    });
+
+    test('unrelated appends during build allow admission with frozen source scratch and jobs', () async {
+      final captured = Completer<void>();
+      final release = Completer<void>();
+      final beforeTime = DateTime(2026, 10, 30, 9, 5);
+      final afterTime = DateTime(2026, 10, 30, 10, 5);
+      var now = beforeTime;
+      var captures = 0;
+      late int capturedOffset;
+      late _Rig rig;
+      final provider = FakeProvider((request, cancel, call) {
+        final turn = call + 1;
+        final step = rig.step(turn);
+        expect(step['state'], 'running');
+        expect(
+          step['sensorium'],
+          isA<Map<String, Object?>>(),
+          reason: 'observation must be committed before provider.stream',
+        );
+        final observation = step['sensorium']! as Map<String, Object?>;
+        final block = (request.items.last as UserMessage).text;
+        expect(observation['text'], block);
+        expect(observation['tokens'], estimateText(block));
+        expect(observation['mode'], 'full');
+        expect((step['context']! as Map)['block'], observation['tokens']);
+        final source = observation['source']! as Map;
+        expect(source['turn'], turn);
+        expect(
+          DateTime.parse(source['time']! as String),
+          call == 0 ? beforeTime : afterTime,
+        );
+        if (call == 0) {
+          expect(source['offset'], capturedOffset);
+          expect(
+            rig.writer.committedLength,
+            greaterThan(capturedOffset),
+            reason: 'unrelated acknowledged appends are not a stale-owner condition',
+          );
+          expect(block, contains('captured constraint'));
+          expect(block, isNot(contains('new constraint')));
+          expect(block, contains('captured-command'));
+          expect(block, contains('pending'));
+          expect(block, isNot(contains('new-command')));
+          expect(rig.at('scratch/goal'), {'value': 'new constraint'});
+          expect(rig.map('jobs/j-build')['state'], 'running');
+          expect(rig.map('meta/build-marker')['value'], 'unrelated');
+        } else {
+          expect(block, contains('new constraint'));
+          expect(block, isNot(contains('captured constraint')));
+          expect(block, contains('new-command'));
+          expect(block, contains('running'));
+          expect(block, isNot(contains('captured-command')));
+        }
+        final replay = scanJournal(journalOf(rig.writer.sessionDir)).state
+            .combined();
+        final durableStep =
+            replay.get(
+                  SessionPath.parse(
+                    'body/steps/s-${turn.toString().padLeft(8, '0')}',
+                  ),
+                )!
+                as Map;
+        expect(
+          durableStep['sensorium'],
+          observation,
+          reason: 'provider sees acknowledged admission, not just an in-memory snapshot',
+        );
+        return Stream.fromIterable([const TextDelta('done'), _endTurn]);
+      });
+      rig = await _rig(
+        provider,
+        clock: () => now,
+        onRequestCaptured: () async {
+          captures++;
+          if (captures != 1) return;
+          capturedOffset = rig.writer.committedLength;
+          captured.complete();
+          await release.future;
+        },
+      );
+      addTearDown(rig.driver.close);
+      await rig.writer.apply(
+        rec(0, 'scratch/goal', Op.set, {'value': 'captured constraint'}),
+      );
+      await rig.writer.apply(
+        rec(0, 'jobs/j-build', Op.set, {
+          'kind': 'shell',
+          'cmd': 'captured-command',
+          'state': 'pending',
+          'started': '2026-10-30T09:03:00Z',
+        }),
+      );
+      final admitted = await rig.driver.submit(
+        id: 'frozen-build',
+        text: 'start',
+        turn: rig.writer.currentTurn,
+      ) as SubmitAdmitted;
+      late ExchangeResult result;
+      try {
+        await captured.future;
+        expect(provider.requests, isEmpty);
+        expect(rig.step(1), isNot(contains('sensorium')));
+        now = afterTime;
+        await rig.writer.apply(
+          rec(1, 'scratch/goal', Op.set, {'value': 'new constraint'}),
+        );
+        await rig.writer.apply(
+          rec(1, 'jobs/j-build', Op.merge, {
+            'cmd': 'new-command',
+            'state': 'running',
+          }),
+        );
+        await rig.writer.apply(
+          rec(1, 'meta/build-marker', Op.set, {'value': 'unrelated'}),
+        );
+        expect(rig.writer.committedLength, greaterThan(capturedOffset));
+      } finally {
+        release.complete();
+        result = await admitted.done;
+      }
+      expect(result.state, 'done', reason: result.reason);
+      expect(provider.requests, hasLength(1));
+      final originalObservation = rig.step(1)['sensorium'];
+      final next = await rig.run('next request', id: 'next-build');
+      expect(next.state, 'done', reason: next.reason);
+      expect(provider.requests, hasLength(2));
+      expect(captures, 2);
+      expect(
+        rig.step(1)['sensorium'],
+        originalObservation,
+        reason:
+            'later live facts never replace a historical admitted observation',
+      );
+    });
+
+    test('refused block settles step without admitted observation or provider call', () async {
+      for (final malformed in [false, true]) {
+        final provider = FakeProvider.steps([]);
+        final rig = await _rig(
+          provider,
+          // Direct legacy-config seam only: the startup parser stays strict.
+          config: UserConfig(
+            sensorium: SensoriumSettings(maxTokens: malformed ? 1500 : 1),
+          ),
+        );
+        addTearDown(rig.driver.close);
+        final scratch = malformed
+            ? <String, Object?>{
+                'goal': {'unsupported': 'PRIVATE-SCRATCH'},
+              }
+            : <String, Object?>{
+                'goal': {'value': 'keep verbatim\r\n✓'},
+              };
+        await rig.writer.apply(rec(0, 'scratch', Op.set, scratch));
+        final result = await rig.run('build locally');
+        expect(result.state, 'stopped');
+        expect(rig.step(1)['state'], 'failed');
+        expect(rig.exchange(1)['state'], 'stopped');
+        expect(rig.step(1), isNot(contains('sensorium')));
+        expect(provider.requests, isEmpty);
+        final reason = rig.step(1)['reason']! as String;
+        expect(reason, isNotEmpty);
+        expect(reason.length, lessThanOrEqualTo(500));
+        expect(reason, isNot(contains('PRIVATE-SCRATCH')));
+        if (!malformed) expect(reason, isNot(contains('new session')));
+        expect(rig.at('scratch'), scratch);
+        // Local failure must release ownership for another explicit submit.
+        final again = await rig.driver.submit(
+          id: 'again',
+          text: 'retry explicitly',
+          turn: rig.writer.currentTurn,
+        );
+        expect(again, isA<SubmitAdmitted>());
+        expect((await (again as SubmitAdmitted).done).state, 'stopped');
+        expect(provider.requests, isEmpty);
+      }
+    });
+  });
+
   group('Reasoning effort', () {
     test('tool follow-up and permitted retry keep selected effort', () async {
       for (final effort in <String?>['high', null]) {
@@ -326,10 +611,6 @@ void main() {
         'output:c1',
         'block',
       ]);
-      expect(
-        jsonEncode(rig.writer.tree.toJson()),
-        isNot(contains('<sensorium')),
-      );
     });
 
     test(

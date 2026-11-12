@@ -1,16 +1,636 @@
-/// The request-only sensorium block and the context accounting behind its
-/// budget line (design D7).
+/// The bounded full request-only sensorium and its context accounting.
 library;
 
 import 'dart:convert';
 
 import '../provider/provider.dart';
+import '../session/scratch.dart';
+
+/// The finite section allocations, including their labels and indentation.
+abstract final class SensoriumAllocations {
+  static const turn = 30;
+  static const budget = 40;
+  static const vcs = 250;
+  static const changes = 200;
+  static const diagnostics = 300;
+  static const tests = 150;
+  static const processes = 150;
+  static const plan = 60;
+  static const scratch = maxScratchSectionTokens;
+  static const checkpoints = 60;
+  static const notices = 80;
+  static const framing = 20;
+  static const defaultMaxTokens = 1500;
+  static const foldedVcs = 40;
+  static const foldedTests = 40;
+  static const foldedProcesses = 40;
+
+  static const sectionCaps = <String, int>{
+    'turn': turn,
+    'budget': budget,
+    'vcs': vcs,
+    'changes_since_last_turn': changes,
+    'diagnostics': diagnostics,
+    'tests': tests,
+    'processes': processes,
+    'plan': plan,
+    'scratch': scratch,
+    'checkpoints': checkpoints,
+    'notices': notices,
+  };
+  static const immutableCaps = <String, int>{
+    'turn': turn,
+    'budget': budget,
+    'scratch': scratch,
+    'notices': notices,
+  };
+  static const foldedCaps = <String, int>{
+    'vcs': foldedVcs,
+    'changes_since_last_turn': changes,
+    'diagnostics': diagnostics,
+    'tests': foldedTests,
+    'processes': foldedProcesses,
+    'plan': plan,
+    'checkpoints': checkpoints,
+  };
+  static const minimumMaxTokens =
+      turn +
+      budget +
+      scratch +
+      notices +
+      foldedVcs +
+      changes +
+      diagnostics +
+      foldedTests +
+      foldedProcesses +
+      plan +
+      checkpoints +
+      framing;
+}
+
+/// A bounded reason vocabulary for finite supplied observations.
+enum SensoriumReason { notCollected, failed, timedOut }
+
+/// The availability of a supplied section, not a collector registration.
+sealed class SensoriumObservation<T> {
+  const SensoriumObservation();
+}
+
+/// A current observation, including a supported empty value.
+final class SensoriumAvailable<T> extends SensoriumObservation<T> {
+  const SensoriumAvailable(this.value);
+  final T value;
+}
+
+/// A last known observation with an age and a bounded failure reason.
+final class SensoriumStale<T> extends SensoriumObservation<T> {
+  const SensoriumStale(this.value, {required this.age, required this.reason});
+  final T value;
+  final Duration age;
+  final SensoriumReason reason;
+}
+
+/// An explicitly unobserved or failed section.
+final class SensoriumUnavailable<T> extends SensoriumObservation<T> {
+  const SensoriumUnavailable(this.reason);
+  final SensoriumReason reason;
+}
+
+/// The frozen source facts; offset is diagnostic within one journal only.
+final class SensoriumSource {
+  const SensoriumSource({required this.turn, required this.time, this.offset});
+  final int turn;
+  final DateTime time;
+  final int? offset;
+}
+
+/// The route-qualified budget facts used by the composition operation.
+final class SensoriumBudget {
+  const SensoriumBudget({
+    required this.model,
+    this.used,
+    this.window,
+    this.usedEstimated = false,
+    this.windowEstimated = false,
+    this.compactionThreshold,
+    this.turnsSinceCompaction,
+  });
+  final String model;
+  final int? used;
+  final int? window;
+  final bool usedEstimated;
+  final bool windowEstimated;
+  final int? compactionThreshold;
+  final int? turnsSinceCompaction;
+}
+
+/// A VCS summary supplied without scanning the workspace.
+final class SensoriumVcs {
+  const SensoriumVcs({required this.branch, required this.paths});
+  final String branch;
+  final Iterable<String> paths;
+}
+
+/// One changed path and its line counts.
+final class SensoriumChange {
+  const SensoriumChange(
+    this.path, {
+    required this.added,
+    required this.removed,
+  });
+  final String path;
+  final int added;
+  final int removed;
+}
+
+/// One supplied diagnostic, with bounded presentation applied at composition.
+final class SensoriumDiagnostic {
+  const SensoriumDiagnostic(this.path, this.message);
+  final String path;
+  final String message;
+}
+
+/// A supplied test outcome, with optional failing-name details.
+final class SensoriumTests {
+  const SensoriumTests({required this.passed, required this.failedNames});
+  final int passed;
+  final Iterable<String> failedNames;
+}
+
+/// A live process fact, never a log reader or spool reference.
+final class SensoriumProcess {
+  const SensoriumProcess({
+    required this.id,
+    required this.kind,
+    required this.command,
+    required this.state,
+    required this.started,
+  });
+  final String id;
+  final String kind;
+  final String command;
+  final String state;
+  final DateTime? started;
+}
+
+/// A checkpoint preview ordered oldest to newest by the source.
+final class SensoriumCheckpoint {
+  const SensoriumCheckpoint(this.name);
+  final String name;
+}
+
+/// The finite notice codes; recovery prose remains a separate request item.
+enum SensoriumNotice { compactionRecovery, legacyWindowIgnored }
+
+/// One request's finite typed composition input.
+final class SensoriumSnapshot {
+  const SensoriumSnapshot({
+    required this.source,
+    required this.workspaceName,
+    required this.budget,
+    this.vcs = const SensoriumUnavailable(SensoriumReason.notCollected),
+    this.changes = const SensoriumUnavailable(SensoriumReason.notCollected),
+    this.diagnostics = const SensoriumUnavailable(SensoriumReason.notCollected),
+    this.tests = const SensoriumUnavailable(SensoriumReason.notCollected),
+    this.processes = const [],
+    this.plan = const SensoriumUnavailable(SensoriumReason.notCollected),
+    required this.scratch,
+    this.checkpoints = const SensoriumUnavailable(SensoriumReason.notCollected),
+    this.notices = const {},
+  });
+  final SensoriumSource source;
+  final String workspaceName;
+  final SensoriumBudget budget;
+  final SensoriumObservation<SensoriumVcs> vcs;
+  final SensoriumObservation<Iterable<SensoriumChange>> changes;
+  final SensoriumObservation<Iterable<SensoriumDiagnostic>> diagnostics;
+  final SensoriumObservation<SensoriumTests> tests;
+  final Iterable<SensoriumProcess> processes;
+  final SensoriumObservation<String> plan;
+  final ScratchState scratch;
+  final SensoriumObservation<Iterable<SensoriumCheckpoint>> checkpoints;
+  final Set<SensoriumNotice> notices;
+}
+
+/// The fixed source-order reductions, never including immutable sections.
+enum SensoriumFold { processes, vcs, diagnostics, tests, changes, checkpoints }
+
+/// A successfully composed full observation.
+final class SensoriumComposition {
+  const SensoriumComposition({
+    required this.text,
+    required this.tokens,
+    required this.mode,
+    required this.folds,
+  });
+  final String text;
+  final int tokens;
+  final String mode;
+  final List<SensoriumFold> folds;
+}
+
+/// A local composition refusal with a bounded, value-free diagnostic.
+final class SensoriumCompositionError implements Exception {
+  const SensoriumCompositionError({required this.code, required this.message});
+  final String code;
+  final String message;
+
+  @override
+  String toString() => '$code: $message';
+}
+
+/// Composes one full snapshot, permitting a lower direct-test ceiling.
+SensoriumComposition composeSensorium(
+  SensoriumSnapshot snapshot, {
+  int maxTokens = SensoriumAllocations.defaultMaxTokens,
+}) {
+  final sections = _Sections(snapshot);
+  final folds = <SensoriumFold>[];
+  for (var stage = 0; stage <= SensoriumFold.values.length; stage++) {
+    final rendered = sections.render(folds);
+    final text = '<sensorium>\n${rendered.join('\n')}\n</sensorium>';
+    // Select folds against the entire budget allocation, not its current text.
+    final reserved =
+        (utf8.encode(text).length -
+            utf8.encode(rendered[1]).length +
+            SensoriumAllocations.budget * 3 +
+            2) ~/
+        3;
+    if (reserved <= maxTokens && estimateText(text) <= maxTokens) {
+      return SensoriumComposition(
+        text: text,
+        tokens: estimateText(text),
+        mode: 'full',
+        folds: List.unmodifiable(folds),
+      );
+    }
+    if (stage < SensoriumFold.values.length) {
+      folds.add(SensoriumFold.values[stage]);
+    } else {
+      throw SensoriumCompositionError(
+        code: 'ceiling',
+        message:
+            'Sensorium requires $reserved tokens; configured ceiling is $maxTokens.',
+      );
+    }
+  }
+  throw StateError('unreachable sensorium stage');
+}
+
+/// Replaces only the budget section of an already generated full observation.
+///
+/// Source previews and folds remain frozen while request accounting converges.
+SensoriumComposition sensoriumWithBudget(
+  SensoriumComposition composition,
+  SensoriumBudget budget, {
+  required int maxTokens,
+}) {
+  final start = composition.text.indexOf('\nbudget:') + 1;
+  final end = composition.text.indexOf('\nvcs:', start);
+  final text = composition.text.replaceRange(
+    start,
+    end,
+    _budgetSection(budget),
+  );
+  final tokens = estimateText(text);
+  if (tokens > maxTokens) {
+    throw SensoriumCompositionError(
+      code: 'ceiling',
+      message:
+          'Sensorium requires $tokens tokens; configured ceiling is $maxTokens.',
+    );
+  }
+  return SensoriumComposition(
+    text: text,
+    tokens: tokens,
+    mode: composition.mode,
+    folds: composition.folds,
+  );
+}
+
+String _reason(SensoriumReason reason) => switch (reason) {
+  SensoriumReason.notCollected => 'not collected',
+  SensoriumReason.failed => 'failed',
+  SensoriumReason.timedOut => 'timeout',
+};
+
+String _number(int value) => value > -1000000 && value < 1000000
+    ? '$value'
+    : value.toStringAsExponential(0);
+
+String _age(Duration age) {
+  final seconds = age.inSeconds < 0 ? 0 : age.inSeconds;
+  return seconds < 60 ? '${_number(seconds)}s' : '${_number(seconds ~/ 60)}m';
+}
+
+// Scan only a bounded prefix; never encode or join an unbounded display field.
+String _clip(String value, int bytes) {
+  final out = StringBuffer();
+  var size = 0;
+  for (final original in value.runes) {
+    final rune =
+        original < 32 ||
+            original == 0x85 ||
+            original == 0x2028 ||
+            original == 0x2029
+        ? 32
+        : original;
+    final width = rune <= 0x7f
+        ? 1
+        : rune <= 0x7ff
+        ? 2
+        : rune <= 0xffff
+        ? 3
+        : 4;
+    if (size + width > bytes) {
+      final prefix = out.toString();
+      final shortened = StringBuffer();
+      var kept = 0;
+      for (final r in prefix.runes) {
+        final w = r <= 0x7f
+            ? 1
+            : r <= 0x7ff
+            ? 2
+            : r <= 0xffff
+            ? 3
+            : 4;
+        if (kept + w > bytes - 3) break;
+        shortened.writeCharCode(r);
+        kept += w;
+      }
+      return '$shortened…';
+    }
+    out.writeCharCode(rune);
+    size += width;
+  }
+  return out.toString();
+}
+
+String _chars(String value, int max) {
+  final out = <int>[];
+  for (final rune in value.runes) {
+    if (out.length == max) {
+      out[max - 1] = 0x2026;
+      return String.fromCharCodes(out);
+    }
+    out.add(rune);
+  }
+  return String.fromCharCodes(out);
+}
+
+String _turnSection(SensoriumSnapshot snapshot) {
+  final time = snapshot.source.time;
+  String two(int n) => n.toString().padLeft(2, '0');
+  final fixed =
+      'turn: ${_number(snapshot.source.turn)} · full · '
+      '${two(time.hour)}:${two(time.minute)} · cwd ';
+  return fixed +
+      _clip(
+        snapshot.workspaceName,
+        SensoriumAllocations.turn * 3 - utf8.encode(fixed).length,
+      );
+}
+
+String _budgetSection(SensoriumBudget b) {
+  String count(int? value, bool estimated) =>
+      value == null ? '?' : '${estimated ? '~' : ''}${formatTokens(value)}';
+  final percent = b.window == null || b.window! <= 0 || b.used == null
+      ? ''
+      : ' (${b.usedEstimated || b.windowEstimated ? '~' : ''}'
+            '${_number((b.used! * 100 / b.window!).round())}%)';
+  final fixed =
+      'budget: ${count(b.used, b.usedEstimated)}/'
+      '${count(b.window, b.windowEstimated)} ctx$percent · cost ?'
+      '${b.compactionThreshold == null ? '' : ' · at ${formatTokens(b.compactionThreshold!)}'}'
+      '${b.turnsSinceCompaction == null ? '' : ' · since ${_number(b.turnsSinceCompaction!)}'}'
+      ' · model ';
+  return fixed +
+      _clip(
+        b.model,
+        SensoriumAllocations.budget * 3 - utf8.encode(fixed).length,
+      );
+}
+
+final class _Preview {
+  _Preview(this.limit, {this.latest = false});
+  final int limit;
+  final bool latest;
+  var count = 0;
+  final rows = <String>[];
+  void add(String row) {
+    count++;
+    if (rows.length < limit) {
+      rows.add(row);
+    } else if (latest) {
+      rows.removeAt(0);
+      rows.add(row);
+    }
+  }
+}
+
+// Each stored row is already bounded. Try only bounded preview prefixes and
+// always account for a total omission marker before admitting another row.
+String _rows(String header, _Preview preview, int cap, {int? limit}) {
+  if (preview.count == 0) return '$header: none';
+  var shown = limit == null || limit > preview.rows.length
+      ? preview.rows.length
+      : limit;
+  while (shown >= 0) {
+    final rows = preview.latest
+        ? preview.rows.skip(preview.rows.length - shown)
+        : preview.rows.take(shown);
+    final omitted = preview.count - shown;
+    final text =
+        '$header:\n${rows.map((row) => '  $row').join('\n')}'
+        '${omitted > 0 ? '${shown > 0 ? '\n' : ''}  … +${_number(omitted)} more' : ''}';
+    if (estimateText(text) <= cap) return text;
+    shown--;
+  }
+  throw const SensoriumCompositionError(
+    code: 'section',
+    message: 'Sensorium section count cannot fit its allocation.',
+  );
+}
+
+final class _Observed {
+  const _Observed(this.normal, this.reduced, [this.prefix = '']);
+  final String normal;
+  final String reduced;
+  final String prefix;
+  String section(String name, bool fold) {
+    final value = fold ? reduced : normal;
+    if (value.startsWith('$name:')) {
+      return prefix.isEmpty
+          ? value
+          : '$name: $prefix${value.substring(name.length + 1)}';
+    }
+    return '$name: $value';
+  }
+}
+
+final class _Sections {
+  _Sections(this.snapshot) {
+    vcs = _observe(snapshot.vcs, SensoriumAllocations.vcs, (v, cap) {
+      final preview = _Preview(12);
+      for (final path in v.paths) {
+        preview.add(_clip(path, 48));
+      }
+      final branch = _clip(v.branch, 45);
+      return (
+        _rows(
+          'vcs',
+          preview,
+          cap - estimateText(' branch $branch'),
+        ).replaceFirst('vcs:', 'vcs: branch $branch'),
+        'vcs: branch ${_clip(v.branch, 18)} · ${_number(preview.count)} paths',
+      );
+    });
+    changes = _observe(snapshot.changes, SensoriumAllocations.changes, (
+      values,
+      cap,
+    ) {
+      final full = _Preview(12);
+      final folded = _Preview(12);
+      for (final change in values) {
+        final path = _clip(change.path, 45);
+        full.add('$path +${_number(change.added)} -${_number(change.removed)}');
+        folded.add(path);
+      }
+      return (
+        _rows('changes_since_last_turn', full, cap),
+        _rows('changes_since_last_turn', folded, cap),
+      );
+    });
+    diagnostics = _observe(
+      snapshot.diagnostics,
+      SensoriumAllocations.diagnostics,
+      (values, cap) {
+        final preview = _Preview(10);
+        for (final d in values) {
+          preview.add(
+            '${_clip(d.path, 48)}: ${_clip(_chars(d.message, 120), 360)}',
+          );
+        }
+        return (
+          _rows('diagnostics', preview, cap),
+          _rows('diagnostics', preview, cap, limit: 3),
+        );
+      },
+    );
+    tests = _observe(snapshot.tests, SensoriumAllocations.tests, (v, cap) {
+      final preview = _Preview(8);
+      for (final name in v.failedNames) {
+        preview.add(_clip(name, 42));
+      }
+      if (v.passed == 0 && preview.count == 0) {
+        return ('tests: none', 'tests: none');
+      }
+      final counts =
+          '${_number(v.passed)} passed, ${_number(preview.count)} failed';
+      return (
+        preview.count == 0
+            ? 'tests: $counts'
+            : _rows(
+                'tests',
+                preview,
+                cap - estimateText(' $counts'),
+              ).replaceFirst('tests:', 'tests: $counts'),
+        'tests: $counts',
+      );
+    });
+    plan = _observe(
+      snapshot.plan,
+      SensoriumAllocations.plan,
+      (value, cap) => (
+        'plan: ${value.isEmpty ? 'none' : _clip(value, cap * 3 - 6)}',
+        'plan: ${value.isEmpty ? 'none' : _clip(value, cap * 3 - 6)}',
+      ),
+    );
+    checkpoints = _observe(
+      snapshot.checkpoints,
+      SensoriumAllocations.checkpoints,
+      (values, cap) {
+        final preview = _Preview(5, latest: true);
+        for (final c in values) {
+          preview.add(_clip(c.name, 24));
+        }
+        return (
+          _rows('checkpoints', preview, cap),
+          _rows('checkpoints', preview, cap, limit: 1),
+        );
+      },
+    );
+    final jobs = _Preview(5);
+    for (final job in snapshot.processes) {
+      if (job.state != 'pending' && job.state != 'running') continue;
+      jobs.add(
+        '${_clip(job.id, 30)} ${_clip(job.kind, 15)} '
+        '${_clip(job.command, 65)} ${job.state} '
+        '${job.started == null ? 'age ?' : _age(snapshot.source.time.difference(job.started!))}',
+      );
+    }
+    processes = jobs.count == 0
+        ? 'processes: none'
+        : '${_rows('processes', jobs, 130)}\n  logs unavailable (published at exit)';
+    processCounts = jobs.count == 0
+        ? 'processes: none'
+        : 'processes: ${_number(jobs.count)} live · logs unavailable (published at exit)';
+  }
+  final SensoriumSnapshot snapshot;
+  late final _Observed vcs, changes, diagnostics, tests, plan, checkpoints;
+  late final String processes, processCounts;
+
+  _Observed _observe<T>(
+    SensoriumObservation<T> observation,
+    int cap,
+    (String, String) Function(T, int) render,
+  ) {
+    // Consume each finite source exactly once, retaining only bounded strings.
+    switch (observation) {
+      case SensoriumUnavailable<T>(:final reason):
+        final text = 'unavailable (${_reason(reason)})';
+        return _Observed(text, text);
+      case SensoriumAvailable<T>(:final value):
+        final pair = render(value, cap);
+        return _Observed(pair.$1, pair.$2);
+      case SensoriumStale<T>(:final value, :final age, :final reason):
+        final prefix = 'stale (${_reason(reason)}, ${_age(age)})';
+        final pair = render(value, cap - estimateText(' $prefix'));
+        return _Observed(pair.$1, pair.$2, prefix);
+    }
+  }
+
+  List<String> render(List<SensoriumFold> folds) => [
+    _turnSection(snapshot),
+    _budgetSection(snapshot.budget),
+    vcs.section('vcs', folds.contains(SensoriumFold.vcs)),
+    changes.section(
+      'changes_since_last_turn',
+      folds.contains(SensoriumFold.changes),
+    ),
+    diagnostics.section(
+      'diagnostics',
+      folds.contains(SensoriumFold.diagnostics),
+    ),
+    tests.section('tests', folds.contains(SensoriumFold.tests)),
+    folds.contains(SensoriumFold.processes) ? processCounts : processes,
+    plan.section('plan', false),
+    snapshot.scratch.text,
+    checkpoints.section(
+      'checkpoints',
+      folds.contains(SensoriumFold.checkpoints),
+    ),
+    snapshot.notices.isEmpty
+        ? 'notices: none'
+        : 'notices: ${[if (snapshot.notices.contains(SensoriumNotice.compactionRecovery)) 'compaction_recovery', if (snapshot.notices.contains(SensoriumNotice.legacyWindowIgnored)) 'legacy_window_ignored'].join(', ')}',
+  ];
+}
 
 /// Estimates the tokens of one conversation item.
 typedef ItemEstimator = int Function(ConversationItem item);
 
 /// The estimate of [text]: its UTF-8 bytes over three, rounded up.
-int estimateText(String text) => (utf8.encode(text).length + 2) ~/ 3;
+int estimateText(String text) => scratchTokens(text);
 
 /// The default [ItemEstimator]; it errs high, like the provider's estimate.
 int estimateItem(ConversationItem item) => switch (item) {
@@ -27,6 +647,9 @@ int estimateItem(ConversationItem item) => switch (item) {
 
 /// Renders a token count as `41k` below a million and `1.2M` above.
 String formatTokens(int tokens) {
+  if (tokens <= -999500 || tokens >= 1000000000) {
+    return tokens.toStringAsExponential(0);
+  }
   if (tokens >= 999500) {
     final millions = (tokens / 100000).round() / 10;
     return '${millions.toStringAsFixed(1)}M';
@@ -34,10 +657,10 @@ String formatTokens(int tokens) {
   return '${(tokens / 1000).round()}k';
 }
 
-/// Builds the two-line sensorium block for one request.
+/// Builds a full observation when only turn and budget facts are available.
 ///
-/// [now] is the local time shown as `HH:MM`. With no [window] the budget line
-/// shows `?` and no percentage.
+/// [now] is the local time shown as `HH:MM`. Uncollected sources are explicit;
+/// supported empty scratch, processes and notices are rendered as `none`.
 String sensoriumBlock({
   required int turn,
   required DateTime now,
@@ -48,18 +671,20 @@ String sensoriumBlock({
   bool usedEstimated = false,
   bool windowEstimated = false,
 }) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  final percent = window == null || used == null
-      ? ''
-      : ' (${usedEstimated || windowEstimated ? '~' : ''}${(used * 100 / window).round()}%)';
-  String count(int? n, bool estimated) =>
-      n == null ? '?' : '${estimated ? '~' : ''}${formatTokens(n)}';
-  return '<sensorium>\n'
-      'turn: $turn · full · ${two(now.hour)}:${two(now.minute)} · '
-      'cwd $workspaceName\n'
-      'budget: ${count(used, usedEstimated)}/${count(window, windowEstimated)}'
-      ' ctx$percent · model $model\n'
-      '</sensorium>';
+  return composeSensorium(
+    SensoriumSnapshot(
+      source: SensoriumSource(turn: turn, time: now),
+      workspaceName: workspaceName,
+      budget: SensoriumBudget(
+        model: model,
+        used: used,
+        window: window,
+        usedEstimated: usedEstimated,
+        windowEstimated: windowEstimated,
+      ),
+      scratch: ScratchState.read(null),
+    ),
+  ).text;
 }
 
 /// What a built conversation item is, for context accounting.
