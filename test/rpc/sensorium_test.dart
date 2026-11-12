@@ -16,7 +16,7 @@ const _opaque = {
   'encrypted_content': 'CIPHERTEXT-NOT-A-DIAGNOSTIC',
 };
 
-UserConfig _config({int ceiling = 1500}) => UserConfig(
+UserConfig _config({int ceiling = 1500, String model = 'modelA'}) => UserConfig(
   // A direct legacy-config seam, not the strict startup JSON parser.
   sensorium: SensoriumSettings(maxTokens: ceiling),
   providers: {
@@ -24,7 +24,7 @@ UserConfig _config({int ceiling = 1500}) => UserConfig(
       routes: {
         'chatgpt-account': RouteConfig(
           models: {
-            'modelA': RouteModelConfig(
+            model: RouteModelConfig(
               contextWindow: 200000,
               compaction: CompactionSettings(
                 strategy: CompactionStrategy.providerNative,
@@ -64,7 +64,7 @@ void _admitted(Map<String, Object?> step, ModelRequest request, int turn) {
   expect(observation['text'], _block(request));
   expect(observation['tokens'], estimateText(_block(request)));
   expect(observation['mode'], 'full');
-  expect(observation['folds'], isA<List>());
+  expect(observation['folds'], isA<List<Object?>>());
   final source = observation['source']! as Map<String, Object?>;
   expect(source.keys, unorderedEquals(['turn', 'time', 'offset']));
   expect(source['turn'], turn);
@@ -98,8 +98,8 @@ void _unavailable(Map<String, Object?> status, String code) {
   );
   expect(
     status['continuity'],
-    'compatible',
-    reason: 'composition failure is not incompatible opaque lineage',
+    code == 'scratch_state' ? 'unknown' : 'compatible',
+    reason: 'scratch validation precedes the boundary lineage check',
   );
   expect(status['provider'], 'fake');
   expect(status['route'], 'chatgpt-account');
@@ -401,6 +401,50 @@ void main() {
     expect(journalOf(session).readAsBytesSync(), afterSubmit);
     expect(_map(reopened.writer.tree, 'scratch/goal'), malformed);
   });
+
+  test(
+    'malformed scratch leaves incompatible boundary continuity unknown',
+    () async {
+      final workspace = await tempDir();
+      final session = await _nativeSession(workspace);
+      final provider = FakeProvider.steps([]);
+      final rig = await rpcRig(
+        provider,
+        resumeSession: session,
+        workspace: workspace,
+        config: _config(model: 'modelB'),
+        model: 'modelB',
+        backendWindow: 500000,
+      );
+      await rig.nextOfType('snapshot');
+      await rig.writer.apply(
+        rec(rig.writer.currentTurn, 'scratch/goal', Op.set, {'invalid': true}),
+      );
+      final before = journalOf(session).readAsBytesSync();
+      final status = await rig.driver.compactionStatus(
+        rig.writer.tree,
+        rig.writer.currentTurn,
+      );
+      expect((status['perception']! as Map)['code'], 'scratch_state');
+      expect(status['continuity'], 'unknown');
+      expect(status['calibration'], 'blocked');
+      expect(status['used'], isNull);
+      expect(status['boundary'], endsWith(':sensorium-native'));
+      expect(journalOf(session).readAsBytesSync(), before);
+      expect(provider.requests, isEmpty);
+      await rig.writer.apply(
+        rec(rig.writer.currentTurn, 'scratch/goal', Op.set, {
+          'value': 'repaired',
+        }),
+      );
+      final repaired = await rig.driver.compactionStatus(
+        rig.writer.tree,
+        rig.writer.currentTurn,
+      );
+      expect(repaired['continuity'], startsWith('incompatible'));
+      expect(repaired['calibration'], 'blocked');
+    },
+  );
 
   test(
     'ceiling refusal preserves native status facts and journal bytes',

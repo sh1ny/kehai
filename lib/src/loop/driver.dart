@@ -340,11 +340,13 @@ final class ExchangeDriver {
         contextKey: contextKey,
         sourceOffset: writer.committedLength,
       );
-    } on SensoriumCompositionError catch (e) {
+    } on SensoriumCompositionError catch (error) {
+      // Scratch validation can fail before the boundary lineage is checked.
+      if (error.code == 'scratch_state') continuity = 'unknown';
       perception = {
         'state': 'unavailable',
-        'code': e.code,
-        'message': e.message,
+        'code': error.code,
+        'message': error.message,
       };
     } on StateError catch (e) {
       // Do not expose arbitrary exception text from history or result files.

@@ -36,7 +36,7 @@ void main() {
       test('absent and empty sensorium settings accept startup defaults', () {
         write({});
         expect(() => UserConfig.load(home.path), returnsNormally);
-        write({'sensorium': {}});
+        write({'sensorium': <String, Object?>{}});
         expect(() => UserConfig.load(home.path), returnsNormally);
         expect(SensoriumAllocations.defaultMaxTokens, 1500);
         expect(

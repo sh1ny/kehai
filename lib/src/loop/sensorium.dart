@@ -264,9 +264,9 @@ SensoriumComposition composeSensorium(
         folds: List.unmodifiable(folds),
       );
     }
-    if (stage < SensoriumFold.values.length)
+    if (stage < SensoriumFold.values.length) {
       folds.add(SensoriumFold.values[stage]);
-    else {
+    } else {
       throw SensoriumCompositionError(
         code: 'ceiling',
         message:
@@ -419,9 +419,9 @@ final class _Preview {
   final rows = <String>[];
   void add(String row) {
     count++;
-    if (rows.length < limit)
+    if (rows.length < limit) {
       rows.add(row);
-    else if (latest) {
+    } else if (latest) {
       rows.removeAt(0);
       rows.add(row);
     }
@@ -522,8 +522,9 @@ final class _Sections {
       for (final name in v.failedNames) {
         preview.add(_clip(name, 42));
       }
-      if (v.passed == 0 && preview.count == 0)
+      if (v.passed == 0 && preview.count == 0) {
         return ('tests: none', 'tests: none');
+      }
       final counts =
           '${_number(v.passed)} passed, ${_number(preview.count)} failed';
       return (
