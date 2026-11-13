@@ -202,9 +202,9 @@
 
 ## 6. Qualify the integrated slice
 
-- [ ] 6.1 Run every test file in the map through the official Dart MCP runner, then the pinned analysis and format checks for the changed files. Verify that every row has executed green evidence, and that CI ubuntu + windows passes.
-- [ ] 6.2 Dogfood with Kehai: run a real multi-step change in a jj repository and a plain git repository, edited by both the agent and the user. Record the admitted vcs/changes sections, the attribution outcomes and the block token estimates. Record the friction-ledger dispositions from D9 and any unsupported steps, together with their roadmap assignments. Verify that the evidence is recorded in the design's apply notes.
-- [ ] 6.3 Obtain the configured pre-ship review, and successful Linux and native-Windows CI on the delivery head. Address the findings through the installed workflow. No version bump, because releases are disabled.
+- [x] 6.1 Run every test file in the map through the official Dart MCP runner, then the pinned analysis and format checks for the changed files. Verify that every row has executed green evidence, and that CI ubuntu + windows passes.
+- [x] 6.2 Dogfood with Kehai: run a real multi-step change in a jj repository and a plain git repository, edited by both the agent and the user. Record the admitted vcs/changes sections, the attribution outcomes and the block token estimates. Record the friction-ledger dispositions from D9 and any unsupported steps, together with their roadmap assignments. Verify that the evidence is recorded in the design's apply notes.
+- [x] 6.3 Obtain the configured pre-ship review, and successful Linux and native-Windows CI on the delivery head. Address the findings through the installed workflow. No version bump, because releases are disabled.
 
 ## Workflow follow-up
 

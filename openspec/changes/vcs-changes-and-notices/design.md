@@ -315,7 +315,6 @@ flowchart TB
 - Unsupported steps in that attempt remain explicit. The temporary RPC client did not bridge permission answers, and Kehai's reported tool roster does not expose the official Dart MCP runner. The supervising coding session must supply that runner. This attempt does not satisfy task 6.2's integrated dogfood requirement.
 - The user chose to preserve D4 and clarify that child recovery may quiesce copied call nodes while their foreign records remain unfinished. Renewed design-review round 11 found the rewind-to-orphan-record gap. The user approved the unfinished-run registry correction and its two regression scenarios before those artifacts changed.
 - Source inspection during apply found that the registry alone did not cover engine death after the rewind commit but before the orphan append. The user approved durable preservation before the cut within the same writer operation, a crash-window recovery regression, and renewed design review.
-- Friction dispositions remain D9's assignments. Permissions/config/instructions and broader relative-PATH restoration belong to `windows-tool-parity-and-m2-qualification`. Collector deadline tests use controllable completion rather than timing assertions. No polling loop is added. Real collector timings, admitted block/token evidence and Linux/native-Windows CI results are not yet available.
 
 - The user approved a bounded pre-capture hash wait after a stalled-read conflict was identified: at most one third of the remaining post-lock budget, with one unchanged overall deadline and no new user setting. Incomplete hash results remain uncertain rather than preventing a VCS capture.
 - A probe showed identical frozen trees and bytes for different within-turn effect orders, including a user restoring an older effect. The user approved persisting `effect.seq` from the shared allocator with its high-water mark durable before the effect.
@@ -326,3 +325,149 @@ flowchart TB
 - Initial PR CI on `bd4e6378376a2f0deae9d799bcabcb57806f7a95` failed fatal-info analysis on both OSes: [run 43449311868](https://github.com/sh1ny/kehai/actions/runs/43449311868). The official MCP analyzer reported only “No errors”; it did not expose the 30 warning/info diagnostics required by this repository's gate. SDK quick fixes and removal of unused bindings/dead state resolved them without suppressions. The pinned `mise run analyze` now reports “No issues found”; all 226 mapped tests passed through the official MCP runner after the lint corrections.
 - Full CI on the same head ([run 43449519617](https://github.com/sh1ny/kehai/actions/runs/43449519617)) exposed a real generic-fork regression and a source-text-test false positive. `forkMutationMeta` now treats ordinary body/call-table values as optional while keeping reserved mutation metadata strict. The exact failing property history (`20260110`, index 9), all six fork-provenance tests and the full-byte/result-composer roster test passed through the official MCP runner. The source-scanning test and its hard-coded allowlist were deleted rather than re-pinned; the consumer-visible truncation test remains. Format checks passed for all 43 changed Dart files; the corrected CLI emitted hello, hot reload succeeded and EOF exited 0.
 - That full Linux run also failed the unchanged auth test's `portIsFree(rig.primary)` assertion. The production flow publishes ownership before its deadline checkpoint and awaits `server.close(force: true)` before returning; the fixture chooses and releases ephemeral ports before use and can fall back to a different port. A competing-port race is an inference, not a reproduced auth defect. No auth code or assertion was changed; the next CI head must still pass this test.
+
+### Integrated dogfood qualification — 2026-11-13
+
+These are real Kehai RPC sessions using the existing authenticated `gpt-6.1-sol` configuration, not a fake provider. The agent changed `greeter.mjs` and ran `mise exec -- node --test test/greeter.test.mjs`. An external supervising process changed tracked `notes.md` between requests. `by: user` means outside this session's recorded provenance; it does not authenticate a human author. Each fixture's three Node tests passed in Kehai, and the supervising session independently ran and passed all three afterward.
+
+| Fixture | Session | Binary source revision | Collector deadline |
+|---|---|---|---:|
+| Plain Git, `.git` only | `20261113T112516Z-ccd47109` | `6d705543702df593835614f07441526c4cba38d4` | 10000 ms |
+| Colocated `.jj`/`.git`, auto-selected jj | `20261113T102804Z-c0e55944` | `81e600971442ab1046b95f2255544004c19d53ce` | 300 ms |
+
+The Git session above is a **separate fresh-fixture qualification**, not a relabelling of the earlier default-deadline attempt. In the original 300 ms Git attempt, turns 1–5 were unavailable (timeout), turn 6 acquired the first baseline, and turns 7–9 were stale. That run did not capture the external edit and did not qualify. The user approved temporarily setting only `sensorium.collectorDeadlineMs` to 10000 in the existing global config. The original bytes were restored afterward, verified against their SHA-256, and the backup was removed. No default, auth setting, permission rule or hook was changed permanently.
+
+#### Plain Git: exact admitted sections
+
+All eight fresh-fixture admissions were available. The initial branch was `main`, HEAD `f6c7cde`; turn 1 reported changes unavailable (no baseline), and turns 2–4 had no changes. The first edit call failed on an invalid block anchor; the subsequent write succeeded. The real test command settled with exit 0. These are the selected `vcs`, `changes_since_last_turn` and `notices` sections, extracted without changing their text.
+
+Turn 5, admitted baseline `78c8e37cf6af995712b132449484b1106a57cdac`, sequence 7:
+
+```text
+vcs: backend: git
+  branch: main
+  M 1  A 0  D 0 · conflicts: none
+  HEAD: f6c7cde
+  greeter.mjs
+changes_since_last_turn: since_turn: 4
+  greeter.mjs +1 -1 by: agent
+notices: none
+```
+
+Turns 6 and 7 admitted no new delta. After the supervising process appended its note, turn 8 admitted baseline `8c6e83474ce9fd9a763692ef9252dff648f38599`, sequence 12:
+
+```text
+vcs: backend: git
+  branch: main
+  M 2  A 0  D 0 · conflicts: none
+  HEAD: f6c7cde
+  greeter.mjs
+  notes.md
+changes_since_last_turn: since_turn: 7
+  notes.md +2 -0 by: user
+notices: user_edits
+```
+
+The native Git engine was waited for and exited 0. Its recorded index hash and branch ref were unchanged. The fixture and complete exact admissions/calls/transcripts are retained locally at `.dart_tool/vcs-dogfood-git/qualified-10000/.git/dogfood/`; selected records are in `qualified-10000-evidence.json`. The earlier blocked run remains separately recorded at `.dart_tool/vcs-dogfood-git/.git/dogfood/`.
+
+#### jj: exact admitted sections and harness contamination
+
+All eight admissions were available. This fixture was not initially clean: the harness placed `events.ndjson` and `rpc-driver.mjs` in the repository root, so jj captured them too. They were later moved under ignored `.jj/dogfood-evidence/`. Their rows below are harness activity, not application changes; they must not be silently removed or relabelled.
+
+Turn 4, admitted baseline `bcbf705f09303a842715f730e2fa5a8ec5800460`, sequence 7:
+
+```text
+vcs: backend: jj
+  branch: working copy
+  change: vklzvuuqxzpsltwknnmkvywroworswvm
+  description: Current working change
+  parent: 7d9c1ad59265a620c… +23
+  M 2  A 2  D 0 · conflicts: none
+  operation: 2f33e8849f3214548… +77
+  events.ndjson
+  greeter.mjs
+  notes.md
+  rpc-driver.mjs
+changes_since_last_turn: since_turn: 3
+  events.ndjson +22 -0 by: unknown
+  greeter.mjs +2 -1 by: agent
+notices: none
+```
+
+Transcript rows on turns 5 and 6 were also `unknown`, not `user`. After a no-tool admitted baseline and the external note edit, turn 8 admitted baseline `263372a40f4c0579c28b24dacc770faa398fdc56`, sequence 14:
+
+```text
+vcs: backend: jj
+  branch: working copy
+  change: vklzvuuqxzpsltwknnmkvywroworswvm
+  description: Current working change
+  parent: 7d9c1ad59265a620c… +23
+  M 2  A 2  D 0 · conflicts: none
+  operation: 2ebc50af921094ff4… +77
+  events.ndjson
+  greeter.mjs
+  notes.md
+  rpc-driver.mjs
+changes_since_last_turn: since_turn: 7
+  events.ndjson +15 -0 by: user
+  notes.md +1 -1 by: user
+notices: user_edits
+```
+
+All four requests completed and the Node command passed. The client then hit `ReferenceError: exit is not defined`; the worker reported that EOF did not stop its engine and terminated only its owned engine tree. There is no successful graceful-exit receipt for this jj harness. Separate current-source CLI probes emitted hello, hot-reloaded successfully and exited 0 on EOF; that does not erase the harness anomaly. All dogfood engines were stopped. Exact admitted records and transcripts remain at `.dart_tool/vcs-dogfood-jj/.jj/dogfood-evidence/`.
+
+#### Exact admitted block token estimates
+
+These are complete block estimates, not just the VCS excerpts. Every selected block used full mode without folding.
+
+| Turn | Plain Git | jj |
+|---:|---:|---:|
+| 1 | 154 | 217 |
+| 2 | 153 | 226 |
+| 3 | 153 | 226 |
+| 4 | 153 | 239 |
+| 5 | 165 | 229 |
+| 6 | 157 | 229 |
+| 7 | 157 | 231 |
+| 8 | 169 | 239 |
+
+#### Native collector elapsed observations
+
+A disposable current-source probe on `bd4e6378376a2f0deae9d799bcabcb57806f7a95` made exactly two captures per fresh collector against the retained fixtures, with an explicit 10000 ms deadline. These measure the observer call only, without attribution sampling, projection or provider admission. “First/second” means first and second call on that collector, not a controlled OS-cache benchmark. All four captures were available; no timing assertion, retry or polling loop was added. The probe was removed.
+
+| Backend | First capture (ms) | Second capture (ms) |
+|---|---:|---:|
+| Git | 407.568 | 380.311 |
+| jj | 631.930 | 582.724 |
+
+These samples do not establish a performance guarantee or qualify the default deadline on every Windows workload.
+
+#### D9 friction ledger and unsupported steps
+
+| Item | Observed disposition | Scope / assignment |
+|---|---|---|
+| Permissions/config/instruction loading | Existing edit/write rules and `repo-guard` allowed the observed calls. Bash used an exact fixture-scoped permission answer. The earlier Git bridge initially mishandled omitted cwd, then used the engine workspace correctly. No yolo or hook bypass. | Broader work remains `windows-tool-parity-and-m2-qualification`. This change adds only strict startup keys. |
+| Default Git deadline | The 300 ms attempt did not qualify; the separately approved 10000 ms attempt did. Original config bytes restored. | Honest bounded availability is in this change; broader machine/M2 qualification remains `windows-tool-parity-and-m2-qualification`. No default change. |
+| Workflow waits | Existing bounded waits and the installed CI/review wait commands were used. | No new polling mechanism. |
+| #28 timing tests | Collector deadlines use fake controllable completion and no wall-clock assertions; native tests assert outcomes. Diagnostic elapsed observations are recorded above. | This change covers its collector; broader timing coverage is unchanged. |
+| Relative PATH | The collector deliberately skips relative PATH entries and its dedicated regression is green. Node ran through pinned mise. | Broader restoration remains entry 7, `windows-tool-parity-and-m2-qualification`. |
+| Kehai apply/tooling gaps | The initial apply attempt stopped at an unbridged permission prompt. The later sessions performed the actual fixture edits and tests, not the whole core implementation. The supervising session supplied core implementation, the official Dart MCP runner, builds, commits, reviews and GitHub delivery; that runner is not exposed by Kehai's reported tool roster. | Unsupported workflow/tooling qualification remains `windows-tool-parity-and-m2-qualification`; no new integration is claimed. |
+| MCP analysis severity | MCP's “No errors” response did not establish the fatal-info gate; pinned `mise run analyze` exposed and then verified the CI corrections. | Supervisor verification uses the pinned fatal-info command; broader tool parity remains `windows-tool-parity-and-m2-qualification`. |
+| jj harness shutdown | The post-run client error and lack of graceful engine exit remain explicit; only owned processes were terminated. | Unsupported native client/exit qualification remains `windows-tool-parity-and-m2-qualification`; no core shutdown defect is claimed from that harness. |
+
+### Corrected-code pre-ship review
+
+Head `7853234c290d8377490e02e0621afe892a8a3252` passed the configured Claude pre-ship review with no P0/P1 findings and no waivers. Receipt: requested model/thinking `default/default`, actual model `claude-opus-5-5`, actual thinking unknown, CLI `2.1.319`, Windows job isolation; OMP skipped as the current runtime.
+
+The installed workflow leaves nonblocking findings open unless the user requests another fix. Two remain: P2, a lost baseline can mask the actual VCS collection failure label; P3, the documented notice-overflow marker has no rendering path, although all six current finite codes fit the allocation and cannot overflow today. Neither is claimed fixed.
+
+### Code-head qualification receipts
+
+Qualified code head: `7853234c290d8377490e02e0621afe892a8a3252`. These receipts are immutable for that head; the PR checks report delivery-head status.
+
+| Gate | Linux | Native Windows | Receipt |
+|---|---|---|---|
+| PR CI: format, fatal-info analysis and configured tests; OpenSpec validation on Linux | success | success | [43456402915](https://github.com/sh1ny/kehai/actions/runs/43456402915) |
+| Full configured suite, including slow/native-process cases | success | success | [43456204557](https://github.com/sh1ny/kehai/actions/runs/43456204557) |
+
+Both subsequent gates passed without changing auth code or its assertions. The existing property suite was not narrowed. The local official-MCP evidence includes all 226 mapped tests, the exact failing property seed, fork provenance and the retained full-byte truncation behavior test. Pinned fatal-info analysis and the 43-file format check passed. No package version was bumped.
