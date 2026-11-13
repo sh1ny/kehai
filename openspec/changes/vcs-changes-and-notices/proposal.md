@@ -42,7 +42,7 @@ It builds on entry 2, `sensorium-block-and-scratchpad`, which shipped the typed 
 - **Session tree:** new collector baseline and last-known-value nodes. This is additive and rebuildable: older sessions without them take a fresh baseline. The journal format and RPC v1 shape are unchanged, apart from new fields in existing step metadata.
 - **User repository:** jj observation snapshots the working copy (ordinary jj behaviour, adding operation-log entries). Git observation writes unreferenced tree/blob objects through a temporary index. Neither moves refs, the user's index, HEAD or the working tree.
 - **External tools:** `jj` (pinned 0.46.0 in `mise.toml`) and `git` must be on PATH, or the section says unavailable. Tests use disposable repositories, and CI must provide both tools on Linux and Windows.
-- **Instructions/tool identity:** none. Section text changes only the per-request block, so it does not affect opaque lineage.
+- **Instructions/tool identity:** built-in perception guidance changes and its internal version becomes `kehai-4`. The instructions digest therefore changes. Existing native opaque history with the old lineage is rejected by the unchanged compatibility guard; recovery is rewind before the incompatible history or a new session. There is no history migration, compatibility fallback or package-version bump. Tool identity is unchanged.
 
 ## Release Notes
 
@@ -60,3 +60,4 @@ Add bounded repository observation, admitted change baselines and durable filesy
 ### Changed
 - VCS presentation now supports backend identity, counts, conflicts and bounded paths, with escaped repository text and explicit omissions.
 - Full and folded changes retain attribution and the baseline turn; the six finite notice codes render once in fixed order.
+- Built-in perception guidance uses internal version `kehai-4`. Its changed instructions digest invalidates prior native opaque lineage; the existing guard requires rewind before incompatible history or a new session, without history migration.

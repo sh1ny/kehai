@@ -5,9 +5,9 @@ Supersedes: none; supplements ADRs 0007, 0010 and 0016
 
 ## Context
 
-M2 needs repository state on every request and honest attribution of changes since the previous admitted capture. The governing contract is [vcs-changes-and-notices design D1–D9](../../openspec/changes/vcs-changes-and-notices/design.md), with requirements for [VCS observation](../../openspec/changes/vcs-changes-and-notices/specs/vcs-observation/spec.md), [workspace change attribution](../../openspec/changes/vcs-changes-and-notices/specs/workspace-change-attribution/spec.md) and [turn perception](../../openspec/changes/vcs-changes-and-notices/specs/turn-perception/spec.md). This records the reviewed architecture, not implementation or qualification evidence.
+M2 needs repository state on every request and honest attribution of changes since the previous admitted capture. The governing contract is [vcs-changes-and-notices design D1–D10](../../openspec/changes/vcs-changes-and-notices/design.md), with requirements for [VCS observation](../../openspec/changes/vcs-changes-and-notices/specs/vcs-observation/spec.md), [workspace change attribution](../../openspec/changes/vcs-changes-and-notices/specs/workspace-change-attribution/spec.md) and [turn perception](../../openspec/changes/vcs-changes-and-notices/specs/turn-perception/spec.md). This records the reviewed architecture, not implementation or qualification evidence.
 
-The one-tree journal, central results, unified jobs, native continuity and RPC v1 remain unchanged. The sensorium specification and accepted predecessor ADRs remain unchanged. Hashes are authoritative; timestamps and watchers never prove authorship. `by: user` means outside this session's recorded provenance, not verified human identity.
+The one-tree journal, central results, unified jobs, native continuity compatibility rules and RPC v1 remain unchanged. Updated built-in perception guidance intentionally changes instruction identity as described below. The sensorium specification and accepted predecessor ADRs remain unchanged. Hashes are authoritative; timestamps and watchers never prove authorship. `by: user` means outside this session's recorded provenance, not verified human identity.
 
 ## Decision
 
@@ -101,6 +101,10 @@ Keep existing section caps, fold order and the safe minimum of 1310 tokens: VCS 
 
 Deduplicate notices in fixed order: `compaction_recovery`, `legacy_window_ignored`, `vcs_timeout`, `vcs_failed`, `user_edits`, `baseline_reset`. Cap with an explicit omitted count rather than refusing composition. Compute codes from this collection and committed facts, with no pending-notices queue. Diagnostics, tests, plan, checkpoints and post-edit delta producers remain out of scope.
 
+### Built-in guidance changes instruction identity
+
+Update the built-in perception guidance for the collected sections, attribution uncertainty and notice codes, and advance its internal version to `kehai-4`. Changed instruction bytes change the lineage digest. The existing native continuity guard rejects an incompatible selected compaction boundary or opaque reasoning suffix before a provider request; recovery remains rewind before the incompatible history or a new session. Do not migrate history, preserve the old digest or fall back to an older boundary. Text-only history uses the existing rebuilding path. This intentional identity change does not alter tools, RPC v1, journal formats or the package version.
+
 ## Alternatives and consequences
 
 - No separate baseline/hash-content store, shared reusable private index, watcher authority, background refresh, filter emulation, cross-backend translation or Kehai object pruning. These duplicate repository semantics or introduce extra mutable authority.
@@ -108,4 +112,4 @@ Deduplicate notices in fixed order: `compaction_recovery`, `legacy_window_ignore
 - A live shell/job or foreign mutation can conservatively classify many changes unknown. This is preferable to falsely blaming the user or claiming agent authorship.
 - Frozen observations describe capture time; edits after capture appear in the next comparison. Pre-admission cancellation leaves the older baseline effective.
 - Test deadlines and held mutations with deterministic barriers, not sleeps or wall-clock assertions. Qualify real pinned jj/git in disposable repositories on Linux and native Windows.
-- Kehai orchestrates the apply attempt. Record unsupported steps, real dogfood evidence, collector timing and friction-ledger dispositions in the change design's apply notes. Permissions/config/instructions friction and broader relative-PATH restoration stay assigned to `windows-tool-parity-and-m2-qualification`; this collector still tests skipped relative PATH entries. No new package, polling loop or version bump is introduced.
+- Kehai orchestrates the apply attempt. Record unsupported steps, real dogfood evidence, collector timing and friction-ledger dispositions in the change design's apply notes. Permissions/config/instructions friction and broader relative-PATH restoration stay assigned to `windows-tool-parity-and-m2-qualification`; this collector still tests skipped relative PATH entries. No new package, polling loop or package-version bump is introduced.

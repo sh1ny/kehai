@@ -92,6 +92,13 @@ Constraints: Dart 3.x AOT, no Rust core, no embedded script runtime, no durable 
 - **Rejected:** folding the permissions/config friction items into this change, because they are unrelated to perception and would make the PR unbounded.
 - **Reversal cost:** low.
 
+### D10: Updated built-in guidance intentionally changes instruction identity
+
+- **Choice:** task 5.3 updates the built-in perception guidance for collected VCS, baseline-relative changes, attribution uncertainty and the new notice codes. Follow `instructions.dart`'s existing rule and advance its internal version from `kehai-3` to `kehai-4`. The changed instruction bytes change the lineage digest; do not pin or disguise the old digest.
+- **Compatibility:** keep the existing native continuity guard unchanged. A selected native compaction boundary or opaque reasoning suffix recorded under incompatible instructions stops before a provider request, with the existing rewind-or-new-session message. No migration, replay shim or fallback to an older compatible boundary is added. Text-only history continues through the existing request rebuilding path.
+- **Rejected:** keeping the instruction bytes/version unchanged while dropping the guidance edit, because the user explicitly chose the guidance update and accepted its lineage break. This is not a package-version bump; tool identity, RPC v1 and journal formats remain unchanged. D9's permissions/configuration/instruction-loading friction remains out of scope.
+- **Verification:** task 5.3 reruns the existing changed-instructions native-continuity rejection regression alongside its RPC metadata check. Request token estimation includes the new constant instruction text through the existing budget convergence.
+
 ## Diagrams (FULL)
 
 Components (T1):
@@ -294,7 +301,7 @@ flowchart TB
 
 ## ADRs
 
-- **In force, constraining this change:** 0001 (one tree), 0002 (central results), 0003 (unified jobs), 0007 (perception, `.jj` first, hash authority, provenance meaning of `by: user`), 0010 (call/job tree layout), 0014 (no new package until needed — collector stays in-package), 0015 (native compaction/lineage untouched), 0016 (bounded sensorium, caps, notices, admitted observation).
+- **In force, constraining this change:** 0001 (one tree), 0002 (central results), 0003 (unified jobs), 0007 (perception, `.jj` first, hash authority, provenance meaning of `by: user`), 0010 (call/job tree layout), 0014 (no new package until needed — collector stays in-package), 0015 (native compaction and its compatibility guard unchanged; D10 intentionally changes instruction identity), 0016 (bounded sensorium, caps, notices, admitted observation).
 - **To record during apply:** ADR 0017 *VCS observation baselines and provenance attribution* — content-addressed baselines in admitted step metadata, private git temp index (no user index/ref writes), `target` (pre-mutation, resolved), `effect: {sha256, seq}` and identity-guarded `quiesced` call fields, resolved-target serialization through effect commit, open-mutation semantics, rewind-exempt, session-owned orphaned-mutation records with capture sequence numbers, the attribution floor and foreign copies at fork, and the unfinished-mutation cap, the step-output attribution interval, pre/post-capture verification, attribution rules (`agent`/`user`/`unknown`, stamps only downgrade), baseline carry-forward, the serialized collection deadline contract, backend-independent cleanup slots and the filter policy. Update `openspec/architecture.md`'s ADR index and the perception paragraph that says VCS producers are later work.
 
 ## Open Questions
@@ -314,3 +321,4 @@ flowchart TB
 - A probe showed identical frozen trees and bytes for different within-turn effect orders, including a user restoring an older effect. The user approved persisting `effect.seq` from the shared allocator with its high-water mark durable before the effect.
 - User chose conservative case-alias uncertainty: differently cased target/row spellings read unknown on all platforms rather than adding filesystem capability probes.
 - User approved `targetAfterSeq` to distinguish same-turn unsuccessful attempts from successful effects: read the durable shared high-water mark in the accepted target append, without another reservation or flush.
+- The user approved updating the built-in perception guidance and advancing its internal version to `kehai-4`, after the conflict with the proposal's prior identity-neutral claim was surfaced. D10 acknowledges that changed instruction bytes invalidate old native opaque lineage under the existing compatibility guard. No history migration, fallback or package-version bump is approved.

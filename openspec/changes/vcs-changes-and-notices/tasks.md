@@ -190,7 +190,7 @@
   - a read-only status preview under the same lock and deadline.
 
   Verify that the group-5 rows turn green and that the three ride-along `green` rows still pass.
-- [ ] 5.3 Update the observation and status sections of `README.md`, and the built-in perception guidance, for the vcs and changes sections and the new notice codes. Verify that the documented metadata matches what RPC actually materializes.
+- [ ] 5.3 Update the observation and status sections of `README.md`, and the built-in perception guidance, for the vcs and changes sections and the new notice codes. Advance the internal instruction version to `kehai-4` and document the intentional native opaque-lineage break and existing rewind-or-new-session recovery, without migration or a package-version bump (D10). Rerun the existing changed-instructions native-continuity rejection regression in `test/loop/compaction_budget_test.dart`. Verify that the documented metadata matches what RPC actually materializes.
 
 ## 6. Qualify the integrated slice
 
