@@ -68,14 +68,13 @@ const int _maxSettleRetries = 16;
 
 const Set<String> _terminalStatuses = {'settled', 'failed', 'cancelled'};
 
-int _mutationSequenceHigh(Map<String, Object?> meta) {
-  final vcs = meta['vcs'];
+int _mutationSequenceHigh(Object? vcs) {
   if (vcs == null) return 0;
   if (vcs is! Map<String, Object?>) {
     throw StateError('Invalid mutation sequence metadata.');
   }
+  if (!vcs.containsKey('seqHigh')) return 0;
   final high = vcs['seqHigh'];
-  if (high == null) return 0;
   if (high is! int || high < 0) {
     throw StateError('Invalid mutation sequence metadata.');
   }
@@ -250,7 +249,7 @@ final class ToolRuntime {
       throw StateError('The session has no mutation ownership metadata.');
     }
     final mutations = MutationRuns(
-      sequence: MutationSequence(_mutationSequenceHigh(mutationMeta)),
+      sequence: MutationSequence(_mutationSequenceHigh(mutationMeta['vcs'])),
       session: mutationMeta['session']! as String,
     );
     final repositoryRoot = projectRoot(workspace.path);
@@ -430,12 +429,23 @@ final class ToolRuntime {
   /// was admitted (design D5); such a call is still recorded, without hooks,
   /// prompt or effect.
   ///
+  /// [stepTurn] is accepted as the call's origin only when that step contains
+  /// the exact provider call-output link.
+  ///
   /// The output is the composed envelope for the call's stored result. Throws
   /// the writer's `StorageError` when the journal is unusable, and from then
   /// on for every later call.
-  Future<ToolOutputItem> run(ToolCall call, {CancelToken? cancel}) async {
+  Future<ToolOutputItem> run(
+    ToolCall call, {
+    CancelToken? cancel,
+    int? stepTurn,
+  }) async {
     _ensureUsable();
-    final live = _Live(call, callKey(call.callId));
+    final live = _Live(
+      call,
+      callKey(call.callId),
+      stepTurn: _linkedStepTurn(call, stepTurn),
+    );
     if (_live.containsKey(live.key)) {
       throw StateError('call id ${call.callId} is already running');
     }
@@ -466,6 +476,22 @@ final class ToolRuntime {
       _leave(live);
       _live.remove(live.key);
     }
+  }
+
+  int? _linkedStepTurn(ToolCall call, int? candidate) {
+    if (candidate == null || candidate < 0) return null;
+    final step = writer.tree.get(
+      SessionPath.parse('body/steps/s-${candidate.toString().padLeft(8, '0')}'),
+    );
+    return mutationOutputLinkMatches(
+          step,
+          callKey: callKey(call.callId),
+          callId: call.callId,
+          tool: call.name,
+          argumentsHash: mutationArgumentsDigest(call.argumentsJson),
+        )
+        ? candidate
+        : null;
   }
 
   /// Cancels every pending and running call with reason `user`.
@@ -666,6 +692,10 @@ final class ToolRuntime {
             callKey: live.key,
             attempt: live.attempt,
             callPath: live.path,
+            callId: live.call.callId,
+            tool: live.call.name,
+            argumentsJson: live.call.argumentsJson,
+            stepTurn: live.stepTurn,
           )
         : null;
     if (mutationTool && mutationRun == null) {
@@ -860,6 +890,9 @@ final class ToolRuntime {
             (node['target'] != null && node['target'] != target)) {
           return const GuardedRefusal('stale');
         }
+        final boundary = node['target'] == null
+            ? _mutationSequenceHigh(read('meta/vcs'))
+            : null;
         if (!mutations.publish(run, target)) {
           return const GuardedRefusal('stale');
         }
@@ -868,7 +901,10 @@ final class ToolRuntime {
             turn: writer.currentTurn,
             path: live.path,
             op: Op.merge,
-            value: {'target': target},
+            value: {
+              'target': target,
+              if (boundary != null) 'targetAfterSeq': boundary,
+            },
           ),
         );
       }),
@@ -933,7 +969,21 @@ final class ToolRuntime {
                   (node['tool'] == 'edit' || node['tool'] == 'write') &&
                   node['target'] is String &&
                   node['quiesced'] != true;
-              mutations.retire(run, currentCallOpen: open);
+              final finishedCall = mutations.finishedCall(
+                run,
+                callNode: node,
+                stepNode: run.stepTurn == null
+                    ? null
+                    : read(
+                        'body/steps/s-'
+                        '${run.stepTurn!.toString().padLeft(8, '0')}',
+                      ),
+              );
+              mutations.retire(
+                run,
+                currentCallOpen: open,
+                finishedCall: finishedCall,
+              );
             },
           ),
         );
@@ -1420,10 +1470,12 @@ final class _StoreEnded extends _Step {
 
 /// The runtime's state for one live call.
 final class _Live {
-  _Live(this.call, this.key) : attempt = _newAttempt();
+  _Live(this.call, this.key, {required this.stepTurn})
+    : attempt = _newAttempt();
 
   final ToolCall call;
   final String key;
+  final int? stepTurn;
   final String attempt;
   final CancelToken token = CancelToken();
   final Completer<void> granted = Completer<void>();

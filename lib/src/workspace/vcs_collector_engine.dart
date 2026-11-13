@@ -4,6 +4,9 @@ const int _vcsOutputLimit = 4 * 1024 * 1024;
 const int _vcsEntryLimit = 10000;
 const int _vcsCleanupLimit = 16;
 const int _vcsCommandLimit = 3;
+const int _vcsAttributionPathLimit = 64;
+const int _vcsAttributionFileLimit = 4 * 1024 * 1024;
+const int _vcsAttributionChunkSize = 64 * 1024;
 const Duration _vcsCleanupWait = Duration(seconds: 10);
 
 final class _CollectorFailure implements Exception {
@@ -24,8 +27,95 @@ final class _CapturedBytes {
   final bool truncated;
 }
 
+final class _NativeVcsFileReader {
+  const _NativeVcsFileReader();
+
+  Future<VcsFileSample?> read(String absolute, int maxBytes) async {
+    if (maxBytes < 0) return null;
+    final file = File(absolute);
+    RandomAccessFile? handle;
+    try {
+      if (await FileSystemEntity.type(absolute, followLinks: false) !=
+          FileSystemEntityType.file) {
+        return null;
+      }
+      final before = await file.stat();
+      if (before.type != FileSystemEntityType.file || before.size > maxBytes) {
+        return null;
+      }
+      handle = await file.open();
+      if (await handle.length() != before.size) return null;
+
+      final digestSink = _VcsDigestSink();
+      final digestInput = sha256.startChunkedConversion(digestSink);
+      var size = 0;
+      while (size < maxBytes) {
+        final remaining = maxBytes - size;
+        final chunk = await handle.read(
+          remaining < _vcsAttributionChunkSize
+              ? remaining
+              : _vcsAttributionChunkSize,
+        );
+        if (chunk.isEmpty) break;
+        size += chunk.length;
+        digestInput.add(chunk);
+      }
+      digestInput.close();
+
+      final afterLength = await handle.length();
+      final after = await file.stat();
+      final afterType = await FileSystemEntity.type(
+        absolute,
+        followLinks: false,
+      );
+      if (afterType != FileSystemEntityType.file ||
+          size != before.size ||
+          afterLength != size ||
+          after.size != size ||
+          after.modified != before.modified) {
+        return null;
+      }
+      final digest = digestSink.value;
+      if (digest == null) return null;
+      return (
+        sha256: digest.toString(),
+        size: size,
+        modifiedMicros: after.modified.microsecondsSinceEpoch,
+      );
+    } on FileSystemException {
+      return null;
+    } finally {
+      final opened = handle;
+      if (opened != null) {
+        try {
+          await opened.close();
+        } on FileSystemException {
+          // A failed close cannot make a partial sample authoritative.
+        }
+      }
+    }
+  }
+}
+
+final class _VcsDigestSink implements Sink<Digest> {
+  Digest? value;
+
+  @override
+  void add(Digest digest) {
+    value = digest;
+  }
+
+  @override
+  void close() {}
+}
+
 final class _TimerVcsDeadlineScheduler implements VcsDeadlineScheduler {
-  const _TimerVcsDeadlineScheduler();
+  _TimerVcsDeadlineScheduler() : _clock = Stopwatch()..start();
+
+  final Stopwatch _clock;
+
+  @override
+  Duration get elapsed => _clock.elapsed;
 
   @override
   Future<void> wait(Duration duration) => Future<void>.delayed(duration);
@@ -154,14 +244,16 @@ final class _VcsCollectorEngine {
   _VcsCollectorEngine({
     VcsProcessRunner? processRunner,
     VcsDeadlineScheduler? deadlineScheduler,
+    VcsFileReader? readFile,
     Map<String, String>? environment,
   }) : _processRunner = processRunner ?? const _NativeVcsProcessRunner(),
-       _deadlineScheduler =
-           deadlineScheduler ?? const _TimerVcsDeadlineScheduler(),
+       _deadlineScheduler = deadlineScheduler ?? _TimerVcsDeadlineScheduler(),
+       _readFile = readFile ?? const _NativeVcsFileReader().read,
        _environment = Map.unmodifiable(environment ?? Platform.environment);
 
   final VcsProcessRunner _processRunner;
   final VcsDeadlineScheduler _deadlineScheduler;
+  final VcsFileReader _readFile;
   final Map<String, String> _environment;
   final _CollectionMutex _mutex = _CollectionMutex();
   final Set<_CollectionRun> _runs = {};
@@ -171,7 +263,7 @@ final class _VcsCollectorEngine {
   bool _closed = false;
   int _indexSequence = 0;
   int _baselineSequence = 0;
-
+  int _outstandingAttributionReads = 0;
   Future<VcsCollection> collect({
     required String root,
     required String backend,
@@ -179,6 +271,7 @@ final class _VcsCollectorEngine {
     required VcsCollection? previous,
     required int turn,
     required DateTime? time,
+    VcsAttributionInput? attribution,
   }) async {
     final observedAt = time ?? DateTime.now();
     if (_closed) {
@@ -197,7 +290,13 @@ final class _VcsCollectorEngine {
       if (effectiveDeadline < coldStart) effectiveDeadline = coldStart;
     }
 
-    final run = _CollectionRun(this, previous, observedAt);
+    final run = _CollectionRun(
+      this,
+      previous,
+      observedAt,
+      _deadlineScheduler.elapsed,
+      effectiveDeadline,
+    );
     _runs.add(run);
     final timer = Future<void>.sync(
       () => _deadlineScheduler.wait(effectiveDeadline),
@@ -210,7 +309,9 @@ final class _VcsCollectorEngine {
             SensoriumReason.timedOut,
             'timeout',
             observedAt,
+            deadlineExpired: true,
           ),
+          deadlineExpired: true,
         ),
         onError: (Object _) => run.stop(
           _failedCollection(
@@ -218,7 +319,9 @@ final class _VcsCollectorEngine {
             SensoriumReason.timedOut,
             'timeout',
             observedAt,
+            deadlineExpired: true,
           ),
+          deadlineExpired: true,
         ),
       ),
     );
@@ -231,15 +334,18 @@ final class _VcsCollectorEngine {
           previous: previous,
           turn: turn,
           time: observedAt,
+          attribution: attribution,
         ).then<VcsCollection>(
           (result) {
+            if (run.returned.isCompleted) return run.returned.future;
             run.finish();
             return result;
           },
           onError: (Object error, StackTrace _) {
-            final result = _failureFromError(previous, error, observedAt);
-            run.stop(result);
-            return result;
+            if (!run.returned.isCompleted) {
+              run.stop(_failureFromError(previous, error, observedAt));
+            }
+            return run.returned.future;
           },
         );
     return Future.any([work, run.returned.future]);
@@ -286,10 +392,24 @@ final class _VcsCollectorEngine {
     required VcsCollection? previous,
     required int turn,
     required DateTime time,
+    required VcsAttributionInput? attribution,
   }) async {
     final lock = await _mutex.acquire();
     run.attachLock(lock);
+    if (run.remaining <= Duration.zero) {
+      run.stop(
+        _failedCollection(
+          previous,
+          SensoriumReason.timedOut,
+          'timeout',
+          time,
+          deadlineExpired: true,
+        ),
+        deadlineExpired: true,
+      );
+    }
     run.checkActive();
+    run.markLockAcquired(_deadlineScheduler.elapsed);
     try {
       return await _collectLocked(
         run,
@@ -298,6 +418,7 @@ final class _VcsCollectorEngine {
         previous: previous,
         turn: turn,
         time: time,
+        attribution: attribution,
       );
     } finally {
       lock.release();
@@ -311,7 +432,13 @@ final class _VcsCollectorEngine {
     required VcsCollection? previous,
     required int turn,
     required DateTime time,
+    required VcsAttributionInput? attribution,
   }) async {
+    final sequence = attribution?.sequence;
+    final jobsLive = attribution?.jobsLive ?? false;
+    var effects = attribution?.effects;
+    attribution = null;
+    final captureSequence = sequence?.reserve();
     if (backend == 'none') {
       return _unavailable(SensoriumReason.disabled, 'disabled');
     }
@@ -348,7 +475,13 @@ final class _VcsCollectorEngine {
       return _failedCollection(previous, reason, '$selected not found', time);
     }
 
-    return switch (selected) {
+    final before = effects == null
+        ? const <String, VcsFileSample>{}
+        : await _prehash(run, repository, effects);
+    effects = null;
+    _expireIfDue(run, previous, time);
+    run.checkActive();
+    final rawCapture = await switch (selected) {
       'jj' => _collectJj(
         run,
         executable: executable,
@@ -356,6 +489,8 @@ final class _VcsCollectorEngine {
         previous: previous,
         turn: turn,
         time: time,
+        captureSequence: captureSequence,
+        jobsLive: jobsLive,
       ),
       'git' => _collectGit(
         run,
@@ -365,9 +500,172 @@ final class _VcsCollectorEngine {
         previous: previous,
         turn: turn,
         time: time,
+        captureSequence: captureSequence,
+        jobsLive: jobsLive,
       ),
       _ => throw StateError('Unreachable backend selection.'),
     };
+    final capture = _copyCollection(
+      rawCapture,
+      captureCompleted: true,
+      deadlineExpired: false,
+    );
+    run.recordCompletedCapture(capture);
+    _expireIfDue(run, previous, time);
+    run.checkActive();
+    if (before.isEmpty) return capture;
+    return _posthash(run, capture, before, repository);
+  }
+
+  Future<Map<String, VcsFileSample>> _prehash(
+    _CollectionRun run,
+    String repository,
+    Map<String, String> effects,
+  ) async {
+    if (run.prehashRemaining <= Duration.zero) {
+      return const <String, VcsFileSample>{};
+    }
+    final samples = <String, VcsFileSample>{};
+    final reads = <Future<void>>[];
+    var candidates = 0;
+    var accepting = true;
+    for (final entry in effects.entries) {
+      if (candidates == _vcsAttributionPathLimit) break;
+      candidates++;
+      final absolute = _absoluteAttributionPath(repository, entry.key);
+      if (absolute == null) continue;
+      final read = _startAttributionRead(absolute);
+      if (read == null) continue;
+      final path = entry.key;
+      reads.add(
+        read.then<void>((sample) {
+          if (accepting && sample != null) samples[path] = sample;
+        }, onError: (Object _, StackTrace __) {}),
+      );
+    }
+    if (reads.isEmpty) return Map.unmodifiable(samples);
+
+    final remaining = run.prehashRemaining;
+    if (remaining <= Duration.zero) {
+      accepting = false;
+      return Map.unmodifiable(samples);
+    }
+    final allReads = Future.wait<void>(reads).then<void>((_) {});
+    final cutoff = Future<void>.sync(() => _deadlineScheduler.wait(remaining));
+    await Future.any<void>([allReads, cutoff, run._stoppedSignal.future]);
+    accepting = false;
+    run.checkActive();
+    return Map.unmodifiable(samples);
+  }
+
+  Future<VcsCollection> _posthash(
+    _CollectionRun run,
+    VcsCollection capture,
+    Map<String, VcsFileSample> before,
+    String repository,
+  ) async {
+    final reads = <Future<void>>[];
+    for (final entry in before.entries) {
+      final absolute = _absoluteAttributionPath(repository, entry.key);
+      if (absolute == null) continue;
+      final read = _startAttributionRead(absolute);
+      if (read == null) continue;
+      final path = entry.key;
+      final sampleBefore = entry.value;
+      reads.add(
+        read.then<void>(
+          (sampleAfter) {
+            if (!run.isStopped) {
+              run.recordVerification(path, (
+                before: sampleBefore,
+                after: sampleAfter,
+              ));
+            }
+          },
+          onError: (Object _, StackTrace __) {
+            if (!run.isStopped) {
+              run.recordVerification(path, (before: sampleBefore, after: null));
+            }
+          },
+        ),
+      );
+    }
+    if (reads.isNotEmpty) {
+      await Future.any<void>([
+        Future.wait<void>(reads).then<void>((_) {}),
+        run._stoppedSignal.future,
+      ]);
+      _expireIfDue(run, run.previous, run.time);
+      run.checkActive();
+    }
+    return _copyCollection(
+      capture,
+      verification: Map.unmodifiable(run.verification),
+      captureCompleted: true,
+    );
+  }
+
+  Future<VcsFileSample?>? _startAttributionRead(String absolute) {
+    if (_outstandingAttributionReads >= _vcsAttributionPathLimit) return null;
+    _outstandingAttributionReads++;
+    final read = Future<VcsFileSample?>.sync(
+      () => _readFile(absolute, _vcsAttributionFileLimit),
+    );
+    unawaited(
+      read.then<void>(
+        (_) {
+          _outstandingAttributionReads--;
+        },
+        onError: (Object _, StackTrace __) {
+          _outstandingAttributionReads--;
+        },
+      ),
+    );
+    return read;
+  }
+
+  String? _absoluteAttributionPath(String repository, String path) {
+    if (path.isEmpty || p.isAbsolute(path) || p.posix.isAbsolute(path)) {
+      return null;
+    }
+    final relative = p.posix.normalize(path);
+    if (relative == '.' || relative == '..' || relative.startsWith('../')) {
+      return null;
+    }
+    final absolute = p.normalize(
+      p.joinAll([repository, ...p.posix.split(relative)]),
+    );
+    return p.isWithin(repository, absolute) ? absolute : null;
+  }
+
+  VcsCollection _copyCollection(
+    VcsCollection collection, {
+    Map<String, VcsVerification>? verification,
+    bool? captureCompleted,
+    bool? deadlineExpired,
+  }) => VcsCollection(
+    observation: collection.observation,
+    baseline: collection.baseline,
+    changes: collection.changes,
+    reason: collection.reason,
+    baselineLost: collection.baselineLost,
+    verification: verification ?? collection.verification,
+    captureCompleted: captureCompleted ?? collection.captureCompleted,
+    deadlineExpired: deadlineExpired ?? collection.deadlineExpired,
+  );
+
+  void _expireIfDue(_CollectionRun run, VcsCollection? previous, DateTime now) {
+    if (run.isStopped || run.remaining > Duration.zero) return;
+    run.stop(
+      _failedCollection(
+        previous,
+        SensoriumReason.timedOut,
+        'timeout',
+        now,
+        deadlineExpired: true,
+      ),
+      deadlineExpired: true,
+    );
   }
 
   VcsCollection _unavailable(SensoriumReason reason, String message) =>
@@ -377,8 +675,9 @@ final class _VcsCollectorEngine {
     VcsCollection? previous,
     SensoriumReason reason,
     String message,
-    DateTime now,
-  ) {
+    DateTime now, {
+    bool deadlineExpired = false,
+  }) {
     final value = switch (previous?.observation) {
       SensoriumAvailable<SensoriumVcs>(:final value) => value,
       SensoriumStale<SensoriumVcs>(:final value) => value,
@@ -390,6 +689,7 @@ final class _VcsCollectorEngine {
         baseline: previous?.baseline,
         reason: message,
         baselineLost: previous?.baselineLost ?? false,
+        deadlineExpired: deadlineExpired,
       );
     }
     final baselineTime = previous?.baseline?.time;
@@ -408,6 +708,7 @@ final class _VcsCollectorEngine {
       baseline: previous?.baseline,
       reason: message,
       baselineLost: previous?.baselineLost ?? false,
+      deadlineExpired: deadlineExpired,
     );
   }
 
@@ -572,15 +873,21 @@ final class _VcsCollectorEngine {
     return destination;
   }
 
-  VcsBaseline _baseline(String backend, String id, int turn, DateTime time) =>
-      VcsBaseline(
-        backend: backend,
-        id: id,
-        turn: turn,
-        time: time,
-        seq: ++_baselineSequence,
-        jobsLive: false,
-      );
+  VcsBaseline _baseline(
+    String backend,
+    String id,
+    int turn,
+    DateTime time, {
+    int? sequence,
+    bool jobsLive = false,
+  }) => VcsBaseline(
+    backend: backend,
+    id: id,
+    turn: turn,
+    time: time,
+    seq: sequence ?? ++_baselineSequence,
+    jobsLive: jobsLive,
+  );
 
   bool _hasMarker(String directory, String marker) =>
       FileSystemEntity.typeSync(
@@ -646,16 +953,37 @@ final class _VcsCollectorEngine {
     required String sourcePath,
   }) => _privateIndex(run, repository: repository, sourcePath: sourcePath);
 
-  VcsBaseline baseline(String backend, String id, int turn, DateTime time) =>
-      _baseline(backend, id, turn, time);
+  VcsBaseline baseline(
+    String backend,
+    String id,
+    int turn,
+    DateTime time, {
+    int? sequence,
+    bool jobsLive = false,
+  }) => _baseline(
+    backend,
+    id,
+    turn,
+    time,
+    sequence: sequence,
+    jobsLive: jobsLive,
+  );
 }
 
 final class _CollectionRun {
-  _CollectionRun(this.engine, this.previous, this.time);
+  _CollectionRun(
+    this.engine,
+    this.previous,
+    this.time,
+    this.startedAt,
+    this.deadline,
+  );
 
   final _VcsCollectorEngine engine;
   final VcsCollection? previous;
   final DateTime time;
+  final Duration startedAt;
+  final Duration deadline;
   final Completer<VcsCollection> returned = Completer<VcsCollection>();
   final _CommandLimiter _commandLimiter = _CommandLimiter();
   final Set<_TrackedCommand> _commands = {};
@@ -667,11 +995,43 @@ final class _CollectionRun {
   bool _stopped = false;
   final Completer<void> _stoppedSignal = Completer<void>();
   bool _finished = false;
+  Duration? _prehashCutoffAt;
+  VcsCollection? _completedCapture;
+  final Map<String, VcsVerification> verification = {};
 
   bool get isStopped => _stopped || _finished;
 
+  Duration get remaining {
+    final elapsed = engine._deadlineScheduler.elapsed - startedAt;
+    final left = deadline - elapsed;
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  Duration get prehashRemaining {
+    final cutoff = _prehashCutoffAt;
+    if (cutoff == null) return Duration.zero;
+    final left = cutoff - engine._deadlineScheduler.elapsed;
+    return left.isNegative ? Duration.zero : left;
+  }
+
   void checkActive() {
+    engine._expireIfDue(this, previous, time);
     if (isStopped) throw const _CollectionStopped();
+  }
+
+  void markLockAcquired(Duration elapsed) {
+    final left = remaining;
+    _prehashCutoffAt =
+        elapsed + Duration(microseconds: left.inMicroseconds ~/ 3);
+  }
+
+  void recordCompletedCapture(VcsCollection capture) {
+    _completedCapture = capture;
+  }
+
+  void recordVerification(String path, VcsVerification result) {
+    if (isStopped || _completedCapture == null) return;
+    verification[path] = result;
   }
 
   void attachLock(_LockLease lock) {
@@ -728,18 +1088,34 @@ final class _CollectionRun {
     engine._forgetRun(this);
   }
 
-  void stop(VcsCollection result) {
+  void stop(VcsCollection result, {bool deadlineExpired = false}) {
     if (_stopped || _finished) return;
+    final captured = _completedCapture;
+    if (deadlineExpired && captured != null) {
+      result = engine._copyCollection(
+        captured,
+        verification: Map.unmodifiable(verification),
+        captureCompleted: true,
+        deadlineExpired: true,
+      );
+    }
     _stopped = true;
     if (!_stoppedSignal.isCompleted) _stoppedSignal.complete();
     releaseLock();
     engine._forgetRun(this);
     final currentLease = lease;
     if (currentLease != null) {
-      currentLease.quarantine([
-        ..._commands,
-        ..._cleanupCommands,
-      ], List<Future<void>>.of(_io));
+      if (deadlineExpired &&
+          captured != null &&
+          _commands.isEmpty &&
+          _cleanupCommands.isEmpty) {
+        engine._releaseLease(currentLease);
+      } else {
+        currentLease.quarantine([
+          ..._commands,
+          ..._cleanupCommands,
+        ], List<Future<void>>.of(_io));
+      }
     }
     if (!returned.isCompleted) returned.complete(result);
   }
@@ -905,6 +1281,7 @@ void _releasePermitOnTermination(
   _TrackedCommand command,
   _CommandPermit permit,
 ) {
+  if (permit._released) return;
   unawaited(
     command.terminate().then<void>((result) {
       if (result == VcsTerminationResult.confirmed) permit.release();
@@ -1009,6 +1386,16 @@ String _decodeBytes(List<int> bytes, int start, int end) {
   }
   if (segment < end) output.write(utf8.decode(_byteView(bytes, segment, end)));
   return output.toString();
+}
+
+bool _isValidUtf8(List<int> bytes, int start, int end) {
+  var index = start;
+  while (index < end) {
+    final width = _utf8WidthAt(bytes, index, end);
+    if (width == 0) return false;
+    index += width;
+  }
+  return true;
 }
 
 int _utf8WidthAt(List<int> bytes, int index, int end) {

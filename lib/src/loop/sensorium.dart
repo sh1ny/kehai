@@ -169,16 +169,37 @@ final class SensoriumVcs {
   final int? conflictCount;
 }
 
-/// One changed path and its line counts.
+/// The origin a captured file difference can prove.
+enum SensoriumChangeBy { agent, user, unknown }
+
+/// One changed path, its line counts and its verified origin.
 final class SensoriumChange {
   const SensoriumChange(
     this.path, {
     required this.added,
     required this.removed,
+    this.by = SensoriumChangeBy.unknown,
+    this.binary = false,
   });
   final String path;
   final int added;
   final int removed;
+  final SensoriumChangeBy by;
+  final bool binary;
+}
+
+/// A supplied difference from one captured baseline.
+final class SensoriumChanges {
+  const SensoriumChanges({
+    required this.sinceTurn,
+    required this.rows,
+    this.totalPaths,
+    this.partial = false,
+  });
+  final int sinceTurn;
+  final Iterable<SensoriumChange> rows;
+  final int? totalPaths;
+  final bool partial;
 }
 
 /// One supplied diagnostic, with bounded presentation applied at composition.
@@ -218,7 +239,17 @@ final class SensoriumCheckpoint {
 }
 
 /// The finite notice codes; recovery prose remains a separate request item.
-enum SensoriumNotice { compactionRecovery, legacyWindowIgnored }
+enum SensoriumNotice {
+  compactionRecovery('compaction_recovery'),
+  legacyWindowIgnored('legacy_window_ignored'),
+  vcsTimeout('vcs_timeout'),
+  vcsFailed('vcs_failed'),
+  userEdits('user_edits'),
+  baselineReset('baseline_reset');
+
+  const SensoriumNotice(this.code);
+  final String code;
+}
 
 /// One request's finite typed composition input.
 final class SensoriumSnapshot {
@@ -240,7 +271,7 @@ final class SensoriumSnapshot {
   final String workspaceName;
   final SensoriumBudget budget;
   final SensoriumObservation<SensoriumVcs> vcs;
-  final SensoriumObservation<Iterable<SensoriumChange>> changes;
+  final SensoriumObservation<SensoriumChanges> changes;
   final SensoriumObservation<Iterable<SensoriumDiagnostic>> diagnostics;
   final SensoriumObservation<SensoriumTests> tests;
   final Iterable<SensoriumProcess> processes;
@@ -488,6 +519,32 @@ String _repositoryText(String value, int limit, {bool firstLine = false}) {
   return out.toString();
 }
 
+(String, String) _changesSection(SensoriumChanges changes, int cap) {
+  final full = _Preview(12);
+  final folded = _Preview(12);
+  for (final change in changes.rows) {
+    final path = _repositoryText(change.path, 45);
+    final counts = change.binary
+        ? 'binary'
+        : '+${_number(change.added)} -${_number(change.removed)}';
+    full.add('$path $counts by: ${change.by.name}');
+    folded.add('$path by: ${change.by.name}');
+  }
+  final total = changes.totalPaths;
+  if (total != null && total > full.count) full.count = total;
+  folded.count = full.count;
+  final detail =
+      'since_turn: ${_number(changes.sinceTurn)}${changes.partial ? ' partial' : ''}';
+  if (changes.partial && full.count == 0) {
+    final text = 'changes_since_last_turn: $detail';
+    return (text, text);
+  }
+  return (
+    _rows('changes_since_last_turn', full, cap, detail: detail),
+    _rows('changes_since_last_turn', folded, cap, detail: detail),
+  );
+}
+
 String _vcsCounts(SensoriumVcs vcs, int conflicts) {
   final conflictCount = conflicts == 0 && !vcs.partial
       ? 'none'
@@ -611,18 +668,27 @@ final class _Preview {
 
 // Each stored row is already bounded. Try only bounded preview prefixes and
 // always account for a total omission marker before admitting another row.
-String _rows(String header, _Preview preview, int cap, {int? limit}) {
-  if (preview.count == 0) return '$header: none';
+String _rows(
+  String header,
+  _Preview preview,
+  int cap, {
+  int? limit,
+  String detail = '',
+}) {
+  if (preview.count == 0) {
+    return '$header: none${detail.isEmpty ? '' : ' ($detail)'}';
+  }
   var shown = limit == null || limit > preview.rows.length
       ? preview.rows.length
       : limit;
+  final heading = detail.isEmpty ? '$header:' : '$header: $detail';
   while (shown >= 0) {
     final rows = preview.latest
         ? preview.rows.skip(preview.rows.length - shown)
         : preview.rows.take(shown);
     final omitted = preview.count - shown;
     final text =
-        '$header:\n${rows.map((row) => '  $row').join('\n')}'
+        '$heading\n${rows.map((row) => '  $row').join('\n')}'
         '${omitted > 0 ? '${shown > 0 ? '\n' : ''}  … +${_number(omitted)} more' : ''}';
     if (estimateText(text) <= cap) return text;
     shown--;
@@ -649,25 +715,28 @@ final class _Observed {
   }
 }
 
+String _noticesSection(Set<SensoriumNotice> notices) {
+  if (notices.isEmpty) return 'notices: none';
+  final text = StringBuffer('notices: ');
+  var separator = '';
+  for (final notice in SensoriumNotice.values) {
+    if (!notices.contains(notice)) continue;
+    text
+      ..write(separator)
+      ..write(notice.code);
+    separator = ', ';
+  }
+  return text.toString();
+}
+
 final class _Sections {
   _Sections(this.snapshot) {
     vcs = _observe(snapshot.vcs, SensoriumAllocations.vcs, _vcsSection);
-    changes = _observe(snapshot.changes, SensoriumAllocations.changes, (
-      values,
-      cap,
-    ) {
-      final full = _Preview(12);
-      final folded = _Preview(12);
-      for (final change in values) {
-        final path = _clip(change.path, 45);
-        full.add('$path +${_number(change.added)} -${_number(change.removed)}');
-        folded.add(path);
-      }
-      return (
-        _rows('changes_since_last_turn', full, cap),
-        _rows('changes_since_last_turn', folded, cap),
-      );
-    });
+    changes = _observe(
+      snapshot.changes,
+      SensoriumAllocations.changes,
+      _changesSection,
+    );
     diagnostics = _observe(
       snapshot.diagnostics,
       SensoriumAllocations.diagnostics,
@@ -787,9 +856,7 @@ final class _Sections {
       'checkpoints',
       folds.contains(SensoriumFold.checkpoints),
     ),
-    snapshot.notices.isEmpty
-        ? 'notices: none'
-        : 'notices: ${[if (snapshot.notices.contains(SensoriumNotice.compactionRecovery)) 'compaction_recovery', if (snapshot.notices.contains(SensoriumNotice.legacyWindowIgnored)) 'legacy_window_ignored'].join(', ')}',
+    _noticesSection(snapshot.notices),
   ];
 }
 

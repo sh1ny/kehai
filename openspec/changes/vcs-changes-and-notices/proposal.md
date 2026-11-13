@@ -46,13 +46,17 @@ It builds on entry 2, `sensorium-block-and-scratchpad`, which shipped the typed 
 
 ## Release Notes
 
-Add bounded repository observation and durable filesystem mutation provenance.
+Add bounded repository observation, admitted change baselines and durable filesystem mutation provenance.
 
 ### Added
 - Startup `vcs.backend` selection and `sensorium.collectorDeadlineMs`, with explicit disabled, missing-tool, timeout and failure states.
 - Serialized jj/git capture, fresh private git indexes, bounded output and quarantined process cleanup without changing the user's index, refs or working tree.
 - Resolved edit/write targets, byte hashes and durable effect ordering, with identity-guarded quiescence and a 16-run unfinished-mutation limit.
 - Write-ahead preservation of live targets across rewind, session-owned recovery and bounded foreign uncertainty at fork.
+- Tree-held baselines and bounded observation values, retained unchanged across collection failures, rewind and resume.
+- Per-path agent/user/unknown attribution from ordered effects, frozen uncertainty and bounded pre/post raw-byte verification; case aliases and unresolved effect-order boundaries remain conservative.
+- Shared-deadline verification of at most 64 paths of 4 MiB each, retaining completed captures when only post-verification expires.
 
 ### Changed
 - VCS presentation now supports backend identity, counts, conflicts and bounded paths, with escaped repository text and explicit omissions.
+- Full and folded changes retain attribution and the baseline turn; the six finite notice codes render once in fixed order.

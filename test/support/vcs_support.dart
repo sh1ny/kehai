@@ -150,14 +150,21 @@ final class FakeVcsProcess implements VcsProcess {
 final class ManualVcsDeadlineScheduler implements VcsDeadlineScheduler {
   final List<Duration> durations = [];
   final List<Completer<void>> _deadlines = [];
+  final List<Duration> _dueTimes = [];
   final List<_CountWaiter> _waiters = [];
+  final List<_DurationWaiter> _durationWaiters = [];
+  Duration _elapsed = Duration.zero;
+
+  Duration get elapsed => _elapsed;
 
   @override
   Future<void> wait(Duration duration) {
     durations.add(duration);
     final deadline = Completer<void>();
     _deadlines.add(deadline);
+    _dueTimes.add(_elapsed + duration);
     _notifyWaiters();
+    _notifyDurationWaiters(duration);
     return deadline.future;
   }
 
@@ -168,9 +175,33 @@ final class ManualVcsDeadlineScheduler implements VcsDeadlineScheduler {
     return completer.future;
   }
 
+  Future<void> waitForDuration(Duration duration) {
+    if (durations.contains(duration)) return Future.value();
+    final completer = Completer<void>();
+    _durationWaiters.add(_DurationWaiter(duration, completer));
+    return completer.future;
+  }
+
+  void advance(Duration duration) {
+    if (duration.isNegative) {
+      throw ArgumentError.value(duration, 'duration', 'must not be negative');
+    }
+    _elapsed += duration;
+    _completeDue();
+  }
+
   void expire(int index) {
-    final deadline = _deadlines[index];
-    if (!deadline.isCompleted) deadline.complete();
+    final dueTime = _dueTimes[index];
+    if (dueTime > _elapsed) _elapsed = dueTime;
+    if (!_deadlines[index].isCompleted) _deadlines[index].complete();
+  }
+
+  void _completeDue() {
+    for (var i = 0; i < _deadlines.length; i++) {
+      if (_dueTimes[i] <= _elapsed && !_deadlines[i].isCompleted) {
+        _deadlines[i].complete();
+      }
+    }
   }
 
   void _notifyWaiters() {
@@ -181,12 +212,28 @@ final class ManualVcsDeadlineScheduler implements VcsDeadlineScheduler {
       }
     }
   }
+
+  void _notifyDurationWaiters(Duration duration) {
+    for (final waiter in List<_DurationWaiter>.of(_durationWaiters)) {
+      if (waiter.duration == duration) {
+        waiter.completer.complete();
+        _durationWaiters.remove(waiter);
+      }
+    }
+  }
 }
 
 final class _CountWaiter {
   const _CountWaiter(this.count, this.completer);
 
   final int count;
+  final Completer<void> completer;
+}
+
+final class _DurationWaiter {
+  const _DurationWaiter(this.duration, this.completer);
+
+  final Duration duration;
   final Completer<void> completer;
 }
 

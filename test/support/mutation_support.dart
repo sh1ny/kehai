@@ -104,18 +104,28 @@ final class MutationHarness {
   Map<String, Object?> call(String id) =>
       mutationNode(writer, 'body/calls/${callKey(id)}');
 
-  Future<ToolOutputItem> write(String id, String path, String content) =>
-      runtime.run(
-        ToolCall(
-          callId: id,
-          name: 'write',
-          argumentsJson: jsonEncode({'path': path, 'content': content}),
-        ),
-      );
+  Future<ToolOutputItem> write(
+    String id,
+    String path,
+    String content, {
+    int? stepTurn,
+  }) => _run(
+    ToolCall(
+      callId: id,
+      name: 'write',
+      argumentsJson: jsonEncode({'path': path, 'content': content}),
+    ),
+    stepTurn,
+  );
 
-  Future<ToolOutputItem> edit(String id, String path, String content) {
+  Future<ToolOutputItem> edit(
+    String id,
+    String path,
+    String content, {
+    int? stepTurn,
+  }) {
     final bytes = file(path).readAsBytesSync();
-    return runtime.run(
+    return _run(
       ToolCall(
         callId: id,
         name: 'edit',
@@ -127,7 +137,35 @@ final class MutationHarness {
           ],
         }),
       ),
+      stepTurn,
     );
+  }
+
+  Future<ToolOutputItem> _run(ToolCall call, int? stepTurn) async {
+    if (stepTurn != null) {
+      final path = mutationStepPath(stepTurn);
+      final output = mutationNode(writer, path)['output'];
+      await writer.apply(
+        JournalRecord(
+          turn: writer.currentTurn,
+          path: path,
+          op: Op.merge,
+          value: {
+            'output': [
+              if (output is List) ...output,
+              {
+                'type': 'call',
+                'call': callKey(call.callId),
+                'callId': call.callId,
+                'name': call.name,
+                'arguments': call.argumentsJson,
+              },
+            ],
+          },
+        ),
+      );
+    }
+    return runtime.run(call, stepTurn: stepTurn);
   }
 
   Future<void> nextTurn() => writer.apply(
@@ -159,6 +197,7 @@ void releaseMutationAfterTest(MutationHarness harness, HeldRename held) {
 final class HeldRenames {
   final _held = <String, HeldRename>{};
   final _waiting = <String, Completer<HeldRename>>{};
+  final _claimed = <HeldRename>{};
 
   Iterable<HeldRename> get all => _held.values;
 
@@ -172,8 +211,11 @@ final class HeldRenames {
 
   Future<HeldRename> waitFor(String name) {
     final held = _held[name];
-    if (held != null) return Future.value(held);
-    return (_waiting[name] ??= Completer<HeldRename>()).future;
+    if (held != null && _claimed.add(held)) return Future.value(held);
+    return (_waiting[name] ??= Completer<HeldRename>()).future.then((held) {
+      _claimed.add(held);
+      return held;
+    });
   }
 
   void cleanupAfterTest(MutationHarness harness) {
@@ -208,13 +250,19 @@ final class WriterHeldMutation {
 
   File get journal => journalOf(writer.sessionDir);
 
-  static Future<WriterHeldMutation> start({bool callSurvives = false}) async {
+  static Future<WriterHeldMutation> start({
+    bool callSurvives = false,
+    Future<void> Function(Directory workspace, SessionWriter writer)?
+    beforeMutation,
+  }) async {
     final workspace = await tempDir();
     Directory(p.join(workspace.path, '.git')).createSync();
     final target = File(p.join(workspace.path, 'lib', 'a.dart'));
     target.parent.createSync();
     target.writeAsStringSync('before\n');
     final (writer, io) = await createHooked(workspace);
+    await writer.apply(rec(0, 'meta/vcs', Op.merge, {'seqHigh': 7}));
+    await beforeMutation?.call(workspace, writer);
     final callPath = 'body/calls/${callKey('writer-held')}';
     await writer.apply(
       rec(callSurvives ? 0 : 1, callPath, Op.set, {
@@ -230,7 +278,6 @@ final class WriterHeldMutation {
     if (callSurvives) {
       await writer.apply(rec(1, callPath, Op.merge, {'target': 'lib/a.dart'}));
     }
-    await writer.apply(rec(1, 'meta/vcs', Op.merge, {'seqHigh': 7}));
     final MutationTarget run = (
       runId: 'held-attempt',
       callPath: callPath,
@@ -267,3 +314,6 @@ final class WriterHeldMutation {
     );
   }
 }
+
+String mutationStepPath(int turn) =>
+    'body/steps/s-${turn.toString().padLeft(8, '0')}';

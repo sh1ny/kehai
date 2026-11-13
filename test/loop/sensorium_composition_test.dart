@@ -48,6 +48,7 @@ SensoriumSnapshot _snapshot({
   SensoriumObservation<Iterable<SensoriumDiagnostic>>? diagnostics,
   SensoriumObservation<SensoriumTests>? tests,
   SensoriumObservation<String>? plan,
+  Set<SensoriumNotice>? notices,
   Iterable<SensoriumProcess>? processes,
 }) => SensoriumSnapshot(
   source: SensoriumSource(
@@ -73,12 +74,15 @@ SensoriumSnapshot _snapshot({
         ),
       ),
   changes: SensoriumAvailable(
-    List.generate(
-      6,
-      (i) => SensoriumChange(
-        '${_id('changed-path', i)}.dart',
-        added: 12345,
-        removed: 6789,
+    SensoriumChanges(
+      sinceTurn: 13,
+      rows: List.generate(
+        6,
+        (i) => SensoriumChange(
+          '${_id('changed-path', i)}.dart',
+          added: 12345,
+          removed: 6789,
+        ),
       ),
     ),
   ),
@@ -125,10 +129,12 @@ SensoriumSnapshot _snapshot({
       (i) => SensoriumCheckpoint('${_id('checkpoint', i)}-snapshot'),
     ),
   ),
-  notices: const {
-    SensoriumNotice.compactionRecovery,
-    SensoriumNotice.legacyWindowIgnored,
-  },
+  notices:
+      notices ??
+      const {
+        SensoriumNotice.compactionRecovery,
+        SensoriumNotice.legacyWindowIgnored,
+      },
 );
 
 // Search a finite range of *direct* ceilings, rather than pinning incidental
@@ -161,6 +167,41 @@ SensoriumSnapshot _snapshot({
 
 void main() {
   group('Finite sensorium composition', () {
+    for (final folded in [false, true]) {
+      test(
+        '${folded ? 'folded' : 'full'} changes retain attribution and baseline turn',
+        () {
+          final snapshot = _snapshot();
+          final result = folded
+              ? _atFold(snapshot, 5).$1
+              : composeSensorium(snapshot);
+          final changes = _section(result.text, 'changes_since_last_turn');
+          expect(changes, contains('by: unknown'));
+          expect(changes, contains('since_turn: 13'));
+          if (folded) {
+            expect(changes, isNot(matches(RegExp(r'\+\d+ -\d+'))));
+          }
+        },
+      );
+    }
+
+    test('all six notice codes fit 80 tokens in fixed order', () {
+      final result = composeSensorium(
+        _snapshot(notices: SensoriumNotice.values.reversed.toSet()),
+      );
+      final notices = _section(result.text, 'notices');
+      expect(
+        notices,
+        'notices: compaction_recovery, legacy_window_ignored, vcs_timeout, vcs_failed, user_edits, baseline_reset',
+      );
+      expect(estimateText(notices), lessThanOrEqualTo(80));
+    });
+
+    test('no notice condition renders notices none', () {
+      final result = composeSensorium(_snapshot(notices: {}));
+      expect(_section(result.text, 'notices'), 'notices: none');
+    });
+
     test(
       'typed supplied observations preserve section order and availability',
       () {

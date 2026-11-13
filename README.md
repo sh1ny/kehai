@@ -184,8 +184,10 @@ including on native Windows; observation does not recurse into submodules.
 `sensorium.collectorDeadlineMs` must be an integer from 100 to 10000 and defaults
 to 300. The first collection in an engine run gets at least 3000 ms for cold
 startup. The deadline includes waiting for the engine's collection lock and all
-capture work. At expiry, observation issues process-tree termination and returns
-without waiting for cleanup. These settings require an engine restart.
+capture work. Incomplete captures request process-tree termination at expiry
+without waiting for cleanup. If only post-capture hash verification expires,
+the fresh capture is retained and unverified rows remain unknown. These settings
+require an engine restart.
 
 jj observation performs its ordinary working-copy snapshot and may add operation
 log entries. Git observation copies the current user index into a fresh private
@@ -206,6 +208,35 @@ clean. With an earlier admitted value, a failed collection reports that value as
 partial lower-bound counts and explicit omissions. Timed-out collections keep
 their private files quarantined until termination is confirmed. If all 16
 cleanup slots are held, no new VCS process starts.
+
+### Changes since the previous capture
+
+`changes_since_last_turn` compares the current content-addressed capture with the
+previous **admitted** baseline, not with HEAD or a status preview. It shows the
+baseline turn, up to 12 changed paths, added/removed line counts or `binary`, and
+an explicit omitted count. Folded rows keep the path and attribution.
+
+- `by: agent` means both raw-byte hashes, before and after capture, match the
+  latest recorded successful effect, with unchanged size and modification stamp,
+  and no applicable uncertainty. Repository line-ending or clean-filter
+  conversion does not replace that raw-byte proof.
+- `by: user` means no applicable mutation or process-running activity exists in
+  this session's interval. It means outside recorded session provenance, not
+  verified human identity. These rows raise `user_edits` once.
+- `by: unknown` means the proof is incomplete or a mutation, process, job,
+  case-variant spelling or retained uncertainty prevents attribution.
+
+The interval includes calls in the baseline request's own response. Hashing is
+bounded to 64 effect paths of at most 4 MiB each. Incomplete or over-limit reads
+cannot prove agent authorship; abandoned reads keep their slots until I/O ends.
+
+A failed collection retains the original bounded value, age and effective
+baseline without relabelling its old rows. The first request reads
+`unavailable (no baseline)`. An unreadable baseline, backend switch or 256 steps
+without an admitted observation reads `unavailable (baseline lost)` and raises
+`baseline_reset`; the new capture starts the next comparison. Consecutive admitted
+failures carry the old baseline forward rather than exhausting that lookup.
+Rewind and resume use the surviving journalled observations, not a side cache.
 
 ### Filesystem mutation provenance
 

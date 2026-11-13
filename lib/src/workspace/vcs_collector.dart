@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' show Digest, sha256;
 import 'package:path/path.dart' as p;
 
+import '../session/mutations.dart' show MutationSequence;
 import '../loop/sensorium.dart';
 import '../shell/direct_exec.dart' show resolveProgram;
 import '../shell/launch.dart' show startProcess;
@@ -15,6 +17,25 @@ part 'vcs_collector_engine.dart';
 part 'vcs_collector_git.dart';
 part 'vcs_collector_jj.dart';
 
+/// The bounded latest effects and shared capture authority for attribution.
+typedef VcsAttributionInput = ({
+  Map<String, String> effects,
+  MutationSequence sequence,
+  bool jobsLive,
+});
+
+/// A bounded content hash and file-stat sample.
+typedef VcsFileSample = ({String sha256, int size, int modifiedMicros});
+
+/// The before and after samples used to verify one effect.
+typedef VcsVerification = ({VcsFileSample? before, VcsFileSample? after});
+
+/// Reads and hashes at most [maxBytes] from an absolute workspace path.
+typedef VcsFileReader = Future<VcsFileSample?> Function(
+  String absolute,
+  int maxBytes,
+);
+
 /// The small seam shared by request collection and status previews.
 abstract interface class WorkspaceObserver {
   Future<VcsCollection> collect({
@@ -24,6 +45,7 @@ abstract interface class WorkspaceObserver {
     VcsCollection? previous,
     int turn = 0,
     DateTime? time,
+    VcsAttributionInput? attribution,
   });
 }
 
@@ -35,6 +57,9 @@ final class VcsCollection {
     this.changes = const [],
     this.reason,
     this.baselineLost = false,
+    this.verification = const {},
+    this.captureCompleted = false,
+    this.deadlineExpired = false,
   });
 
   final SensoriumObservation<SensoriumVcs> observation;
@@ -42,6 +67,15 @@ final class VcsCollection {
   final List<VcsDelta> changes;
   final String? reason;
   final bool baselineLost;
+
+  /// The per-path samples captured before and after the VCS command plan.
+  final Map<String, VcsVerification> verification;
+
+  /// Whether the complete VCS command plan finished.
+  final bool captureCompleted;
+
+  /// Whether the overall collection deadline expired.
+  final bool deadlineExpired;
 }
 
 /// A content-addressed VCS capture attached to an admitted observation.
@@ -70,12 +104,16 @@ final class VcsDelta {
     required this.added,
     required this.removed,
     required this.binary,
+    this.pathIsUtf8 = true,
   });
 
   final String path;
   final int added;
   final int removed;
   final bool binary;
+
+  /// Whether the original path bytes were valid UTF-8.
+  final bool pathIsUtf8;
 }
 
 /// A process started by the collector's injected runner.
@@ -116,6 +154,9 @@ enum VcsTerminationResult { confirmed, unverified }
 
 /// An injectable deadline wait used by deterministic collector tests.
 abstract interface class VcsDeadlineScheduler {
+  /// The monotonic elapsed time shared by deadline waits and budget checks.
+  Duration get elapsed;
+
   Future<void> wait(Duration duration);
 }
 
@@ -124,10 +165,12 @@ final class VcsCollector implements WorkspaceObserver {
   VcsCollector({
     VcsProcessRunner? processRunner,
     VcsDeadlineScheduler? deadlineScheduler,
+    VcsFileReader? readFile,
     Map<String, String>? environment,
   }) : _engine = _VcsCollectorEngine(
          processRunner: processRunner,
          deadlineScheduler: deadlineScheduler,
+         readFile: readFile,
          environment: environment,
        );
 
@@ -141,6 +184,7 @@ final class VcsCollector implements WorkspaceObserver {
     VcsCollection? previous,
     int turn = 0,
     DateTime? time,
+    VcsAttributionInput? attribution,
   }) => _engine.collect(
     root: root,
     backend: backend,
@@ -148,6 +192,7 @@ final class VcsCollector implements WorkspaceObserver {
     previous: previous,
     turn: turn,
     time: time,
+    attribution: attribution,
   );
 
   /// Closes this engine's collection and quarantined-index lifecycle.

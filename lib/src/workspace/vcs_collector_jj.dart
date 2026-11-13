@@ -13,6 +13,8 @@ extension _JjCollector on _VcsCollectorEngine {
     required VcsCollection? previous,
     required int turn,
     required DateTime time,
+    required int? captureSequence,
+    required bool jobsLive,
   }) async {
     final snapshotResult = await _jjCommand(
       run,
@@ -134,7 +136,14 @@ extension _JjCollector on _VcsCollectorEngine {
       totalPaths: statuses.length,
       conflictCount: snapshot.conflicts.length,
     );
-    final baseline = this.baseline('jj', snapshot.commit, turn, time);
+    final baseline = this.baseline(
+      'jj',
+      snapshot.commit,
+      turn,
+      time,
+      sequence: captureSequence,
+      jobsLive: jobsLive,
+    );
     final reason = baselineLost
         ? 'baseline lost'
         : priorBaseline == null
@@ -198,14 +207,28 @@ final class _JjDeltas {
 }
 
 final class _PatchFile {
-  _PatchFile(this.oldPath, this.newPath);
+  _PatchFile(
+    this.oldPath,
+    this.newPath, {
+    this.oldPathIsUtf8 = true,
+    this.newPathIsUtf8 = true,
+  });
 
   String? oldPath;
   String? newPath;
+  bool oldPathIsUtf8;
+  bool newPathIsUtf8;
   int added = 0;
   int removed = 0;
   bool binary = false;
   bool inHunk = false;
+}
+
+final class _DecodedPatchPath {
+  const _DecodedPatchPath(this.path, this.pathIsUtf8);
+
+  final String path;
+  final bool pathIsUtf8;
 }
 
 final class _GitPathToken {
@@ -386,6 +409,9 @@ _JjDeltas _parseJjGitDiff(VcsProcessResult result) {
     final file = current;
     if (file == null) return;
     final path = file.newPath ?? file.oldPath;
+    final pathIsUtf8 = file.newPath == null
+        ? file.oldPathIsUtf8
+        : file.newPathIsUtf8;
     if (path == null || path.isEmpty) {
       throw const _CollectorFailure(
         SensoriumReason.failed,
@@ -399,10 +425,11 @@ _JjDeltas _parseJjGitDiff(VcsProcessResult result) {
     }
     deltas.add(
       VcsDelta(
-        path: _clipUtf8(path, 128),
+        path: path,
         added: file.binary ? 0 : file.added,
         removed: file.binary ? 0 : file.removed,
         binary: file.binary,
+        pathIsUtf8: pathIsUtf8,
       ),
     );
     entries++;
@@ -436,7 +463,12 @@ _JjDeltas _parseJjGitDiff(VcsProcessResult result) {
 
 _PatchFile _newPatchFile(List<int> bytes, int start, int end) {
   final header = _headerPaths(bytes, start, end);
-  return _PatchFile(header.$1, header.$2);
+  return _PatchFile(
+    header.$1,
+    header.$2,
+    oldPathIsUtf8: header.$3,
+    newPathIsUtf8: header.$4,
+  );
 }
 
 void _readPatchLine(_PatchFile file, List<int> bytes, int start, int end) {
@@ -447,12 +479,20 @@ void _readPatchLine(_PatchFile file, List<int> bytes, int start, int end) {
   }
   if (!file.inHunk && _bytePrefix(bytes, start, end, '--- ')) {
     final value = _patchPath(bytes, start + 4, end);
-    if (value != null) file.oldPath = value;
+    if (value != null) {
+      file
+        ..oldPath = value.path
+        ..oldPathIsUtf8 = value.pathIsUtf8;
+    }
     return;
   }
   if (!file.inHunk && _bytePrefix(bytes, start, end, '+++ ')) {
     final value = _patchPath(bytes, start + 4, end);
-    if (value != null) file.newPath = value;
+    if (value != null) {
+      file
+        ..newPath = value.path
+        ..newPathIsUtf8 = value.pathIsUtf8;
+    }
     return;
   }
   if (_bytePrefix(bytes, start, end, '@@')) {
@@ -467,21 +507,31 @@ void _readPatchLine(_PatchFile file, List<int> bytes, int start, int end) {
   }
 }
 
-(String?, String?) _headerPaths(List<int> bytes, int start, int end) {
-  if (start >= end) return (null, null);
+(String?, String?, bool, bool) _headerPaths(
+  List<int> bytes,
+  int start,
+  int end,
+) {
+  if (start >= end) return (null, null, true, true);
   final oldToken = _pathToken(bytes, start, end);
   if (oldToken != null && oldToken.next < end && bytes[oldToken.next] == 32) {
     final newToken = _pathToken(bytes, oldToken.next + 1, end);
     if (newToken != null && newToken.next == end) {
+      final oldPath = _stripGitPath(oldToken.bytes, 'a/');
+      final newPath = _stripGitPath(newToken.bytes, 'b/');
       return (
-        _stripGitPath(oldToken.bytes, 'a/'),
-        _stripGitPath(newToken.bytes, 'b/'),
+        oldPath,
+        newPath,
+        oldPath == null ||
+            _isValidUtf8(oldToken.bytes, 2, oldToken.bytes.length),
+        newPath == null ||
+            _isValidUtf8(newToken.bytes, 2, newToken.bytes.length),
       );
     }
   }
 
-  (String?, String?)? equalPaths;
-  (String?, String?)? candidate;
+  (String?, String?, bool, bool)? equalPaths;
+  (String?, String?, bool, bool)? candidate;
   for (var index = start; index + 2 < end; index++) {
     if (bytes[index] != 32 ||
         bytes[index + 1] != 98 ||
@@ -492,17 +542,21 @@ void _readPatchLine(_PatchFile file, List<int> bytes, int start, int end) {
         !_bytePrefix(bytes, index + 1, end, 'b/')) {
       continue;
     }
-    final oldPath = _decodeBytes(bytes, start + 2, index);
-    final newPath = _decodeBytes(bytes, index + 3, end);
-    candidate ??= (_repositoryPath(oldPath), _repositoryPath(newPath));
-    if (oldPath == newPath) {
-      equalPaths = (_repositoryPath(oldPath), _repositoryPath(newPath));
-    }
+    final oldPath = _repositoryPath(_decodeBytes(bytes, start + 2, index));
+    final newPath = _repositoryPath(_decodeBytes(bytes, index + 3, end));
+    final decoded = (
+      oldPath,
+      newPath,
+      _isValidUtf8(bytes, start + 2, index),
+      _isValidUtf8(bytes, index + 3, end),
+    );
+    candidate ??= decoded;
+    if (oldPath == newPath) equalPaths = decoded;
   }
-  return equalPaths ?? candidate ?? (null, null);
+  return equalPaths ?? candidate ?? (null, null, true, true);
 }
 
-String? _patchPath(List<int> bytes, int start, int end) {
+_DecodedPatchPath? _patchPath(List<int> bytes, int start, int end) {
   if (start >= end) return null;
   List<int> value;
   if (bytes[start] == 34) {
@@ -529,9 +583,11 @@ String? _patchPath(List<int> bytes, int start, int end) {
   }
   if (_byteEquals(value, '/dev/null')) return null;
   final stripped = _stripGitPathBytes(value);
-  return stripped == null
-      ? null
-      : _repositoryPath(_decodeBytes(stripped, 0, stripped.length));
+  if (stripped == null) return null;
+  return _DecodedPatchPath(
+    _repositoryPath(_decodeBytes(stripped, 0, stripped.length)),
+    _isValidUtf8(stripped, 0, stripped.length),
+  );
 }
 
 _GitPathToken? _pathToken(List<int> bytes, int start, int end) {

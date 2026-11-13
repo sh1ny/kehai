@@ -988,7 +988,7 @@ final class ExchangeDriver {
     // Every call is submitted before any is awaited, so the runtime's own
     // bounds decide what runs, queues or is refused busy.
     final errors = await Future.wait([
-      for (final call in calls) _runCall(call, token),
+      for (final call in calls) _runCall(call, token, stepTurn: turn),
     ]);
     for (final error in errors) {
       if (error is StorageError) throw error;
@@ -1001,9 +1001,13 @@ final class ExchangeDriver {
     return const _Continue();
   }
 
-  Future<Object?> _runCall(ToolCall call, CancelToken token) async {
+  Future<Object?> _runCall(
+    ToolCall call,
+    CancelToken token, {
+    required int stepTurn,
+  }) async {
     try {
-      await runtime.run(call, cancel: token);
+      await runtime.run(call, cancel: token, stepTurn: stepTurn);
       return null;
     } on Object catch (e) {
       return e;

@@ -390,7 +390,7 @@ SensoriumSnapshot _vcsSnapshot(SensoriumVcs vcs) => SensoriumSnapshot(
     turnsSinceCompaction: 4,
   ),
   vcs: SensoriumAvailable(vcs),
-  changes: const SensoriumAvailable(<SensoriumChange>[]),
+  changes: const SensoriumAvailable(SensoriumChanges(sinceTurn: 0, rows: [])),
   diagnostics: const SensoriumUnavailable(SensoriumReason.notCollected),
   tests: const SensoriumUnavailable(SensoriumReason.notCollected),
   processes: const [],

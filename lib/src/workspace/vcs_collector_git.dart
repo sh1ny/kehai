@@ -18,6 +18,8 @@ extension _GitCollector on _VcsCollectorEngine {
     required VcsCollection? previous,
     required int turn,
     required DateTime time,
+    required int? captureSequence,
+    required bool jobsLive,
   }) async {
     final baseEnvironment = gitEnvironment();
     final topLevelResult = await _gitCommand(
@@ -246,7 +248,14 @@ extension _GitCollector on _VcsCollectorEngine {
       totalPaths: orderedPaths.length,
       conflictCount: conflicts.length,
     );
-    final baseline = this.baseline('git', tree, turn, time);
+    final baseline = this.baseline(
+      'git',
+      tree,
+      turn,
+      time,
+      sequence: captureSequence,
+      jobsLive: jobsLive,
+    );
     final reason = baselineLost
         ? 'baseline lost'
         : priorBaseline == null
@@ -550,13 +559,15 @@ _GitNumstat _parseGitNumstat(VcsProcessResult result) {
     final added = _numstatCount(data.bytes, cursor, firstTab);
     final removed = _numstatCount(data.bytes, firstTab + 1, secondTab);
     final binary = added == null || removed == null;
-    final path = _repositoryPath(_decodeBytes(data.bytes, secondTab + 1, end));
+    final pathStart = secondTab + 1;
+    final path = _repositoryPath(_decodeBytes(data.bytes, pathStart, end));
     deltas.add(
       VcsDelta(
-        path: _clipUtf8(path, 128),
+        path: path,
         added: added ?? 0,
         removed: removed ?? 0,
         binary: binary,
+        pathIsUtf8: _isValidUtf8(data.bytes, pathStart, end),
       ),
     );
     entries++;

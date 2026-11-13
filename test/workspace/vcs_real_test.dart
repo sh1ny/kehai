@@ -4,12 +4,20 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+import 'package:kehai/kehai.dart';
 import 'package:kehai/src/loop/sensorium.dart';
 import 'package:kehai/src/workspace/vcs_collector.dart';
+import 'package:kehai/src/workspace/workspace_perception.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import '../support/attribution_support.dart' as attribution;
+import '../support/mutation_support.dart';
+import '../support/session_support.dart';
 
 const _gitName = 'Nikolay Bochev';
 const _gitEmail = '309868+sh1ny@users.noreply.github.com';
@@ -331,6 +339,51 @@ void main() {
       },
     );
 
+    test('autocrlf true agent write still reads by agent', () async {
+      final workspace = _RealWorkspace.create();
+      final collector = VcsCollector();
+      _registerCleanup(workspace, collector);
+      await workspace.initGit();
+      await _gitOk(workspace.directory, ['config', 'core.autocrlf', 'true']);
+      workspace.write('tracked.txt', 'baseline\n');
+      await workspace.commit('baseline');
+
+      final index = File(p.join(workspace.directory.path, '.git', 'index'));
+      final indexBefore = await index.readAsBytes();
+      final refsBefore = await _gitText(workspace.directory, ['show-ref']);
+      final (writer, runtime) = await _realSession(workspace);
+      final perception = _realPerception(workspace, runtime, collector);
+      await _captureReal(perception, writer);
+
+      const content = 'agent line one\r\nagent line two\r\n';
+      final arguments = jsonEncode({'path': 'tracked.txt', 'content': content});
+      await _linkCall(writer, 'autocrlf-write', 'write', arguments, 0);
+      await runtime.run(
+        ToolCall(
+          callId: 'autocrlf-write',
+          name: 'write',
+          argumentsJson: arguments,
+        ),
+        stepTurn: 0,
+      );
+      final rawBytes = await File(
+        p.join(workspace.directory.path, 'tracked.txt'),
+      ).readAsBytes();
+      final rawHash = sha256.convert(rawBytes).toString();
+      expect(rawHash, sha256.convert(utf8.encode(content)).toString());
+
+      await _nextTurn(writer);
+      final frame = await _captureReal(perception, writer);
+      _expectBy(
+        frame,
+        'tracked.txt',
+        SensoriumChangeBy.agent,
+        userEdits: false,
+      );
+      expect(await index.readAsBytes(), indexBefore);
+      expect(await _gitText(workspace.directory, ['show-ref']), refsBefore);
+    });
+
     test(
       'git baseline reports one-file added and removed line counts',
       () async {
@@ -347,6 +400,9 @@ void main() {
         );
         _available(baseline);
         final immutableBaselineId = _baselineId(baseline);
+        final (writer, runtime) = await _realSession(workspace);
+        final perception = _realPerception(workspace, runtime, collector);
+        await _captureReal(perception, writer);
         workspace.write('counts.txt', 'zero\nnew line\ntwo\nextra\n');
         final current = await collector.collect(
           root: workspace.directory.path,
@@ -361,6 +417,9 @@ void main() {
         expect(current.changes.single.path, 'counts.txt');
         expect(current.changes.single.added, 2);
         expect(current.changes.single.removed, 1);
+        await _nextTurn(writer);
+        final frame = await _captureReal(perception, writer);
+        _expectBy(frame, 'counts.txt', SensoriumChangeBy.user, userEdits: true);
       },
     );
 
@@ -380,6 +439,9 @@ void main() {
         );
         _available(baseline);
         final immutableBaselineId = _baselineId(baseline);
+        final (writer, runtime) = await _realSession(workspace);
+        final perception = _realPerception(workspace, runtime, collector);
+        await _captureReal(perception, writer);
         workspace.write('counts.txt', 'zero\nnew line\ntwo\nextra\n');
         final current = await collector.collect(
           root: workspace.directory.path,
@@ -394,6 +456,9 @@ void main() {
         expect(current.changes.single.path, 'counts.txt');
         expect(current.changes.single.added, 2);
         expect(current.changes.single.removed, 1);
+        await _nextTurn(writer);
+        final frame = await _captureReal(perception, writer);
+        _expectBy(frame, 'counts.txt', SensoriumChangeBy.user, userEdits: true);
       },
     );
   });
@@ -542,3 +607,96 @@ final class _RealWorkspace {
 
   Future<void> dispose() => temporary.delete(recursive: true);
 }
+
+Future<(SessionWriter, ToolRuntime)> _realSession(
+  _RealWorkspace workspace,
+) async {
+  final sessionRoot = await tempDir();
+  final writer = await createWriter(sessionRoot);
+  final runtime = await ToolRuntime.attach(
+    writer,
+    ResultStore(writer.sessionDir),
+    workspace: workspace.directory,
+    gate: const AllowAllStage(),
+  );
+  addTearDown(runtime.close);
+  return (writer, runtime);
+}
+
+WorkspacePerception _realPerception(
+  _RealWorkspace workspace,
+  ToolRuntime runtime,
+  VcsCollector collector,
+) => WorkspacePerception(
+  root: workspace.directory.path,
+  observer: collector,
+  mutations: runtime.mutations,
+  deadline: _collectionDeadline,
+);
+
+Future<WorkspacePerceptionFrame> _captureReal(
+  WorkspacePerception perception,
+  SessionWriter writer,
+) async {
+  final frame = await attribution
+      .captureWorkspace(perception, writer)
+      .collect();
+  attribution.composeWorkspaceFrame(frame);
+  await attribution.admitWorkspaceFrame(writer, frame);
+  return frame;
+}
+
+Future<void> _nextTurn(SessionWriter writer) => writer.apply(
+  JournalRecord(
+    turn: writer.currentTurn + 1,
+    path: 'body/markers/${writer.currentTurn + 1}',
+    op: Op.set,
+    value: true,
+  ),
+);
+
+void _expectBy(
+  WorkspacePerceptionFrame frame,
+  String path,
+  SensoriumChangeBy by, {
+  required bool userEdits,
+}) {
+  final changes = frame.changes;
+  expect(
+    changes,
+    isA<SensoriumAvailable<SensoriumChanges>>(),
+    reason: jsonEncode(frame.metadata),
+  );
+  final rows = (changes as SensoriumAvailable<SensoriumChanges>).value.rows;
+  expect(rows.singleWhere((row) => row.path == path).by, by);
+  expect(frame.notices.contains(SensoriumNotice.userEdits), userEdits);
+  final text = attribution.composeWorkspaceFrame(frame).text;
+  expect(text, contains(path));
+  expect(text, contains('by: ${by.name}'));
+  expect(text.contains('user_edits'), userEdits);
+}
+
+Future<void> _linkCall(
+  SessionWriter writer,
+  String id,
+  String tool,
+  String arguments,
+  int turn,
+) => writer.apply(
+  JournalRecord(
+    turn: writer.currentTurn,
+    path: mutationStepPath(turn),
+    op: Op.merge,
+    value: {
+      'output': [
+        {
+          'type': 'call',
+          'call': callKey(id),
+          'callId': id,
+          'name': tool,
+          'arguments': arguments,
+        },
+      ],
+    },
+  ),
+);

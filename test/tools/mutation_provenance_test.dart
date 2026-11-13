@@ -10,6 +10,11 @@ import 'package:test/test.dart';
 
 import '../support/mutation_support.dart';
 import '../workspace/link_support.dart';
+import '../support/attribution_support.dart' as attribution;
+
+import 'package:kehai/src/tools/mutation_runs.dart';
+import 'package:kehai/src/workspace/vcs_collector.dart';
+import 'package:kehai/src/workspace/workspace_perception.dart';
 
 void main() {
   for (final tool in ['write', 'edit']) {
@@ -18,10 +23,11 @@ void main() {
       () async {
         final h = await MutationHarness.create();
         final file = h.file('lib/a.txt', 'before\n');
+        await _capture(h.root.path, h.writer, h.runtime.mutations, []);
         if (tool == 'write') {
-          await h.write('successful', 'lib/a.txt', 'after\n');
+          await h.write('successful', 'lib/a.txt', 'after\n', stepTurn: 0);
         } else {
-          await h.edit('successful', 'lib/a.txt', 'after');
+          await h.edit('successful', 'lib/a.txt', 'after', stepTurn: 0);
         }
         expect(file.readAsStringSync(), 'after\n');
         final call = h.call('successful');
@@ -38,6 +44,19 @@ void main() {
         );
         expect(call['quiesced'], isTrue);
         expect(call['status'], 'settled');
+        await _nextTurn(h.writer);
+        final frame = await _capture(
+          h.root.path,
+          h.writer,
+          h.runtime.mutations,
+          [_delta('lib/a.txt')],
+        );
+        _expectBy(
+          frame,
+          'lib/a.txt',
+          SensoriumChangeBy.agent,
+          userEdits: false,
+        );
       },
     );
   }
@@ -47,8 +66,8 @@ void main() {
     final destination = h.file('lib/a.dart', 'before\n');
     Link(p.join(h.root.path, 'alias.dart')).createSync(destination.path);
 
-    await h.write('alias', 'alias.dart', 'after\n');
-
+    await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+    await h.write('alias', 'alias.dart', 'after\n', stepTurn: 0);
     expect(destination.readAsStringSync(), 'after\n');
     expect(h.call('alias')['target'], 'lib/a.dart');
     expect(
@@ -61,6 +80,11 @@ void main() {
         containsPair('seq', greaterThan(0)),
       ),
     );
+    await _nextTurn(h.writer);
+    final frame = await _capture(h.root.path, h.writer, h.runtime.mutations, [
+      _delta('lib/a.dart'),
+    ]);
+    _expectBy(frame, 'lib/a.dart', SensoriumChangeBy.agent, userEdits: false);
   });
 
   test('target is recorded before the rename starts', () async {
@@ -69,7 +93,9 @@ void main() {
       seams: FileWriteSeams(rename: held.rename),
     );
     final file = h.file('lib/a.dart', 'before\n');
-    final pending = h.write('held', 'lib/a.dart', 'after\n');
+    Link(p.join(h.root.path, 'alias.dart')).createSync(file.path);
+    await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+    final pending = h.write('held', 'alias.dart', 'after\n', stepTurn: 0);
     await held.entered.future;
     try {
       final call = h.call('held');
@@ -77,6 +103,19 @@ void main() {
       expect(call.containsKey('effect'), isFalse);
       expect(call['quiesced'], isNot(true));
       expect(file.readAsStringSync(), 'before\n');
+      await h.runtime.cancelTurn();
+      await pending;
+      await h.drain(held);
+      await _nextTurn(h.writer);
+      final frame = await _capture(h.root.path, h.writer, h.runtime.mutations, [
+        _delta('lib/a.dart'),
+      ]);
+      _expectBy(
+        frame,
+        'lib/a.dart',
+        SensoriumChangeBy.unknown,
+        userEdits: false,
+      );
     } finally {
       await h.drain(held);
       await pending;
@@ -92,7 +131,8 @@ void main() {
     final other = h.file('lib/b.dart', 'other\n');
     final alias = Link(p.join(h.root.path, 'alias.dart'))
       ..createSync(original.path);
-    final pending = h.write('retarget', 'alias.dart', 'late\n');
+    await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+    final pending = h.write('retarget', 'alias.dart', 'late\n', stepTurn: 0);
     await held.entered.future;
     try {
       await h.runtime.cancelTurn();
@@ -117,6 +157,39 @@ void main() {
       expect(original.readAsStringSync(), 'late\n');
       expect(other.readAsStringSync(), 'other\n');
       expect(File(alias.path).readAsStringSync(), 'other\n');
+      other.writeAsStringSync('user edit\n');
+      await _nextTurn(reopened);
+      final observer = attribution.CallbackWorkspaceObserver((request) {
+        final changes = [_delta('lib/a.dart'), _delta('lib/b.dart')];
+        return attribution.availableCollection(
+          request,
+          id: 'resumed-${request.turn}',
+          changes: changes,
+          verification: {
+            'lib/a.dart': attribution.verifiedFile(original),
+            'lib/b.dart': attribution.verifiedFile(other),
+          },
+        );
+      });
+      final frame = await attribution
+          .captureWorkspace(
+            WorkspacePerception(
+              root: h.root.path,
+              observer: observer,
+              mutations: recovered.mutations,
+            ),
+            reopened,
+          )
+          .collect();
+      attribution.composeWorkspaceFrame(frame);
+      await attribution.admitWorkspaceFrame(reopened, frame);
+      _expectBy(
+        frame,
+        'lib/a.dart',
+        SensoriumChangeBy.unknown,
+        userEdits: true,
+      );
+      _expectBy(frame, 'lib/b.dart', SensoriumChangeBy.user, userEdits: true);
     } finally {
       if (!held.release.isCompleted) await h.drain(held);
     }
@@ -127,7 +200,8 @@ void main() {
     final file = h.file('lib/generated/x.dart', 'before\n');
     linkDirectory(p.join(h.root.path, 'gen'), file.parent.path);
 
-    await h.edit('parent-link', 'gen/x.dart', 'after');
+    await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+    await h.edit('parent-link', 'gen/x.dart', 'after', stepTurn: 0);
 
     expect(file.readAsStringSync(), 'after\n');
     expect(h.call('parent-link')['target'], 'lib/generated/x.dart');
@@ -141,19 +215,30 @@ void main() {
         containsPair('seq', greaterThan(0)),
       ),
     );
+    await _nextTurn(h.writer);
+    final frame = await _capture(h.root.path, h.writer, h.runtime.mutations, [
+      _delta('lib/generated/x.dart'),
+    ]);
+    _expectBy(
+      frame,
+      'lib/generated/x.dart',
+      SensoriumChangeBy.agent,
+      userEdits: false,
+    );
   });
 
-  test('reversed completion stores increasing effect order', () async {
+  test('reversed completion stores increasing effect order and restored older bytes cannot claim agent', () async {
     final stage = _HeldCall('order-a');
     final h = await MutationHarness.create(gate: stage);
     final file = h.file('lib/order.txt', 'before\n');
-    final a = h.write('order-a', 'lib/order.txt', 'A\n');
+    await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+    final a = h.write('order-a', 'lib/order.txt', 'A\n', stepTurn: 0);
     addTearDown(() async {
       if (!stage.release.isCompleted) stage.release.complete();
       await a;
     });
     await stage.entered.future;
-    await h.write('order-b', 'lib/order.txt', 'B\n');
+    await h.write('order-b', 'lib/order.txt', 'B\n', stepTurn: 0);
     stage.release.complete();
     await a;
 
@@ -162,9 +247,20 @@ void main() {
       _effectSequence(h, 'order-a'),
       greaterThan(_effectSequence(h, 'order-b')),
     );
+    file.writeAsStringSync('B\n');
+    await _nextTurn(h.writer);
+    final frame = await _capture(h.root.path, h.writer, h.runtime.mutations, [
+      _delta('lib/order.txt'),
+    ]);
+    _expectBy(
+      frame,
+      'lib/order.txt',
+      SensoriumChangeBy.unknown,
+      userEdits: false,
+    );
   });
 
-  test('delayed effect keeps the resolved-target slot', () async {
+  test('delayed effect keeps the resolved-target slot and restored older bytes cannot claim agent', () async {
     final entered = Completer<void>();
     final release = Completer<void>();
     final renames = <String>[];
@@ -184,7 +280,8 @@ void main() {
       ),
     );
     final file = h.file('lib/delayed.txt', 'before\n');
-    final a = h.write('delayed-a', 'lib/delayed.txt', 'A\n');
+    await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+    final a = h.write('delayed-a', 'lib/delayed.txt', 'A\n', stepTurn: 0);
     Future<ToolOutputItem>? b;
     Future<void>? probe;
     addTearDown(() async {
@@ -201,7 +298,7 @@ void main() {
       passedSlot = true;
     });
     await Future<void>.value();
-    b = h.write('delayed-b', 'lib/delayed.txt', 'B\n');
+    b = h.write('delayed-b', 'lib/delayed.txt', 'B\n', stepTurn: 0);
     // If the slot were released before the effect, force B to finish first.
     // Otherwise release A so the real lock can admit the queued work.
     if (!passedSlot) release.complete();
@@ -217,10 +314,20 @@ void main() {
     );
     file.writeAsStringSync('A\n');
     expect(file.readAsStringSync(), 'A\n');
+    await _nextTurn(h.writer);
+    final frame = await _capture(h.root.path, h.writer, h.runtime.mutations, [
+      _delta('lib/delayed.txt'),
+    ]);
+    _expectBy(
+      frame,
+      'lib/delayed.txt',
+      SensoriumChangeBy.unknown,
+      userEdits: false,
+    );
   });
 
   test(
-    'case-variant writes retain both effects before restoring older bytes',
+    'case-variant writes followed by restoring earlier bytes read unknown',
     () async {
       final entered = Completer<void>();
       final release = Completer<void>();
@@ -239,7 +346,8 @@ void main() {
           if (id == 'case-b') bResolved.complete();
         }),
       );
-      final a = h.write('case-a', 'New.txt', 'A\n');
+      await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+      final a = h.write('case-a', 'New.txt', 'A\n', stepTurn: 0);
       Future<ToolOutputItem>? b;
       addTearDown(() async {
         if (!release.isCompleted) release.complete();
@@ -247,7 +355,7 @@ void main() {
         if (b case final pending?) await pending;
       });
       await entered.future;
-      b = h.write('case-b', 'new.txt', 'B\n');
+      b = h.write('case-b', 'new.txt', 'B\n', stepTurn: 0);
       await bResolved.future;
       release.complete();
       await Future.wait([a, b]);
@@ -265,6 +373,11 @@ void main() {
         containsPair('sha256', sha256.convert(utf8.encode('B\n')).toString()),
       );
       h.file('New.txt').writeAsStringSync('A\n');
+      await _nextTurn(h.writer);
+      final frame = await _capture(h.root.path, h.writer, h.runtime.mutations, [
+        _delta('New.txt'),
+      ]);
+      _expectBy(frame, 'New.txt', SensoriumChangeBy.unknown, userEdits: false);
     },
   );
 
@@ -331,6 +444,62 @@ void main() {
       );
     },
   );
+
+  test(
+    'target boundary includes earlier durable effects before rename',
+    () async {
+      final held = HeldRename();
+      var holdNext = false;
+      final h = await MutationHarness.create(
+        seams: FileWriteSeams(
+          rename: (from, to) async {
+            if (holdNext) {
+              await held.rename(from, to);
+            } else {
+              await File(from).rename(to);
+            }
+          },
+        ),
+      );
+      h.file('lib/boundary.txt', 'before\n');
+      await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+      await h.write('earlier-effect', 'lib/boundary.txt', 'B\n', stepTurn: 0);
+      final earlier = _effectSequence(h, 'earlier-effect');
+      // An unadmitted preview must not become the durable target boundary.
+      h.runtime.mutations.sequence.reserve();
+      holdNext = true;
+      final pending = h.write(
+        'later-target',
+        'lib/boundary.txt',
+        'A\n',
+        stepTurn: 0,
+      );
+      addTearDown(() async {
+        held.unblock();
+        await pending;
+      });
+      await held.entered.future;
+      try {
+        expect(h.call('later-target')['targetAfterSeq'], earlier);
+        await _nextTurn(h.writer);
+        final frame = await _capture(
+          h.root.path,
+          h.writer,
+          h.runtime.mutations,
+          [_delta('lib/boundary.txt')],
+        );
+        _expectBy(
+          frame,
+          'lib/boundary.txt',
+          SensoriumChangeBy.unknown,
+          userEdits: false,
+        );
+      } finally {
+        held.unblock();
+        await pending;
+      }
+    },
+  );
 }
 
 int _effectSequence(MutationHarness h, String id) {
@@ -369,3 +538,66 @@ final class _AfterRun implements Tool {
     return pending;
   }
 }
+
+Future<WorkspacePerceptionFrame> _capture(
+  String root,
+  SessionWriter writer,
+  MutationRuns mutations,
+  List<VcsDelta> changes,
+) async {
+  final observer = attribution.CallbackWorkspaceObserver((request) {
+    final verification = <String, VcsVerification>{};
+    for (final change in changes) {
+      final file = File(p.joinAll([root, ...p.posix.split(change.path)]));
+      if (file.existsSync())
+        verification[change.path] = attribution.verifiedFile(file);
+    }
+    return attribution.availableCollection(
+      request,
+      id: 'fixture-${request.turn}',
+      changes: changes,
+      verification: verification,
+    );
+  });
+  final frame = await attribution
+      .captureWorkspace(
+        WorkspacePerception(
+          root: root,
+          observer: observer,
+          mutations: mutations,
+        ),
+        writer,
+      )
+      .collect();
+  attribution.composeWorkspaceFrame(frame);
+  await attribution.admitWorkspaceFrame(writer, frame);
+  return frame;
+}
+
+void _expectBy(
+  WorkspacePerceptionFrame frame,
+  String path,
+  SensoriumChangeBy by, {
+  required bool userEdits,
+}) {
+  final changes = frame.changes;
+  expect(changes, isA<SensoriumAvailable<SensoriumChanges>>());
+  final rows = (changes as SensoriumAvailable<SensoriumChanges>).value.rows;
+  expect(rows.singleWhere((row) => row.path == path).by, by);
+  expect(frame.notices.contains(SensoriumNotice.userEdits), userEdits);
+  final text = attribution.composeWorkspaceFrame(frame).text;
+  expect(text, contains(path));
+  expect(text, contains('by: ${by.name}'));
+  expect(text.contains('user_edits'), userEdits);
+}
+
+Future<void> _nextTurn(SessionWriter writer) => writer.apply(
+  JournalRecord(
+    turn: writer.currentTurn + 1,
+    path: 'body/markers/${writer.currentTurn + 1}',
+    op: Op.set,
+    value: true,
+  ),
+);
+VcsDelta _delta(String path) =>
+    VcsDelta(path: path, added: 1, removed: 0, binary: false);
