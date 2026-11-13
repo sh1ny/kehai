@@ -26,6 +26,8 @@
 | vcs-observation → Failures are named, never clean | Command fails | `test/loop/attribution_test.dart` (new) | typed failure ignores repository stderr: eight misleading reason variants | green |
 | vcs-observation → Failures are named, never clean | Command fails | `test/loop/attribution_test.dart` (new) | stderr cannot invalidate the carried comparison baseline | green |
 | vcs-observation → Failures are named, never clean | Output exceeds the read bound | `test/workspace/vcs_collector_test.dart` (new) | oversized output marks partial, never clean | green |
+| vcs-observation → Failures are named, never clean | Output exceeds the read bound | `test/workspace/vcs_collector_test.dart` (new) | git and jj truncated comparison remains partial after collection | green |
+| vcs-observation → Failures are named, never clean | Status-only truncation | `test/loop/attribution_test.dart` (new) | status-only truncation does not make a complete comparison partial | green |
 | vcs-observation → Observation does not alter the user's repository state | Git index untouched | `test/workspace/vcs_real_test.dart` (new) | git collection leaves .git/index bytes and refs unchanged | green |
 | vcs-observation → Observation does not alter the user's repository state | Concurrent user git command | `test/workspace/vcs_real_test.dart` (new) | collection takes no index.lock and user git add succeeds | green |
 | vcs-observation → Observation does not alter the user's repository state | Configured clean filter hangs | `test/workspace/vcs_collector_test.dart` (new) | hanging clean filter is bounded by the deadline and terminated | green |
@@ -95,6 +97,7 @@
 | workspace-change-attribution → Forks do not finish the parent's mutations | Parent mutation after the fork | `test/session/fork_mutation_test.dart` (new) | parent write after the fork is outside child provenance | green |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Foreign records overflow | `test/session/fork_mutation_test.dart` (new) | more than 16 foreign records set the overflow marker | green |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Fork before post-rewind reconciliation | `test/session/fork_mutation_test.dart` (new) | fork before reconciliation retains the live target as foreign | green |
+| workspace-change-attribution → Forks do not finish the parent's mutations | Finished parent record copied | `test/session/fork_mutation_test.dart` (new) | finished parent orphan expires after the child admits its finish | green |
 | workspace-change-attribution → Unfinished mutations are bounded | Repeated cancellations on a stalled filesystem | `test/tools/cancelled_mutation_test.dart` | 40 cancelled writes keep 16 unfinished and refuse the rest untouched | green |
 | workspace-change-attribution → Unfinished mutations are bounded | Repeated cancellations on a stalled filesystem | `test/tools/cancelled_mutation_test.dart` | F2: same-path cancelled waiters retain capacity until their real futures finish | green |
 | workspace-change-attribution → Unfinished mutations are bounded | Capacity returns | `test/tools/cancelled_mutation_test.dart` | finished held rename admits the next write | green |

@@ -68,3 +68,5 @@ Add bounded repository observation, admitted change baselines and durable filesy
 - Cancelled edit/write futures waiting on a shared path retain their unfinished-run slots until actual completion.
 - VCS failure classification uses typed availability signals, never repository stderr, so error text cannot disable observation or invalidate a carried baseline.
 - Resume recovery counts only newly finalized calls, not already-terminal calls receiving mutation-quiescence bookkeeping.
+- Finished ancestor orphan records expire at their inherited sequence boundary in forked children; unfinished foreign records remain uncertain.
+- Changes report diff truncation independently of status truncation and ordinary twelve-row display omissions.

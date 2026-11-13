@@ -55,6 +55,7 @@ final class VcsCollection {
     required this.observation,
     this.baseline,
     this.changes = const [],
+    this.deltaPartial = false,
     this.reason,
     this.baselineLost = false,
     this.verification = const {},
@@ -65,6 +66,9 @@ final class VcsCollection {
   final SensoriumObservation<SensoriumVcs> observation;
   final VcsBaseline? baseline;
   final List<VcsDelta> changes;
+
+  /// Whether the baseline comparison was truncated independently of status.
+  final bool deltaPartial;
   final String? reason;
   final bool baselineLost;
 

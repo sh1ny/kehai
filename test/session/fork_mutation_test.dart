@@ -32,6 +32,59 @@ Iterable<Map<Object?, Object?>> _foreign(SessionWriter writer) =>
 
 void main() {
   test(
+    'finished parent orphan expires after the child admits its finish',
+    () async {
+      final held = HeldRename();
+      final parent = await MutationHarness.create(
+        seams: FileWriteSeams(rename: held.rename),
+      );
+      releaseMutationAfterTest(parent, held);
+      final file = parent.file('lib/a.dart', 'before\n');
+      await _capture(parent, parent.writer, parent.runtime, []);
+      await parent.nextTurn();
+      final pending = parent.write(
+        'finished-parent',
+        'lib/a.dart',
+        'late\n',
+        stepTurn: 1,
+      );
+      await held.entered.future;
+      await parent.runtime.cancelTurn();
+      await pending;
+      await parent.writer.rewind(0);
+      final finished = mutationRecord(
+        parent.writer,
+        'meta/orphanedMutations',
+        (records) => records.values.any(
+          (record) =>
+              record is Map &&
+              record['target'] == 'lib/a.dart' &&
+              record['finishedSeq'] is int,
+        ),
+      );
+      await parent.drain(held);
+      await finished;
+      final fork = await parent.writer.fork(parent.writer.currentTurn);
+      final (child, childRuntime) = await _openChild(parent, fork);
+      final first = await _capture(parent, child, childRuntime, [
+        _delta('lib/a.dart'),
+      ]);
+      _expectBy(
+        first,
+        'lib/a.dart',
+        SensoriumChangeBy.unknown,
+        userEdits: false,
+      );
+      file.writeAsStringSync('user after child baseline\n');
+      await _nextTurn(child);
+      final next = await _capture(parent, child, childRuntime, [
+        _delta('lib/a.dart'),
+      ]);
+      _expectBy(next, 'lib/a.dart', SensoriumChangeBy.user, userEdits: true);
+    },
+  );
+
+  test(
     'child recovery leaves the parent held rename foreign and unfinished',
     () async {
       final held = HeldRename();

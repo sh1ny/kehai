@@ -647,6 +647,7 @@ final class _VcsCollectorEngine {
     observation: collection.observation,
     baseline: collection.baseline,
     changes: collection.changes,
+    deltaPartial: collection.deltaPartial,
     reason: collection.reason,
     baselineLost: collection.baselineLost,
     verification: verification ?? collection.verification,

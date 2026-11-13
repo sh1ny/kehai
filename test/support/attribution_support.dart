@@ -57,6 +57,7 @@ VcsCollection availableCollection(
   SensoriumVcs? value,
   bool baselineLost = false,
   bool deadlineExpired = false,
+  bool deltaPartial = false,
 }) {
   final input = request.attribution!;
   return VcsCollection(
@@ -77,6 +78,7 @@ VcsCollection availableCollection(
       jobsLive: input.jobsLive,
     ),
     changes: changes,
+    deltaPartial: deltaPartial,
     verification: verification,
     captureCompleted: true,
     baselineLost: baselineLost,

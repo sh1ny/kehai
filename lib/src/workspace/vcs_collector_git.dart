@@ -265,6 +265,7 @@ extension _GitCollector on _VcsCollectorEngine {
       observation: SensoriumAvailable(value),
       baseline: baseline,
       changes: deltas,
+      deltaPartial: deltaPartial,
       reason: reason,
       baselineLost: baselineLost,
     );

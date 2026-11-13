@@ -166,7 +166,7 @@ final class WorkspacePerception {
         notices.add(SensoriumNotice.userEdits);
       }
       final totalPaths = rawRows.length;
-      var rowsWereClipped = totalPaths > _displayRowLimit;
+      var rowsWereClipped = false;
       final rows = <Object?>[];
       for (final row in rawRows.take(_displayRowLimit)) {
         final path = _clipJsonString(row.path, 64);
@@ -184,7 +184,7 @@ final class WorkspacePerception {
         'sinceTurn': previousBaseline.turn,
         'rows': rows,
         'totalPaths': totalPaths,
-        'partial': rowsWereClipped || currentVcs.partial,
+        'partial': rowsWereClipped || collection.deltaPartial,
       };
     }
 
@@ -513,8 +513,8 @@ final class WorkspacePerception {
           maskAll = true;
           continue;
         }
-        final foreign =
-            value['foreign'] == true || session == null || owner != session;
+        // Retained finished ancestor records share the inherited sequence horizon.
+        final foreign = value['foreign'] == true || session == null;
         final finished = value['finishedSeq'];
         final applies =
             foreign ||

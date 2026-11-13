@@ -163,6 +163,7 @@ VcsCollection _collectionForBackend(
     captureCompleted: captured.captureCompleted,
     baselineLost: captured.baselineLost,
     deadlineExpired: captured.deadlineExpired,
+    deltaPartial: captured.deltaPartial,
   );
 }
 
@@ -1236,6 +1237,46 @@ void main() {
   });
 
   test(
+    'status-only truncation does not make a complete comparison partial',
+    () async {
+      final harness = await MutationHarness.create();
+      harness.file('a.dart', 'before\n');
+      final observer = CallbackWorkspaceObserver(
+        (request) => availableCollection(
+          request,
+          id: 'status-partial-${request.turn}',
+          value: SensoriumVcs(
+            backend: 'git',
+            branch: 'main',
+            paths: const ['a.dart'],
+            modified: 1,
+            partial: true,
+          ),
+          deltaPartial: request.turn == 2,
+          changes: request.previous?.baseline == null
+              ? const []
+              : [_delta('a.dart')],
+        ),
+      );
+      final perception = workspacePerception(harness, observer);
+      await _captureAndAdmit(harness, perception);
+      await harness.nextTurn();
+      final frame = await _capture(harness, perception);
+      expect(
+        (frame.vcs as SensoriumAvailable<SensoriumVcs>).value.partial,
+        isTrue,
+      );
+      expect(_changes(frame).rows.single.path, 'a.dart');
+      expect(_changes(frame).partial, isFalse);
+      await admitWorkspaceFrame(harness.writer, frame);
+      await harness.nextTurn();
+      final truncatedDiff = await _capture(harness, perception);
+      expect(_changes(truncatedDiff).rows.single.path, 'a.dart');
+      expect(_changes(truncatedDiff).partial, isTrue);
+    },
+  );
+
+  test(
     'user notice includes rows beyond the twelve-row display bound',
     () async {
       final harness = await MutationHarness.create();
@@ -1286,6 +1327,11 @@ void main() {
 
       expect(changes.rows, hasLength(12));
       expect(changes.totalPaths, 13);
+      expect(
+        changes.partial,
+        isFalse,
+        reason: 'Display omissions are not incomplete collection.',
+      );
       for (var i = 0; i < 11; i++) {
         _expectBy(frame, paths[i], SensoriumChangeBy.agent);
       }

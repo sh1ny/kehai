@@ -232,6 +232,50 @@ void main() {
     expect(result.reason, isNot(contains('SENSITIVE_AFTER_LIMIT')));
   });
 
+  for (final backend in ['git', 'jj']) {
+    test(
+      '$backend truncated comparison remains partial after collection',
+      () async {
+        workspace = VcsWorkspace.create(
+          git: backend == 'git',
+          jj: backend == 'jj',
+        );
+        workspace.writeFile('a.dart', 'current\n');
+        final normal = backend == 'git' ? fakeGitRunner() : fakeJjRunner();
+        final unit = backend == 'git'
+            ? '1\t0\ta.dart\u0000'
+            : gitPatch(path: 'a.dart');
+        final oversized = utf8.encode(
+          List.filled(2 * 1024 * 1024 ~/ unit.length + 1, unit).join(),
+        );
+        final runner = FakeVcsProcessRunner(
+          processFor: (invocation) {
+            final isDelta = backend == 'git'
+                ? invocation.arguments.contains('--numstat')
+                : invocation.arguments.contains('diff');
+            return isDelta
+                ? completedProcess(successResult(stdout: oversized))
+                : normal.processFor(invocation);
+          },
+        );
+        final collector = VcsCollector(
+          processRunner: runner,
+          deadlineScheduler: deadlines,
+        );
+        addTearDown(collector.close);
+        final result = await collector.collect(
+          root: workspace.root,
+          backend: backend,
+          previous: _previous(backend, 'older-capture'),
+        );
+        expect(result.observation, isA<SensoriumAvailable<SensoriumVcs>>());
+        expect(result.changes.first.path, 'a.dart');
+        expect(result.changes.first.added, greaterThan(0));
+        expect(result.deltaPartial, isTrue);
+      },
+    );
+  }
+
   test('oversized output marks partial, never clean', () async {
     workspace = VcsWorkspace.create(jj: true);
     workspace.writeFile('oversized-fixture.txt', 'real path fixture');
@@ -258,6 +302,11 @@ void main() {
     final value =
         (result.observation as SensoriumAvailable<SensoriumVcs>).value;
     expect(value.partial, isTrue);
+    expect(
+      result.deltaPartial,
+      isFalse,
+      reason: 'Only the snapshot was truncated.',
+    );
     expect(value.modified + value.added + value.deleted, greaterThan(0));
   });
 
