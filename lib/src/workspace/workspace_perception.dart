@@ -1165,20 +1165,7 @@ Object? _freezeJsonValue(Object? value) => switch (value) {
 
 SensoriumReason _failureReason(VcsCollection collection) {
   if (collection.deadlineExpired) return SensoriumReason.timedOut;
-  final reason = collection.reason?.toLowerCase();
-  if (reason != null) {
-    if (reason.contains('timeout') || reason.contains('timed out')) {
-      return SensoriumReason.timedOut;
-    }
-    if (reason.contains('baseline lost')) return SensoriumReason.baselineLost;
-    if (reason.contains('no repository')) return SensoriumReason.noRepository;
-    if (reason.contains('disabled')) return SensoriumReason.disabled;
-    if (reason.contains('jj not found')) return SensoriumReason.jjNotFound;
-    if (reason.contains('git not found')) return SensoriumReason.gitNotFound;
-    if (reason.contains('cleanup pending'))
-      return SensoriumReason.cleanupPending;
-    if (reason.contains('no baseline')) return SensoriumReason.noBaseline;
-  }
+  // Repository stderr is diagnostic data, never an availability discriminator.
   return switch (collection.observation) {
     SensoriumUnavailable<SensoriumVcs>(:final reason) => reason,
     SensoriumStale<SensoriumVcs>(:final reason) => reason,

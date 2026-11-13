@@ -23,6 +23,8 @@
 | vcs-observation → Collection is bounded by a deadline | Invalid deadline | `test/config/config_test.dart` | sensorium.collectorDeadlineMs outside 100–10000 refuses configuration | green |
 | vcs-observation → Failures are named, never clean | jj not installed | `test/workspace/vcs_collector_test.dart` (new) | missing executable reads unavailable (jj not found) and (git not found) | green |
 | vcs-observation → Failures are named, never clean | Command fails | `test/workspace/vcs_collector_test.dart` (new) | non-zero exit reads failed with clipped stderr reason | green |
+| vcs-observation → Failures are named, never clean | Command fails | `test/loop/attribution_test.dart` (new) | typed failure ignores repository stderr: eight misleading reason variants | green |
+| vcs-observation → Failures are named, never clean | Command fails | `test/loop/attribution_test.dart` (new) | stderr cannot invalidate the carried comparison baseline | green |
 | vcs-observation → Failures are named, never clean | Output exceeds the read bound | `test/workspace/vcs_collector_test.dart` (new) | oversized output marks partial, never clean | green |
 | vcs-observation → Observation does not alter the user's repository state | Git index untouched | `test/workspace/vcs_real_test.dart` (new) | git collection leaves .git/index bytes and refs unchanged | green |
 | vcs-observation → Observation does not alter the user's repository state | Concurrent user git command | `test/workspace/vcs_real_test.dart` (new) | collection takes no index.lock and user git add succeeds | green |

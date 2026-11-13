@@ -108,6 +108,11 @@ void main() {
           );
         });
         final runtime = await _recover(workspace, writer);
+        expect(
+          runtime.resumed.calls,
+          0,
+          reason: 'terminal quiescence bookkeeping is not an interrupted call',
+        );
         final call = mutationNode(
           writer,
           'body/calls/${callKey('interrupted')}',

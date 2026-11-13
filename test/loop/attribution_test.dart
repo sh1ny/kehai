@@ -211,6 +211,80 @@ void _expectMetadataListsBounded(Object? value) {
 }
 
 void main() {
+  for (final stderr in const [
+    'filter disabled',
+    'filter timed out',
+    'baseline lost in filter text',
+    'no repository in filter text',
+    'cleanup pending in filter text',
+    'jj not found in filter text',
+    'git not found in filter text',
+    'no baseline in filter text',
+  ]) {
+    test('typed failure ignores repository stderr: $stderr', () async {
+      final harness = await MutationHarness.create();
+      final observer = CallbackWorkspaceObserver(
+        (_) => VcsCollection(
+          observation: const SensoriumUnavailable(SensoriumReason.failed),
+          reason: 'fatal: $stderr',
+        ),
+      );
+      final frame = await _capture(
+        harness,
+        workspacePerception(harness, observer),
+      );
+      expect(
+        (frame.vcs as SensoriumUnavailable<SensoriumVcs>).reason,
+        SensoriumReason.failed,
+      );
+      expect(frame.metadata['reason'], 'failed');
+      expect(frame.notices, {SensoriumNotice.vcsFailed});
+    });
+  }
+
+  test('stderr cannot invalidate the carried comparison baseline', () async {
+    final harness = await MutationHarness.create();
+    var phase = 0;
+    late SensoriumVcs originalValue;
+    final observer = CallbackWorkspaceObserver((request) {
+      if (phase == 1) {
+        return VcsCollection(
+          observation: SensoriumStale(
+            originalValue,
+            age: const Duration(seconds: 1),
+            reason: SensoriumReason.failed,
+          ),
+          reason: 'fatal: baseline lost in repository filter output',
+        );
+      }
+      return availableCollection(
+        request,
+        id: phase == 0 ? 'original-tree' : 'next-tree',
+        changes: phase == 2 ? [_delta('user.txt')] : const [],
+      );
+    });
+    final perception = workspacePerception(harness, observer);
+    final original = await _capture(harness, perception);
+    originalValue = (original.vcs as SensoriumAvailable<SensoriumVcs>).value;
+    await admitWorkspaceFrame(harness.writer, original);
+    await harness.nextTurn();
+    phase = 1;
+    final failed = await _capture(harness, perception);
+    expect(
+      (failed.vcs as SensoriumStale<SensoriumVcs>).reason,
+      SensoriumReason.failed,
+    );
+    expect(failed.notices, {SensoriumNotice.vcsFailed});
+    expect(failed.metadata['baseline'], original.metadata['baseline']);
+    await admitWorkspaceFrame(harness.writer, failed);
+    await harness.nextTurn();
+    phase = 2;
+    final next = await _capture(harness, perception);
+    expect(_changes(next).sinceTurn, original.source.turn);
+    expect(_row(next, 'user.txt').by, SensoriumChangeBy.user);
+    expect(next.notices, isNot(contains(SensoriumNotice.baselineReset)));
+  });
+
   test(
     'admitted step metadata carries backend, id, seq and jobsLive',
     () async {

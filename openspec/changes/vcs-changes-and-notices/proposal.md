@@ -66,3 +66,5 @@ Add bounded repository observation, admitted change baselines and durable filesy
 ### Fixed
 - Disabled observation keeps both sections unavailable with reason `disabled`, while preserving the prior provenance boundary.
 - Cancelled edit/write futures waiting on a shared path retain their unfinished-run slots until actual completion.
+- VCS failure classification uses typed availability signals, never repository stderr, so error text cannot disable observation or invalidate a carried baseline.
+- Resume recovery counts only newly finalized calls, not already-terminal calls receiving mutation-quiescence bookkeeping.

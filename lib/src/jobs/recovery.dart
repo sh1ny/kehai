@@ -208,8 +208,8 @@ final class JobRecovery {
       if (liveCalls.contains(entry.key)) continue;
       if (_terminal.contains(node['status'])) {
         if (_needsMutationFinish(node)) {
+          // The lifecycle was already final; quiescence is bookkeeping only.
           await _finishMutationCall(entry.key, node);
-          counts.calls++;
         }
         continue;
       }
