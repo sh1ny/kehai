@@ -194,7 +194,7 @@ extension _GitCollector on _VcsCollectorEngine {
           );
     final followups = await Future.wait<VcsProcessResult>([
       pathsFuture,
-      if (deltaFuture != null) deltaFuture,
+      ?deltaFuture,
     ]);
     final pathsResult = followups.first;
     _requireGitSuccess('git', pathsResult, allowTruncated: true);

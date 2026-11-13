@@ -352,8 +352,9 @@ Future<WorkspacePerceptionFrame> _capture(
     final verification = <String, VcsVerification>{};
     for (final change in changes) {
       final file = parent.file(change.path);
-      if (file.existsSync())
+      if (file.existsSync()) {
         verification[change.path] = attribution.verifiedFile(file);
+      }
     }
     return attribution.availableCollection(
       request,

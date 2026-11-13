@@ -905,10 +905,7 @@ final class ToolRuntime {
             turn: writer.currentTurn,
             path: live.path,
             op: Op.merge,
-            value: {
-              'target': target,
-              if (boundary != null) 'targetAfterSeq': boundary,
-            },
+            value: {'target': target, 'targetAfterSeq': ?boundary},
           ),
         );
       }),

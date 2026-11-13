@@ -62,7 +62,7 @@ extension _JjCollector on _VcsCollectorEngine {
           );
     final followups = await Future.wait<VcsProcessResult>([
       operationFuture,
-      if (deltaFuture != null) deltaFuture,
+      ?deltaFuture,
     ]);
     final operationResult = followups.first;
     _requireJjSuccess('jj', operationResult);

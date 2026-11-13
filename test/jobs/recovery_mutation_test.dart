@@ -394,8 +394,9 @@ Future<WorkspacePerceptionFrame> _capture(
       final file = File(
         p.joinAll([workspace.path, ...p.posix.split(change.path)]),
       );
-      if (file.existsSync())
+      if (file.existsSync()) {
         verification[change.path] = attribution.verifiedFile(file);
+      }
     }
     return attribution.availableCollection(
       request,

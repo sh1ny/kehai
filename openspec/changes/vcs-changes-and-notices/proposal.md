@@ -70,3 +70,4 @@ Add bounded repository observation, admitted change baselines and durable filesy
 - Resume recovery counts only newly finalized calls, not already-terminal calls receiving mutation-quiescence bookkeeping.
 - Finished ancestor orphan records expire at their inherited sequence boundary in forked children; unfinished foreign records remain uncertain.
 - Changes report diff truncation independently of status truncation and ordinary twelve-row display omissions.
+- Forking generic session trees accepts ordinary non-map body values without treating them as malformed mutation metadata.

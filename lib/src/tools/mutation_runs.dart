@@ -21,9 +21,8 @@ const int maxUnfinishedMutationRuns = 16;
 /// keys replaces only the tree-derived portion; live targets remain
 /// authoritative until their finish records are durable.
 final class MutationRuns {
-  /// Creates the engine registry for [session] with its shared [sequence].
-  MutationRuns({required this.sequence, required String session})
-    : _session = session;
+  /// Creates the engine registry for [_session] with its shared [sequence].
+  MutationRuns({required this.sequence, required this._session});
 
   /// The sequence shared with recovery and baseline admission.
   final MutationSequence sequence;

@@ -172,7 +172,11 @@ Map<String, Object?> forkMutationMeta(
     }
   }
   final parentSession = parentMeta['session'];
-  final calls = _map(_map(currentTree['body'])['calls']);
+  final body = currentTree['body'];
+  final rawCalls = body is Map<String, Object?> ? body['calls'] : null;
+  final calls = rawCalls is Map<String, Object?>
+      ? rawCalls
+      : const <String, Object?>{};
   if (parentSession is String) {
     for (final MapEntry(:key, :value) in calls.entries) {
       if (value is! Map<String, Object?> ||

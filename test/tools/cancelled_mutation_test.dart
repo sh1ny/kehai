@@ -301,7 +301,7 @@ void _provenanceCancellationTests() {
         seams: FileWriteSeams(rename: held.rename),
       );
       mutation.releaseMutationAfterTest(h, held);
-      final target = h.file('lib/a.dart', 'before\n');
+      h.file('lib/a.dart', 'before\n');
       final unrelated = h.file('lib/unrelated.txt', 'before\n');
       await _capture(h, []);
       await h.nextTurn();
@@ -707,8 +707,9 @@ Future<WorkspacePerceptionFrame> _capture(
     final verification = <String, VcsVerification>{};
     for (final change in changes) {
       final file = h.file(change.path);
-      if (file.existsSync())
+      if (file.existsSync()) {
         verification[change.path] = attribution.verifiedFile(file);
+      }
     }
     return attribution.availableCollection(
       request,

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:kehai/kehai.dart';
@@ -816,7 +815,7 @@ void main() {
 
   test('pre/post hash mismatch reads unknown', () async {
     final harness = await MutationHarness.create();
-    final file = harness.file('lib/a.dart', 'before\n');
+    harness.file('lib/a.dart', 'before\n');
     final effectBytes = utf8.encode('agent bytes\n');
     final effectHash = sha256.convert(effectBytes).toString();
     final observer = CallbackWorkspaceObserver((request) {

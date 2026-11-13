@@ -155,6 +155,7 @@ final class ManualVcsDeadlineScheduler implements VcsDeadlineScheduler {
   final List<_DurationWaiter> _durationWaiters = [];
   Duration _elapsed = Duration.zero;
 
+  @override
   Duration get elapsed => _elapsed;
 
   @override

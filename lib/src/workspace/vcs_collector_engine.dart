@@ -261,7 +261,6 @@ final class _VcsCollectorEngine {
   final Set<Directory> _temporaryDirectories = {};
   bool _firstCollection = true;
   bool _closed = false;
-  int _indexSequence = 0;
   int _baselineSequence = 0;
   int _outstandingAttributionReads = 0;
   Future<VcsCollection> collect({
@@ -540,7 +539,7 @@ final class _VcsCollectorEngine {
       reads.add(
         read.then<void>((sample) {
           if (accepting && sample != null) samples[path] = sample;
-        }, onError: (Object _, StackTrace __) {}),
+        }, onError: (Object _, StackTrace _) {}),
       );
     }
     if (reads.isEmpty) return Map.unmodifiable(samples);
@@ -582,7 +581,7 @@ final class _VcsCollectorEngine {
               ));
             }
           },
-          onError: (Object _, StackTrace __) {
+          onError: (Object _, StackTrace _) {
             if (!run.isStopped) {
               run.recordVerification(path, (before: sampleBefore, after: null));
             }
@@ -616,7 +615,7 @@ final class _VcsCollectorEngine {
         (_) {
           _outstandingAttributionReads--;
         },
-        onError: (Object _, StackTrace __) {
+        onError: (Object _, StackTrace _) {
           _outstandingAttributionReads--;
         },
       ),
@@ -743,7 +742,7 @@ final class _VcsCollectorEngine {
         'GIT_OPTIONAL_LOCKS': '0',
         'GIT_TERMINAL_PROMPT': '0',
         'GIT_PAGER': 'cat',
-        if (privateIndex != null) 'GIT_INDEX_FILE': privateIndex,
+        'GIT_INDEX_FILE': ?privateIndex,
       });
 
   Map<String, String> _jjEnvironment() => Map.unmodifiable(_environment);
@@ -858,8 +857,9 @@ final class _VcsCollectorEngine {
   }) async {
     run.checkActive();
     final lease = run.lease;
-    if (lease == null)
+    if (lease == null) {
       throw StateError('A process slot must precede the index.');
+    }
     final directory = _newTemporaryDirectory(repository);
     lease.directory = directory;
     final destination = p.join(directory.path, 'index');
@@ -1064,7 +1064,7 @@ final class _CollectionRun {
   Future<T> trackIo<T>(Future<T> operation) {
     final settled = operation.then<void>(
       (_) {},
-      onError: (Object _, StackTrace __) {},
+      onError: (Object _, StackTrace _) {},
     );
     _io.add(settled);
     settled.then<void>((_) => _io.remove(settled));

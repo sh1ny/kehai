@@ -567,12 +567,7 @@ List<int> _oversizedJjSnapshot() {
       '"parents":["parent-id"]}\n';
   final longPath = List<String>.filled(500, 'p').join();
   final status =
-      jsonEncode({
-        'kind': 'status',
-        'path': 'oversized-$longPath.dart',
-        'status': 'M',
-      }) +
-      '\n';
+      '${jsonEncode({'kind': 'status', 'path': 'oversized-$longPath.dart', 'status': 'M'})}\n';
   final identityBytes = utf8.encode(identity);
   final statusBytes = utf8.encode(status);
   final output = BytesBuilder(copy: false)..add(identityBytes);

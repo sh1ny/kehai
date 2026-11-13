@@ -9,7 +9,6 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:kehai/kehai.dart';
-import 'package:kehai/src/loop/sensorium.dart';
 import 'package:kehai/src/workspace/vcs_collector.dart';
 import 'package:kehai/src/workspace/workspace_perception.dart';
 import 'package:path/path.dart' as p;
@@ -242,7 +241,7 @@ void main() {
         collected = await collection;
       }
 
-      final value = _available(collected!);
+      final value = _available(collected);
       expect(value.backend, 'git');
       expect(value.paths, contains('user-added.txt'));
     });

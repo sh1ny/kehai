@@ -18,14 +18,12 @@ const _terminalJobStates = {'settled', 'failed', 'cancelled'};
 final class WorkspacePerception {
   /// Creates a workspace observer using the requested [backend] and deadline.
   WorkspacePerception({
-    required String root,
-    required WorkspaceObserver observer,
-    required MutationRuns mutations,
+    required this._root,
+    required this._observer,
+    required this._mutations,
     this.backend = 'auto',
     this.deadline = const Duration(milliseconds: 300),
-  }) : _root = root,
-       _observer = observer,
-       _mutations = mutations;
+  });
 
   final String _root;
   final WorkspaceObserver _observer;
@@ -917,7 +915,7 @@ SensoriumVcs? _decodeStoredVcs(Map<String, Object?>? value) {
     conflicts: List<String>.unmodifiable(
       (value['conflicts'] is List<Object?>
               ? value['conflicts']! as List<Object?>
-              : const [])
+              : const <Object?>[])
           .whereType<String>(),
     ),
     partial: value['partial'] == true,
@@ -1106,7 +1104,6 @@ void _fitFreshMetadata(Map<String, Object?> metadata) {
     for (var index = 0; index < rows.length; index++) {
       final row = rows[index];
       if (row is Map<String, Object?> && row['path'] is String) {
-        final slot = index;
         consider(row['path']! as String, (next) => row['path'] = next);
       }
     }

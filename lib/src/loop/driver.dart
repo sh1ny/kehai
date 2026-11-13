@@ -172,7 +172,7 @@ final class ExchangeDriver {
   ///
   /// [contextWindow] is backend metadata; ChatGPT-account capacity is resolved
   /// separately from route-qualified configuration.
-  /// [onRequestCaptured] is an optional test barrier after request capture.
+  /// [_onRequestCaptured] is an optional test barrier after request capture.
   ExchangeDriver({
     required this.writer,
     required this.runtime,
@@ -180,7 +180,7 @@ final class ExchangeDriver {
     required this.model,
     int? contextWindow,
     DateTime Function()? clock,
-    Future<void> Function()? onRequestCaptured,
+    this._onRequestCaptured,
     this.retryPolicy = const BoundedRetry(),
     this.seams = const DriverSeams(),
     this.childRole,
@@ -199,8 +199,7 @@ final class ExchangeDriver {
              backendContextWindow: contextWindow,
            )
            .contextWindow,
-       _clock = clock ?? DateTime.now,
-       _onRequestCaptured = onRequestCaptured;
+       _clock = clock ?? DateTime.now;
 
   /// The session writer.
   final SessionWriter writer;
