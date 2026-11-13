@@ -147,15 +147,18 @@ window. These display estimates do not grant permission or establish provider
 capacity. Long workspace/model display names are shortened at UTF-8 boundaries
 with a counted `…`; canonical identities remain unchanged.
 
-Currently the builder supplies live pending/running jobs, scratch, and the finite
-notice codes `compaction_recovery` and `legacy_window_ignored` when applicable.
-Jobs show bounded id/kind/command/state/age previews and total omissions. Logs are
-**unavailable until published at exit**; composing never opens a job's spool.
-Supported empty jobs, scratch and notices say `none`. VCS, changes, diagnostics,
-tests, plan and checkpoints say `unavailable (not collected)` in the current
-builder: there are no new collectors or plugin registrations. The finite composer
-also supports explicitly supplied available or stale observations, with bounded
-`failed`, `timeout` or `not collected` reasons and stale age.
+The builder collects VCS and baseline-relative changes on each request, alongside
+live pending/running jobs, scratch and notices. Jobs show bounded
+id/kind/command/state/age previews and total omissions. Logs are **unavailable
+until published at exit**; composing never opens a job's spool. Supported empty
+sections say `none`. Diagnostics, tests, plan and checkpoints remain
+`unavailable (not collected)`; there is no collector plugin registry.
+
+Notices appear at most once each, in fixed order: `compaction_recovery`,
+`legacy_window_ignored`, `vcs_timeout`, `vcs_failed`, `user_edits`,
+`baseline_reset`. Their bounded presentation uses `… +N more` when necessary.
+Timeout/failure notices do not establish a clean workspace; a completed VCS
+capture can remain available when only attribution verification times out.
 
 The startup-only user settings are:
 
@@ -300,7 +303,12 @@ into the tree to inspect the same fields after reconnect or resync:
     "tokens": 420,
     "mode": "full",
     "folds": [],
-    "source": { "turn": 14, "time": "2026-11-11T09:05:00.000", "offset": 12345 }
+    "source": { "turn": 14, "time": "2026-11-11T09:05:00.000", "offset": 12345 },
+    "vcs": {
+      "state": "unavailable",
+      "reason": "no repository",
+      "observed": { "turn": 14, "time": "2026-11-11T09:05:00.000" }
+    }
   }
 }
 ```
@@ -314,13 +322,28 @@ job/scratch updates do not alter the admitted view. Source `offset` is only a
 same-journal diagnostic cursor: it is invalid after fork/migration and must never
 be used as an identity or lookup key.
 
+`sensorium.vcs` is the bounded observation map: `state`, optional `reason`,
+`observed: {turn, time}`, optional `value` and optional `baseline`. Available
+values contain bounded repository facts and a `changes` payload. Available
+changes record `state`, `sinceTurn`, `rows`, `totalPaths` and `partial`; rows carry
+path, counts/binary and attribution. Unavailable changes name their reason.
+The baseline is `{backend, id, seq, jobsLive}`; its capture turn/time belong to
+`observed`, not to a second baseline store. The serialized map, including carried
+values, fits 4 KiB. Failed collection carries the previous effective baseline
+and bounded value with their original observation time; those old change labels
+are not fresh attribution. Its outer state/reason describes the current failure.
+The writer durably raises `meta/vcs/seqHigh` before admitting a baseline, in the
+same guarded queue operation. Reconnect reads this recorded map, not today's
+working copy.
+
 This is **local admission**, not proof of provider receipt or completion.
 Failed/cancelled streams retain their observation with their terminal state;
 local composition refusals have a failed step/stopped exchange but no admitted
 observation and no provider submission. Cancellation or rewind before the
 guarded admission prevents submission; a removed step cannot be recreated by its
 late build. Rewind removes later observations with their owning steps. Historical
-steps without `sensorium` remain without it, not backfilled from current scratch.
+steps without `sensorium` remain without it, not backfilled from current scratch
+or VCS state.
 The metadata is not replayed as conversation content. Native compaction does not
 remove it from the canonical tree, so per-step bounded copies still accumulate
 for the session lifetime. This is an inspection seam, not a `/sense` command or
@@ -451,8 +474,13 @@ is unknown, `budgetQuality` identifies perception blocking, and native calibrati
 is `blocked`. Independently known policy/field sources, provider/route/model,
 capability, boundary, continuity and capacity facts remain available. A perception
 failure is not evidence of incompatible opaque lineage or unsupported compaction.
-Status is a read-only preview: it neither appends journal bytes nor submits a
-request and never replaces a historical step's admitted observation.
+Status is a read-only next-request preview. It collects current VCS under the
+same engine lock and deadline and includes that perception in `used` estimates.
+It appends no journal bytes, records no baseline or sequence high-water, submits
+no provider request and never replaces a historical step's admitted observation.
+`compaction.perception.state` describes successful composition, not successful
+VCS collection: an unavailable/stale VCS section can still compose. Status does
+not expose the raw block, scratch text or preview metadata in a new wire field.
 
 An insufficient ceiling supplied through an older configuration can be corrected
 on restart; fresh status and requests can then succeed without modifying scratch
@@ -506,8 +534,16 @@ boundary or start a new session. There is no older-compatible-boundary fallback
 or automatic resurrection of the full prefix. Policy threshold/off changes alone
 do not invalidate compatible continuity.
 
-Without a selected boundary, requests retain ordinary full-history replay;
-instruction, tool or model changes do not apply the compacted-suffix lineage guard.
+The updated built-in perception guidance uses internal instruction version
+`kehai-4`, not a new package version. Its changed instruction digest intentionally
+invalidates prior native opaque lineage: the existing guard requires rewind
+before incompatible history or a new session, without migration or fallback.
+Text-only histories still rebuild; compatible-usage calibration may reset to
+estimates.
+
+Without a selected boundary, requests retain ordinary full-history replay.
+Recorded opaque reasoning still requires compatible lineage when its step
+carries lineage metadata; text-only history does not trigger that guard.
 
 Only the provider projection is cut; canonical history, scratch, full results,
 stable handles and request/child correlation are unchanged. Discarded historical

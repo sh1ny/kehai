@@ -19,6 +19,9 @@ import '../session/writer.dart';
 import '../session/tree.dart';
 import '../tools/runtime.dart';
 import '../workspace/inventory.dart';
+import '../workspace/project_root.dart';
+import '../workspace/vcs_collector.dart';
+import '../workspace/workspace_perception.dart';
 import '../workspace/load.dart';
 import 'compaction_state.dart';
 import 'instructions.dart';
@@ -196,60 +199,8 @@ final class ExchangeDriver {
              backendContextWindow: contextWindow,
            )
            .contextWindow,
-       _builder = RequestBuilder(
-         sessionDir: writer.sessionDir,
-         model: model,
-         effort: effort,
-         providerId: provider.id,
-         nativeCompaction:
-             runtime.config
-                     .effectiveCompaction(provider.id, 'chatgpt-account', model)
-                     .strategy ==
-                 CompactionStrategy.providerNative
-             ? NativeCompactionPolicy(
-                 threshold: runtime.config
-                     .effectiveCompaction(provider.id, 'chatgpt-account', model)
-                     .threshold,
-               )
-             : null,
-         workspaceName: p.basename(runtime.workspace.path),
-         tools: runtime.specs,
-         estimateRequest: (request) => provider.estimate(request).tokens,
-         window: runtime.config
-             .resolveCapacity(
-               provider.id,
-               'chatgpt-account',
-               model,
-               backendContextWindow: contextWindow,
-             )
-             .contextWindow,
-         windowEstimated:
-             runtime.config
-                 .resolveCapacity(
-                   provider.id,
-                   'chatgpt-account',
-                   model,
-                   backendContextWindow: contextWindow,
-                 )
-                 .source ==
-             'user-configured estimate',
-         sensoriumMaxTokens: runtime.config.sensorium.maxTokens,
-         compactionThreshold: runtime.config
-             .effectiveCompaction(provider.id, 'chatgpt-account', model)
-             .threshold,
-         legacyWindowIgnored:
-             runtime.config
-                 .resolveCapacity(
-                   provider.id,
-                   'chatgpt-account',
-                   model,
-                   backendContextWindow: contextWindow,
-                 )
-                 .migrationNotice !=
-             null,
-         clock: clock ?? DateTime.now,
-         onCaptured: onRequestCaptured,
-       );
+       _clock = clock ?? DateTime.now,
+       _onRequestCaptured = onRequestCaptured;
 
   /// The session writer.
   final SessionWriter writer;
@@ -281,8 +232,73 @@ final class ExchangeDriver {
   /// The role of a child engine, captured in the tree with each exchange's
   /// context (design D4, D8), or null outside a child.
   final ChildRole? childRole;
+  final DateTime Function() _clock;
+  final Future<void> Function()? _onRequestCaptured;
+  final VcsCollector _vcsCollector = VcsCollector();
+  late final RequestBuilder _builder = RequestBuilder(
+    sessionDir: writer.sessionDir,
+    model: model,
+    effort: effort,
+    providerId: provider.id,
+    nativeCompaction:
+        runtime.config
+                .effectiveCompaction(provider.id, 'chatgpt-account', model)
+                .strategy ==
+            CompactionStrategy.providerNative
+        ? NativeCompactionPolicy(
+            threshold: runtime.config
+                .effectiveCompaction(provider.id, 'chatgpt-account', model)
+                .threshold,
+          )
+        : null,
+    workspaceName: p.basename(runtime.workspace.path),
+    tools: runtime.specs,
+    estimateRequest: (request) => provider.estimate(request).tokens,
+    window: runtime.config
+        .resolveCapacity(
+          provider.id,
+          'chatgpt-account',
+          model,
+          backendContextWindow: contextWindow,
+        )
+        .contextWindow,
+    windowEstimated:
+        runtime.config
+            .resolveCapacity(
+              provider.id,
+              'chatgpt-account',
+              model,
+              backendContextWindow: contextWindow,
+            )
+            .source ==
+        'user-configured estimate',
+    sensoriumMaxTokens: runtime.config.sensorium.maxTokens,
+    compactionThreshold: runtime.config
+        .effectiveCompaction(provider.id, 'chatgpt-account', model)
+        .threshold,
+    legacyWindowIgnored:
+        runtime.config
+            .resolveCapacity(
+              provider.id,
+              'chatgpt-account',
+              model,
+              backendContextWindow: contextWindow,
+            )
+            .migrationNotice !=
+        null,
+    clock: _clock,
+    onCaptured: _onRequestCaptured,
+    workspacePerception: WorkspacePerception(
+      root: projectRoot(runtime.workspace.path),
+      observer: _vcsCollector,
+      mutations: runtime.mutations,
+      backend: runtime.config.vcs.backend,
+      deadline: Duration(
+        milliseconds: runtime.config.sensorium.collectorDeadlineMs,
+      ),
+    ),
+  );
 
-  final RequestBuilder _builder;
   final StreamController<StreamDelta> _deltas = StreamController.broadcast(
     sync: true,
   );
@@ -336,7 +352,7 @@ final class ExchangeDriver {
     try {
       built = await _builder.build(
         tree,
-        turn: turn,
+        turn: turn + 1,
         contextKey: contextKey,
         sourceOffset: writer.committedLength,
       );
@@ -467,8 +483,11 @@ final class ExchangeDriver {
     ];
   }
 
-  /// Closes the delta stream.
-  Future<void> close() => _deltas.close();
+  /// Closes the delta stream and the owned workspace collector.
+  Future<void> close() async {
+    await _deltas.close();
+    await _vcsCollector.close();
+  }
 
   /// Submits the prompt [text] as request [id], typed against journal [turn].
   ///
@@ -836,21 +855,28 @@ final class ExchangeDriver {
     final source = built.source!;
     // Local admission is durable before streaming, not proof of provider receipt.
     // Calibration consumption keeps its existing pre-submission cutoff.
-    final admitted = await _mergeStep(turn, exchange, {
-      'context': context,
-      'sensorium': {
-        'text': built.blockText,
-        'tokens': built.block,
-        'mode': 'full',
-        'folds': [for (final fold in built.folds) fold.name],
-        'source': {
-          'turn': source.turn,
-          'time': source.time.toIso8601String(),
-          'offset': source.offset,
+    final admitted = await _mergeStep(
+      turn,
+      exchange,
+      {
+        'context': context,
+        'sensorium': {
+          'text': built.blockText,
+          'tokens': built.block,
+          'mode': 'full',
+          'folds': [for (final fold in built.folds) fold.name],
+          'source': {
+            'turn': source.turn,
+            'time': source.time.toIso8601String(),
+            'offset': source.offset,
+          },
+          'vcs': built.perception!.metadata,
         },
+        if (calibration) 'calibration': true,
       },
-      if (calibration) 'calibration': true,
-    }, admitting: token);
+      admitting: token,
+      minimumVcsSequence: built.perception!.baselineSequence,
+    );
     if (!admitted) return _cancelStep(turn, exchange);
     var attempts = 0;
     _Streamed streamed;
@@ -1137,6 +1163,7 @@ final class ExchangeDriver {
     String exchange,
     Map<String, Object?> fields, {
     CancelToken? admitting,
+    int? minimumVcsSequence,
   }) async {
     final outcome = await _gated(
       () => writer.applyGuarded((read) {
@@ -1152,7 +1179,7 @@ final class ExchangeDriver {
             value: fields,
           ),
         );
-      }),
+      }, minimumVcsSequence: minimumVcsSequence),
     );
     return outcome is Applied;
   }

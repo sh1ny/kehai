@@ -61,3 +61,4 @@ Add bounded repository observation, admitted change baselines and durable filesy
 - VCS presentation now supports backend identity, counts, conflicts and bounded paths, with escaped repository text and explicit omissions.
 - Full and folded changes retain attribution and the baseline turn; the six finite notice codes render once in fixed order.
 - Built-in perception guidance uses internal version `kehai-4`. Its changed instructions digest invalidates prior native opaque lineage; the existing guard requires rewind before incompatible history or a new session, without history migration.
+- Admitted requests persist their exact bounded VCS metadata; reconnect preserves it while read-only status estimates use a current capture without journal writes or a new baseline.

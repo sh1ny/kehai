@@ -102,15 +102,15 @@
 | workspace-change-attribution → Attribution work is bounded | More than 64 effect paths | `test/loop/attribution_test.dart` (new) | paths beyond 64 read unknown | green |
 | workspace-change-attribution → Attribution work is bounded | Reads that never complete across many requests | `test/loop/attribution_test.dart` (new) | abandoned reads never exceed 64 engine-wide | green |
 | turn-perception → Ordered self-contained perception | Unchanged memory after earlier block removal | `test/loop/sensorium_test.dart` | full follow-up retains unchanged scratch facts | green |
-| turn-perception → Ordered self-contained perception | Known jobs but unavailable collectors | `test/loop/sensorium_test.dart` | real live job with collected vcs and unavailable diagnostics | red |
-| turn-perception → Ordered self-contained perception | Unchanged VCS facts every request | `test/loop/sensorium_test.dart` | unchanged working copy keeps full vcs and changes none | red |
+| turn-perception → Ordered self-contained perception | Known jobs but unavailable collectors | `test/loop/sensorium_test.dart` | live job plus collected vcs keeps diagnostics unavailable | green |
+| turn-perception → Ordered self-contained perception | Unchanged VCS facts every request | `test/loop/sensorium_test.dart` | unchanged second request still carries full vcs and changes none | green |
 | turn-perception → Ordered self-contained perception | Empty versus failed | `test/loop/sensorium_composition_test.dart` | typed supplied observations preserve section order and availability | green |
 | turn-perception → Ordered self-contained perception | Concurrent recovery notices | `test/loop/sensorium_test.dart` | both notice codes fit while recovery message stays separate | green |
-| turn-perception → Bounded notice vocabulary | Every code at once | `test/loop/sensorium_composition_test.dart` | all six notice codes fit 80 tokens in fixed order | red |
-| turn-perception → Bounded notice vocabulary | No notice applies | `test/loop/sensorium_composition_test.dart` | no notice condition renders notices none | red |
+| turn-perception → Bounded notice vocabulary | Every code at once | `test/loop/sensorium_composition_test.dart` | all six notice codes fit 80 tokens in fixed order | green |
+| turn-perception → Bounded notice vocabulary | No notice applies | `test/loop/sensorium_composition_test.dart` | no notice condition renders notices none | green |
 | turn-perception → Bounded notice vocabulary | Repeated condition | `test/loop/attribution_test.dart` (new) | two user rows raise user_edits once | green |
-| turn-perception → Collected observations are admitted, not recomputed | Reconnect after the working copy changed | `test/rpc/sensorium_test.dart` | reconnect shows the admitted vcs observation and baseline | red |
-| turn-perception → Collected observations are admitted, not recomputed | Status preview | `test/rpc/sensorium_test.dart` | status collects a preview without journal bytes or baseline | red |
+| turn-perception → Collected observations are admitted, not recomputed | Reconnect after the working copy changed | `test/rpc/sensorium_test.dart` | reconnect exposes recorded M2 and baseline rather than current working copy | green |
+| turn-perception → Collected observations are admitted, not recomputed | Status preview | `test/rpc/sensorium_test.dart` | status collects a preview without journal bytes or baseline | green |
 
 ## 1. Record the architecture
 
@@ -183,14 +183,14 @@
 
 ## 5. Notices, admission and status
 
-- [ ] 5.1 Write failing tests for the notices rows (all six codes, none) and for the turn-perception rows: known jobs with collected vcs, unchanged VCS facts, reconnect, and status preview. Use the real writer and RPC framing, and compare journal bytes before and after status. Verify that each test fails for the missing behaviour.
-- [ ] 5.2 Implement:
+- [x] 5.1 Write failing tests for the notices rows (all six codes, none) and for the turn-perception rows: known jobs with collected vcs, unchanged VCS facts, reconnect, and status preview. Use the real writer and RPC framing, and compare journal bytes before and after status. Verify that each test fails for the missing behaviour.
+- [x] 5.2 Implement:
   - the `vcs_timeout`, `vcs_failed`, `user_edits` and `baseline_reset` notice codes, in fixed order after the existing two, with `… +N more`;
   - a synchronous `WorkspaceObserver` call inside `RequestBuilder.build`, with the observation admitted by the guarded pre-stream merge;
   - a read-only status preview under the same lock and deadline.
 
   Verify that the group-5 rows turn green and that the three ride-along `green` rows still pass.
-- [ ] 5.3 Update the observation and status sections of `README.md`, and the built-in perception guidance, for the vcs and changes sections and the new notice codes. Advance the internal instruction version to `kehai-4` and document the intentional native opaque-lineage break and existing rewind-or-new-session recovery, without migration or a package-version bump (D10). Rerun the existing changed-instructions native-continuity rejection regression in `test/loop/compaction_budget_test.dart`. Verify that the documented metadata matches what RPC actually materializes.
+- [x] 5.3 Update the observation and status sections of `README.md`, and the built-in perception guidance, for the vcs and changes sections and the new notice codes. Advance the internal instruction version to `kehai-4` and document the intentional native opaque-lineage break and existing rewind-or-new-session recovery, without migration or a package-version bump (D10). Rerun the existing changed-instructions native-continuity rejection regression in `test/loop/compaction_budget_test.dart`. Verify that the documented metadata matches what RPC actually materializes.
 
 ## 6. Qualify the integrated slice
 

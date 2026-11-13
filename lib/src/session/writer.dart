@@ -367,13 +367,19 @@ final class SessionWriter {
   /// `results/` at the queue head, else the call is refused with
   /// `descriptors missing` and the sorted handles. Errors thrown by [build]
   /// or by validation fail the call like [apply].
+  ///
+  /// If [minimumVcsSequence] exceeds the durable `meta/vcs/seqHigh`, the
+  /// writer persists that high-water mark before the accepted record.
+  /// Refusals and invalid records do not persist it.
   Future<GuardedOutcome> applyGuarded(
-    GuardedDecision Function(GuardedRead read) build,
-  ) {
+    GuardedDecision Function(GuardedRead read) build, {
+    int? minimumVcsSequence,
+  }) {
     Refused? refusal;
     return _enqueue<GuardedOutcome>(
       op: Op.set,
       path: '',
+      minimumVcsSequence: minimumVcsSequence,
       decide: () {
         final decision = build(_state.get);
         switch (decision) {
@@ -821,6 +827,7 @@ final class SessionWriter {
     required JournalRecord? Function() decide,
     required T Function(CommittedUpdate? update) finish,
     Future<void> Function()? action,
+    int? minimumVcsSequence,
     bool allowBroken = false,
   }) {
     if (_closing || _writerState == WriterState.closed) {
@@ -847,6 +854,7 @@ final class SessionWriter {
         (update) => completer.complete(finish(update)),
         completer.completeError,
         action: action,
+        minimumVcsSequence: minimumVcsSequence,
         allowBroken: allowBroken,
       ),
     );
@@ -899,10 +907,27 @@ final class SessionWriter {
       return;
     }
     final JournalRecord? record;
+    JournalRecord? vcsHighWater;
     try {
       final decided = pending.decide();
       record = decided == null ? null : _snapshot(decided);
-      if (record != null) _state.validate(record);
+      if (record != null) {
+        _state.validate(record);
+        final minimum = pending.minimumVcsSequence;
+        if (minimum != null &&
+            minimum > _mutationCounter(_state.get('meta/vcs/seqHigh'))) {
+          final highWater = _snapshot(
+            JournalRecord(
+              turn: currentTurn,
+              path: 'meta/vcs',
+              op: Op.merge,
+              value: {'seqHigh': minimum},
+            ),
+          );
+          _state.validate(highWater);
+          vcsHighWater = highWater;
+        }
+      }
     } on SessionError catch (e) {
       pending.onError(e);
       return;
@@ -920,6 +945,7 @@ final class SessionWriter {
 
     final CommittedUpdate update;
     try {
+      if (vcsHighWater != null) await _appendRecord(vcsHighWater);
       if (record.op == Op.rewind) {
         final projectedBody = _state.bodyAtTurn(record.value);
         final targets = liveMutationTargets?.call();
@@ -1102,6 +1128,7 @@ final class _Pending {
     this.onDone,
     this.onError, {
     this.action,
+    this.minimumVcsSequence,
     this.allowBroken = false,
   });
 
@@ -1113,6 +1140,9 @@ final class _Pending {
 
   /// An operation that writes no journal record, run instead of [decide].
   final Future<void> Function()? action;
+
+  /// The minimum sequence high-water mark to persist before [decide]'s record.
+  final int? minimumVcsSequence;
 
   /// Whether the operation may run on a `broken` writer.
   final bool allowBroken;

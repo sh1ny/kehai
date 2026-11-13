@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:kehai/kehai.dart';
 import 'package:kehai/src/session/scratch.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../support/fake_provider.dart';
 import '../support/loop_support.dart';
 import '../support/session_support.dart';
 import 'compaction_test.dart' show NativeFake, driveNative, lastStep;
@@ -36,6 +39,89 @@ RequestBuilder _builder(
 Future<(SessionWriter, ResultStore)> _session() async {
   final writer = await createWriter(await tempDir());
   return (writer, ResultStore(writer.sessionDir));
+}
+
+final class _SensoriumRig {
+  _SensoriumRig(this.writer, this.provider, this.driver);
+
+  final SessionWriter writer;
+  final FakeProvider provider;
+  final ExchangeDriver driver;
+
+  Map<String, Object?> step(int turn) =>
+      writer.tree.get(SessionPath.parse('body/steps/s-${pad8(turn)}'))!
+          as Map<String, Object?>;
+
+  Future<ExchangeResult> run(String text, {required String id}) async {
+    final outcome = await driver.submit(
+      id: id,
+      text: text,
+      turn: writer.currentTurn,
+    );
+    expect(outcome, isA<SubmitAdmitted>());
+    return (outcome as SubmitAdmitted).done;
+  }
+}
+
+Future<_SensoriumRig> _sensoriumRig(
+  Directory workspace,
+  FakeProvider provider,
+) async {
+  final (writer, store) = await _session();
+  final runtime = await ToolRuntime.attach(
+    writer,
+    store,
+    workspace: workspace,
+    kehaiHome: await tempDir(),
+    config: const UserConfig(
+      sensorium: SensoriumSettings(collectorDeadlineMs: 10000),
+      vcs: VcsSettings(backend: 'git'),
+    ),
+  );
+  addTearDown(runtime.close);
+  final driver = ExchangeDriver(
+    writer: writer,
+    runtime: runtime,
+    provider: provider,
+    model: 'gpt-5.5',
+    clock: () => DateTime(2026, 10, 30, 9, 5),
+  );
+  addTearDown(driver.close);
+  return _SensoriumRig(writer, provider, driver);
+}
+
+Future<Directory> _gitWorkspace({bool modified = false}) async {
+  final root = await tempDir();
+  final workspace = Directory(p.join(root.path, 'workspace'))..createSync();
+  await _gitOk(workspace, ['init', '--initial-branch', 'main']);
+  await _gitOk(workspace, ['config', 'user.name', 'Sensorium Test']);
+  await _gitOk(workspace, [
+    'config',
+    'user.email',
+    'sensorium@example.invalid',
+  ]);
+  await _gitOk(workspace, ['config', 'commit.gpgsign', 'false']);
+  await _gitOk(workspace, ['config', 'core.autocrlf', 'false']);
+  File(p.join(workspace.path, 'tracked.txt')).writeAsStringSync('baseline\n');
+  await _gitOk(workspace, ['add', '--all']);
+  await _gitOk(workspace, ['commit', '--message', 'baseline']);
+  if (modified) {
+    File(p.join(workspace.path, 'tracked.txt')).writeAsStringSync('edited\n');
+  }
+  return workspace;
+}
+
+Future<void> _gitOk(Directory workspace, List<String> arguments) async {
+  final result = await Process.run(
+    'git',
+    arguments,
+    workingDirectory: workspace.path,
+  );
+  expect(
+    result.exitCode,
+    0,
+    reason: 'git ${arguments.join(' ')} failed: ${result.stderr}',
+  );
 }
 
 Map<String, Object?> _usage(int input, int output) => {
@@ -719,68 +805,170 @@ void _snapshotTests() {
       expect(built.block, lessThanOrEqualTo(1500));
     });
 
+    test('live job plus collected vcs keeps diagnostics unavailable', () async {
+      final workspace = await _gitWorkspace(modified: true);
+      final provider = FakeProvider.steps([
+        [const TextDelta('done'), const Completed(StopReason.endTurn)],
+      ]);
+      final rig = await _sensoriumRig(workspace, provider);
+      await rig.writer.apply(
+        rec(0, 'jobs/j-running', Op.set, {
+          'kind': 'shell',
+          'cmd': 'dart analyze',
+          'state': 'running',
+          'started': DateTime(2026, 10, 30, 9, 3).toIso8601String(),
+          'launch': 'launch-running',
+          'spool': {
+            'stdout': 'unpublished-stdout',
+            'stderr': 'unpublished-stderr',
+          },
+        }),
+      );
+      await rig.writer.apply(
+        rec(0, 'jobs/j-pending', Op.set, {
+          'kind': 'hook',
+          'cmd': 'policy-check',
+          'state': 'pending',
+          'launch': 'launch-pending',
+        }),
+      );
+      await rig.writer.apply(
+        rec(0, 'jobs/j-settled', Op.set, {
+          'kind': 'shell',
+          'cmd': 'do-not-show-completed-command',
+          'state': 'settled',
+          'started': DateTime(2026, 10, 30, 9).toIso8601String(),
+          'ended': DateTime(2026, 10, 30, 9, 1).toIso8601String(),
+        }),
+      );
+
+      final result = await rig.run('inspect workspace', id: 'live-job');
+      expect(result.state, 'done', reason: result.reason);
+      final request = provider.requests.single;
+      final block = (request.items.last as UserMessage).text;
+      final processes = _section(block, 'processes');
+      for (final fact in [
+        'j-running',
+        'shell',
+        'dart analyze',
+        'running',
+        'j-pending',
+        'hook',
+        'policy-check',
+        'pending',
+        'logs unavailable (published at exit)',
+      ]) {
+        expect(processes, contains(fact));
+      }
+      expect(processes, matches(RegExp(r'\b(?:2m|120s|2 min(?:utes)?)\b')));
+      expect(processes, isNot(contains('do-not-show-completed-command')));
+      expect(processes, isNot(contains('unpublished-stdout')));
+      expect(estimateText(processes), lessThanOrEqualTo(150));
+
+      final vcs = _section(block, 'vcs');
+      expect(vcs, contains('backend: git'));
+      expect(vcs, contains('branch: main'));
+      expect(vcs, contains('M 1'));
+      expect(vcs, contains('tracked.txt'));
+      expect(
+        _section(block, 'diagnostics'),
+        'diagnostics: unavailable (not collected)',
+      );
+
+      final admitted = rig.step(1)['sensorium']! as Map<String, Object?>;
+      expect(admitted['text'], block);
+      expect(admitted['mode'], 'full');
+      expect(admitted['tokens'], estimateText(block));
+      final observation = admitted['vcs']! as Map<String, Object?>;
+      expect(observation['state'], 'available');
+      expect(observation, contains('observed'));
+      final value = observation['value']! as Map<String, Object?>;
+      expect(value['backend'], 'git');
+      expect(value['branch'], 'main');
+      expect(value['modified'], 1);
+      expect(value['paths'], contains('tracked.txt'));
+      final baseline = observation['baseline']! as Map<String, Object?>;
+      expect(baseline['backend'], 'git');
+      expect(baseline['id'], isNotEmpty);
+      expect(baseline['seq'], isA<int>());
+      expect(baseline['jobsLive'], isTrue);
+    });
+
     test(
-      'real live job projection distinguishes uncollected sections',
+      'unchanged second request still carries full vcs and changes none',
       () async {
-        final (writer, _) = await _session();
-        await seedExchange(writer, 1, 'hello', state: 'running');
-        await writer.apply(
-          rec(1, 'jobs/j-running', Op.set, {
-            'kind': 'shell',
-            'cmd': 'dart analyze',
-            'state': 'running',
-            'started': '2026-10-30T09:03:00Z',
-            'launch': 'launch-running',
-            'spool': {
-              'stdout': 'unpublished-stdout',
-              'stderr': 'unpublished-stderr',
-            },
-          }),
+        final workspace = await _gitWorkspace();
+        final provider = FakeProvider.steps([
+          [const TextDelta('first done'), const Completed(StopReason.endTurn)],
+          [const TextDelta('second done'), const Completed(StopReason.endTurn)],
+        ]);
+        final rig = await _sensoriumRig(workspace, provider);
+
+        final first = await rig.run('first request', id: 'first');
+        expect(first.state, 'done', reason: first.reason);
+        final firstRequest = provider.requests.single;
+        final firstBlock = (firstRequest.items.last as UserMessage).text;
+        final firstVcs = _section(firstBlock, 'vcs');
+        expect(firstVcs, contains('backend: git'));
+        expect(firstVcs, contains('branch: main'));
+
+        final second = await rig.run('second request', id: 'second');
+        expect(second.state, 'done', reason: second.reason);
+        expect(provider.requests, hasLength(2));
+        final secondRequest = provider.requests.last;
+        final secondBlock = (secondRequest.items.last as UserMessage).text;
+        expect(_section(secondBlock, 'turn'), contains('full'));
+        expect(_section(secondBlock, 'vcs'), firstVcs);
+        expect(
+          _section(secondBlock, 'changes_since_last_turn'),
+          startsWith('changes_since_last_turn: none'),
         );
-        await writer.apply(
-          rec(1, 'jobs/j-pending', Op.set, {
-            'kind': 'hook',
-            'cmd': 'policy-check',
-            'state': 'pending',
-            'launch': 'launch-pending',
-          }),
+        expect(
+          secondRequest.items
+              .take(secondRequest.items.length - 1)
+              .whereType<UserMessage>()
+              .where((item) => item.text.startsWith('<sensorium>')),
+          isEmpty,
+          reason:
+              'the second full snapshot must not depend on an earlier block',
         );
-        await writer.apply(
-          rec(1, 'jobs/j-settled', Op.set, {
-            'kind': 'shell',
-            'cmd': 'do-not-show-completed-command',
-            'state': 'settled',
-            'started': '2026-10-30T09:00:00Z',
-            'ended': '2026-10-30T09:01:00Z',
-          }),
-        );
-        final built = await _fullBuilder(writer).build(writer.tree, turn: 1);
-        final processes = _section(built.blockText, 'processes');
-        for (final fact in [
-          'j-running',
-          'shell',
-          'dart analyze',
-          'running',
-          'j-pending',
-          'hook',
-          'policy-check',
-          'pending',
-          'logs unavailable (published at exit)',
+
+        final firstAdmission =
+            rig.step(1)['sensorium']! as Map<String, Object?>;
+        final secondAdmission =
+            rig.step(2)['sensorium']! as Map<String, Object?>;
+        expect(secondAdmission['text'], secondBlock);
+        expect(secondAdmission['mode'], 'full');
+        final firstVcsMetadata = firstAdmission['vcs']! as Map<String, Object?>;
+        final secondVcsMetadata =
+            secondAdmission['vcs']! as Map<String, Object?>;
+        expect(firstVcsMetadata['state'], 'available');
+        expect(secondVcsMetadata['state'], 'available');
+        final firstValue = firstVcsMetadata['value']! as Map<String, Object?>;
+        final secondValue = secondVcsMetadata['value']! as Map<String, Object?>;
+        final changes = secondValue['changes']! as Map<String, Object?>;
+        expect(changes['state'], 'available');
+        expect(changes['sinceTurn'], 1);
+        expect(changes['rows'], isEmpty);
+        expect(changes['totalPaths'], 0);
+        expect(changes['partial'], isFalse);
+        for (final key in [
+          'backend',
+          'branch',
+          'modified',
+          'added',
+          'deleted',
+          'paths',
+          'totalPaths',
         ]) {
-          expect(processes, contains(fact));
+          expect(secondValue[key], firstValue[key], reason: 'VCS fact $key');
         }
-        expect(processes, matches(RegExp(r'\b(?:2m|120s|2 min(?:utes)?)\b')));
-        expect(processes, isNot(contains('do-not-show-completed-command')));
-        expect(processes, isNot(contains('unpublished-stdout')));
-        expect(
-          _section(built.blockText, 'vcs'),
-          contains('unavailable (not collected)'),
-        );
-        expect(
-          _section(built.blockText, 'diagnostics'),
-          contains('unavailable (not collected)'),
-        );
-        expect(estimateText(processes), lessThanOrEqualTo(150));
+        final firstBaseline =
+            firstVcsMetadata['baseline']! as Map<String, Object?>;
+        final secondBaseline =
+            secondVcsMetadata['baseline']! as Map<String, Object?>;
+        expect(secondBaseline['id'], firstBaseline['id']);
+        expect(secondBaseline['seq'], greaterThan(firstBaseline['seq'] as int));
       },
     );
 

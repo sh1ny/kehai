@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:kehai/kehai.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/fake_provider.dart';
@@ -16,9 +17,16 @@ const _opaque = {
   'encrypted_content': 'CIPHERTEXT-NOT-A-DIAGNOSTIC',
 };
 
-UserConfig _config({int ceiling = 1500, String model = 'modelA'}) => UserConfig(
+UserConfig _config({
+  int ceiling = 1500,
+  String model = 'modelA',
+  int collectorDeadlineMs = 300,
+}) => UserConfig(
   // A direct legacy-config seam, not the strict startup JSON parser.
-  sensorium: SensoriumSettings(maxTokens: ceiling),
+  sensorium: SensoriumSettings(
+    maxTokens: ceiling,
+    collectorDeadlineMs: collectorDeadlineMs,
+  ),
   providers: {
     'fake': ProviderConfig(
       routes: {
@@ -59,8 +67,9 @@ void _admitted(Map<String, Object?> step, ModelRequest request, int turn) {
   final observation = step['sensorium']! as Map<String, Object?>;
   expect(
     observation.keys,
-    unorderedEquals(['text', 'tokens', 'mode', 'folds', 'source']),
+    unorderedEquals(['text', 'tokens', 'mode', 'folds', 'source', 'vcs']),
   );
+  expect(observation['vcs'], isA<Map<String, Object?>>());
   expect(observation['text'], _block(request));
   expect(observation['tokens'], estimateText(_block(request)));
   expect(observation['mode'], 'full');
@@ -162,7 +171,205 @@ Future<Directory> _nativeSession(Directory workspace) async {
   return dir;
 }
 
+String _trackedName(int index) =>
+    'tracked-${index.toString().padLeft(2, '0')}.txt';
+
+Future<Directory> _gitWorkspace() async {
+  final root = await tempDir();
+  final workspace = Directory(p.join(root.path, 'workspace'))..createSync();
+  await _gitOk(workspace, ['init', '--initial-branch=main']);
+  await _gitOk(workspace, ['config', 'user.name', 'Kehai Test']);
+  await _gitOk(workspace, ['config', 'user.email', 'test@example.invalid']);
+  for (var i = 0; i < 12; i++) {
+    File(p.join(workspace.path, _trackedName(i)))
+        .writeAsStringSync('base $i\n');
+  }
+  await _gitOk(workspace, ['add', '--all']);
+  await _gitOk(workspace, ['commit', '--no-gpg-sign', '-m', 'base']);
+  return workspace;
+}
+
+void _editGitFiles(Directory workspace, Iterable<int> indexes) {
+  for (final index in indexes) {
+    File(p.join(workspace.path, _trackedName(index)))
+        .writeAsStringSync('user edit $index\n');
+  }
+}
+
+Future<void> _gitOk(Directory workspace, List<String> arguments) async {
+  final result = await Process.run(
+    'git',
+    arguments,
+    workingDirectory: workspace.path,
+  );
+  expect(
+    result.exitCode,
+    0,
+    reason: 'git ${arguments.join(' ')} failed: ${result.stderr}',
+  );
+}
+
 void main() {
+  test('reconnect exposes recorded M2 and baseline rather than current working copy', () async {
+    final workspace = await _gitWorkspace();
+    _editGitFiles(workspace, [0, 1]);
+    late RpcRig rig;
+    late Map<String, Object?> admittedSensorium;
+    final provider = FakeProvider((request, cancel, call) {
+      admittedSensorium = jsonDecode(
+        jsonEncode(
+          _map(
+            rig.writer.tree,
+            'body/steps/s-${(call + 1).toString().padLeft(8, '0')}',
+          )['sensorium'],
+        ),
+      ) as Map<String, Object?>;
+      final vcs = admittedSensorium['vcs']! as Map<String, Object?>;
+      final baseline = vcs['baseline']! as Map<String, Object?>;
+      expect(
+        _map(rig.writer.tree, 'meta/vcs')['seqHigh'],
+        greaterThanOrEqualTo(baseline['seq']! as int),
+        reason: 'the capture sequence is durable before provider.stream',
+      );
+      return Stream.fromIterable(textStep(['admitted']));
+    });
+    rig = await rpcRig(
+      provider,
+      config: _config(collectorDeadlineMs: 10000),
+      workspace: workspace,
+      model: 'modelA',
+      backendWindow: 500000,
+    );
+    await rig.nextOfType('snapshot');
+    rig.send({'type': 'submit', 'id': 'm2', 'text': 'record M2', 'turn': 0});
+    await rig.requestSettled('m2');
+
+    expect(provider.requests, hasLength(1));
+    final step = _map(rig.writer.tree, 'body/steps/s-00000001');
+    _admitted(step, provider.requests.single, 1);
+    final sensorium = step['sensorium']! as Map<String, Object?>;
+    expect(sensorium, admittedSensorium);
+    final vcs = sensorium['vcs']! as Map<String, Object?>;
+    expect(
+      vcs.keys,
+      unorderedEquals(['state', 'observed', 'value', 'baseline']),
+    );
+    expect(vcs['state'], 'available');
+    final value = vcs['value']! as Map<String, Object?>;
+    expect(value['backend'], 'git');
+    expect(value['modified'], 2);
+    expect(value['paths'], unorderedEquals([_trackedName(0), _trackedName(1)]));
+    final baseline = vcs['baseline']! as Map<String, Object?>;
+    expect(
+      baseline.keys,
+      unorderedEquals(['backend', 'id', 'seq', 'jobsLive']),
+    );
+    expect(baseline['backend'], 'git');
+    expect(baseline['id'], isNotEmpty);
+    expect(baseline['seq'], isA<int>());
+    expect(baseline['jobsLive'], isFalse);
+    expect(sensorium['text'], contains('M 2'));
+    expect(sensorium['text'], contains(_trackedName(0)));
+    expect(sensorium['text'], contains(_trackedName(1)));
+    expect(sensorium['text'], isNot(contains(_trackedName(2))));
+
+    final session = rig.writer.sessionDir;
+    await _close(rig);
+    _editGitFiles(workspace, [2, 3, 4]);
+    final reopenedProvider = FakeProvider.steps([]);
+    final reopened = await rpcRig(
+      reopenedProvider,
+      resumeSession: session,
+      workspace: workspace,
+      config: _config(collectorDeadlineMs: 10000),
+      model: 'modelA',
+      backendWindow: 500000,
+    );
+    final snapshot = await reopened.nextOfType('snapshot');
+    final tree = SessionTree.fromJson(
+      snapshot['tree']! as Map<Object?, Object?>,
+    );
+    final recorded = _map(tree, 'body/steps/s-00000001');
+    expect(recorded['sensorium'], admittedSensorium);
+    _admitted(recorded, provider.requests.single, 1);
+    final recordedVcs =
+        (recorded['sensorium']! as Map<String, Object?>)['vcs']!
+            as Map<String, Object?>;
+    expect(recordedVcs['value'], value);
+    expect(recordedVcs['baseline'], baseline);
+    expect(reopenedProvider.requests, isEmpty);
+    await _close(reopened);
+  });
+
+  test('status collects a preview without journal bytes or baseline', () async {
+    final workspace = await _gitWorkspace();
+    final provider = FakeProvider.steps([
+      textStep(['baseline admitted']),
+    ]);
+    final rig = await rpcRig(
+      provider,
+      config: _config(collectorDeadlineMs: 10000),
+      workspace: workspace,
+      model: 'modelA',
+      backendWindow: 500000,
+    );
+    await rig.nextOfType('snapshot');
+    rig.send({
+      'type': 'submit',
+      'id': 'baseline',
+      'text': 'admit a clean baseline',
+      'turn': 0,
+    });
+    await rig.requestSettled('baseline');
+    final beforeStatus =
+        (await rig.nextOfType('compaction_status'))['compaction']!
+            as Map<String, Object?>;
+    final usedBefore = beforeStatus['used'];
+    expect(usedBefore, isA<int>());
+
+    final session = rig.writer.sessionDir;
+    final journal = journalOf(session);
+    final journalBefore = journal.readAsBytesSync();
+    final offsetBefore = rig.writer.committedLength;
+    final turnBefore = rig.writer.currentTurn;
+    final treeBefore = jsonDecode(
+      jsonEncode(rig.writer.tree.toJson()),
+    ) as Map<String, Object?>;
+    final admittedStep = _map(rig.writer.tree, 'body/steps/s-00000001');
+    final admittedSensorium =
+        admittedStep['sensorium']! as Map<String, Object?>;
+
+    await _close(rig);
+    _editGitFiles(workspace, List.generate(12, (index) => index));
+    final reopenedProvider = FakeProvider.steps([]);
+    final reopened = await rpcRig(
+      reopenedProvider,
+      resumeSession: session,
+      workspace: workspace,
+      config: _config(collectorDeadlineMs: 10000),
+      model: 'modelA',
+      backendWindow: 500000,
+    );
+    final snapshot = await reopened.nextOfType('snapshot');
+    final status = snapshot['compaction']! as Map<String, Object?>;
+    expect(
+      status['used'],
+      greaterThan(usedBefore as int),
+      reason: 'the current VCS preview adds facts to the used-token estimate',
+    );
+    expect(snapshot['offset'], offsetBefore);
+    expect(snapshot['turn'], turnBefore);
+    expect(snapshot['tree'], treeBefore);
+    expect(reopened.writer.tree.toJson(), treeBefore);
+    expect(journal.readAsBytesSync(), journalBefore);
+    final recorded = _map(reopened.writer.tree, 'body/steps/s-00000001');
+    expect(recorded['sensorium'], admittedSensorium);
+    final recordedVcs = admittedSensorium['vcs']! as Map<String, Object?>;
+    expect(recordedVcs['baseline'], isA<Map<String, Object?>>());
+    expect(reopenedProvider.requests, isEmpty);
+    await _close(reopened);
+  });
+
   test(
     'reconnect exposes exact admitted block rather than current scratch',
     () async {
