@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 import '../support/attribution_sampling_cases.dart';
 import '../support/attribution_support.dart';
 import '../support/mutation_support.dart';
+import '../support/vcs_support.dart';
 
 SensoriumChanges _changes(WorkspacePerceptionFrame frame) {
   final observation = frame.changes;
@@ -56,6 +57,25 @@ void _expectChangesUnavailable(
     reason,
   );
   expect(composeWorkspaceFrame(frame).text, contains(rendered));
+}
+
+void _expectDisabled(WorkspacePerceptionFrame frame) {
+  expect(frame.vcs, isA<SensoriumUnavailable<SensoriumVcs>>());
+  expect(
+    (frame.vcs as SensoriumUnavailable<SensoriumVcs>).reason,
+    SensoriumReason.disabled,
+  );
+  expect(frame.metadata['state'], 'unavailable');
+  expect(frame.metadata['reason'], 'disabled');
+  expect(
+    composeWorkspaceFrame(frame).text,
+    contains('vcs: unavailable (disabled)'),
+  );
+  _expectChangesUnavailable(
+    frame,
+    SensoriumReason.disabled,
+    'changes_since_last_turn: unavailable (disabled)',
+  );
 }
 
 VcsDelta _delta(String path, {int added = 1, int removed = 0}) =>
@@ -363,6 +383,83 @@ void main() {
     expect(frame.notices, isNot(contains(SensoriumNotice.baselineReset)));
     expect(frame.metadata['baseline'], containsPair('id', 'first-tree'));
   });
+
+  test('backend none disables both sections without a baseline', () async {
+    final harness = await MutationHarness.create();
+    final runner = fakeGitRunner();
+    final collector = VcsCollector(
+      processRunner: runner,
+      deadlineScheduler: ManualVcsDeadlineScheduler(),
+    );
+    addTearDown(collector.close);
+    final frame = await _capture(
+      harness,
+      workspacePerception(harness, collector, backend: 'none'),
+    );
+
+    _expectDisabled(frame);
+    expect(runner.invocations, isEmpty);
+  });
+
+  test(
+    'backend none disables both sections and preserves admitted provenance',
+    () async {
+      final harness = await MutationHarness.create();
+      var captures = 0;
+      final observer = CallbackWorkspaceObserver((request) {
+        final capture = captures++;
+        return availableCollection(
+          request,
+          id: capture == 0 ? 'original-tree' : 'latest-tree',
+          changes: capture == 1
+              ? [_delta('lib/observed-before-disable.dart')]
+              : const [],
+        );
+      });
+      final perception = workspacePerception(harness, observer);
+      final initial = await _capture(harness, perception);
+      await admitWorkspaceFrame(harness.writer, initial);
+      await harness.nextTurn();
+      final available = await _capture(harness, perception);
+      await admitWorkspaceFrame(harness.writer, available);
+      _expectBy(
+        available,
+        'lib/observed-before-disable.dart',
+        SensoriumChangeBy.user,
+      );
+      await harness.nextTurn();
+
+      final runner = fakeGitRunner();
+      final collector = VcsCollector(
+        processRunner: runner,
+        deadlineScheduler: ManualVcsDeadlineScheduler(),
+      );
+      addTearDown(collector.close);
+      final disabled = await _capture(
+        harness,
+        workspacePerception(harness, collector, backend: 'none'),
+      );
+
+      _expectDisabled(disabled);
+      expect(disabled.metadata['baseline'], available.metadata['baseline']);
+      expect(available.metadata['baseline'], containsPair('id', 'latest-tree'));
+      expect(disabled.metadata['value'], available.metadata['value']);
+      expect(disabled.metadata['observed'], {
+        'turn': available.source.turn,
+        'time': available.source.time.toIso8601String(),
+      });
+      expect(disabled.baselineSequence, available.baselineSequence);
+      expect(
+        utf8.encode(jsonEncode(disabled.metadata)).length,
+        lessThanOrEqualTo(4 * 1024),
+      );
+      expect(
+        composeWorkspaceFrame(disabled).text,
+        isNot(contains('lib/observed-before-disable.dart')),
+      );
+      expect(runner.invocations, isEmpty);
+    },
+  );
 
   test(
     'unresolvable baseline id reads baseline lost and raises baseline_reset',

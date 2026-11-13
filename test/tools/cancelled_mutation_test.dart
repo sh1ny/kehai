@@ -64,6 +64,41 @@ List<String> _temporaries(Directory dir) => [
     if (p.basename(e.path).contains('.kehai-')) p.basename(e.path),
 ];
 
+/// Signals only after the real tool has returned its future from [run].
+final class _ToolStartBarrier {
+  final _started = <String, Completer<void>>{};
+  final _futures = <String, Future<ToolOutcome>>{};
+
+  Tool wrap(Tool delegate) => _StartedTool(delegate, this);
+
+  Future<void> waitFor(String callId) =>
+      (_started[callId] ??= Completer<void>()).future;
+
+  Future<ToolOutcome> futureFor(String callId) => _futures[callId]!;
+
+  Future<ToolOutcome> _run(
+    Tool delegate,
+    ToolContext context,
+    Map<String, Object?> input,
+  ) {
+    final future = delegate.run(context, input);
+    _futures[context.callId] = future;
+    (_started[context.callId] ??= Completer<void>()).complete();
+    return future;
+  }
+}
+
+final class _StartedTool implements Tool {
+  const _StartedTool(this.delegate, this.barrier);
+
+  final Tool delegate;
+  final _ToolStartBarrier barrier;
+
+  @override
+  Future<ToolOutcome> run(ToolContext context, Map<String, Object?> input) =>
+      barrier._run(delegate, context, input);
+}
+
 void main() {
   _provenanceCancellationTests();
   for (final tool in ['write', 'edit']) {
@@ -486,6 +521,117 @@ void _provenanceCancellationTests() {
       );
     },
   );
+
+  test('F2: same-path cancelled waiters retain capacity until their real futures finish', () async {
+    final held = mutation.HeldRename();
+    var holdFirstRename = true;
+    final seams = FileWriteSeams(
+      rename: (from, to) async {
+        if (holdFirstRename) {
+          await held.rename(from, to);
+        } else {
+          await File(from).rename(to);
+        }
+      },
+    );
+    final starts = _ToolStartBarrier();
+    final h = await mutation.MutationHarness.create(
+      seams: seams,
+      writeTool: starts.wrap(WriteTool(seams: seams)),
+      editTool: starts.wrap(EditTool(seams: seams)),
+    );
+    mutation.releaseMutationAfterTest(h, held);
+
+    const path = 'same-path.txt';
+    final file = h.file(path, 'before\n');
+    await _capture(h, []);
+
+    final actualFutures = <Future<ToolOutcome>>[];
+    final detachedCalls = <Future<ToolOutputItem>>[];
+    const ownerId = 'same-path-owner';
+    detachedCalls.add(h.write(ownerId, path, 'before\n', stepTurn: 0));
+    await starts.waitFor(ownerId);
+    actualFutures.add(starts.futureFor(ownerId));
+    await held.entered.future;
+    holdFirstRename = false;
+
+    Future<void> startWaiter(int index) async {
+      final id = 'same-path-waiter-$index';
+      final call = index.isEven
+          ? h.write(id, path, 'cancelled write $index\n', stepTurn: 0)
+          : h.edit(id, path, 'cancelled edit $index', stepTurn: 0);
+      detachedCalls.add(call);
+      await starts.waitFor(id);
+      actualFutures.add(starts.futureFor(id));
+      expect(h.call(id).containsKey('target'), isFalse);
+    }
+
+    // The holder uses one runtime slot; cancel each batch before starting
+    // the next so every real tool future gets as far as PathLocks.run.
+    for (var index = 0; index < 7; index++) {
+      await startWaiter(index);
+    }
+    expect(await h.runtime.cancelTurn(), 8);
+    await Future.wait(detachedCalls);
+
+    for (var index = 7; index < 15; index++) {
+      await startWaiter(index);
+    }
+    expect(await h.runtime.cancelTurn(), 8);
+    await Future.wait(detachedCalls);
+
+    expect(actualFutures, hasLength(16));
+    expect(h.call(ownerId)['status'], 'cancelled');
+    expect(h.call(ownerId)['target'], path);
+    for (var index = 0; index < 15; index++) {
+      expect(h.call('same-path-waiter-$index')['status'], 'cancelled');
+    }
+
+    for (var index = 0; index < 24; index++) {
+      final id = 'same-path-refusal-$index';
+      final pending = index.isEven
+          ? h.write(id, path, 'must not write $index\n', stepTurn: 0)
+          : h.edit(id, path, 'must not edit $index', stepTurn: 0);
+      final winner = await Future.any<Object?>([
+        pending,
+        starts.waitFor(id).then<Object?>((_) => null),
+      ]);
+      if (winner == null) {
+        await h.runtime.cancelTurn();
+        await pending;
+      }
+      expect(
+        winner,
+        isA<ToolOutputItem>(),
+        reason: '$id reached the real tool instead of being refused',
+      );
+      expect(h.call(id)['status'], 'failed');
+      expect(h.call(id)['summary'], contains('16'));
+      expect(h.call(id)['summary'], contains('unfinished'));
+      expect(h.call(id).containsKey('target'), isFalse);
+      expect(file.readAsStringSync(), 'before\n');
+    }
+
+    await h.drain(held);
+    await Future.wait(actualFutures);
+    await mutation.mutationRecord(
+      h.writer,
+      'body/calls/${callKey(ownerId)}',
+      (node) => node['quiesced'] == true,
+    );
+    expect(file.readAsStringSync(), 'before\n');
+
+    final recovered = h.write(
+      'same-path-recovered',
+      path,
+      'capacity returned\n',
+      stepTurn: 0,
+    );
+    await starts.waitFor('same-path-recovered');
+    await recovered;
+    expect(file.readAsStringSync(), 'capacity returned\n');
+    expect(h.call('same-path-recovered')['status'], 'settled');
+  });
 
   test('finished held rename admits the next write', () async {
     final held = mutation.HeldRenames();

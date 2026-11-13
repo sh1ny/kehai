@@ -62,3 +62,7 @@ Add bounded repository observation, admitted change baselines and durable filesy
 - Full and folded changes retain attribution and the baseline turn; the six finite notice codes render once in fixed order.
 - Built-in perception guidance uses internal version `kehai-4`. Its changed instructions digest invalidates prior native opaque lineage; the existing guard requires rewind before incompatible history or a new session, without history migration.
 - Admitted requests persist their exact bounded VCS metadata; reconnect preserves it while read-only status estimates use a current capture without journal writes or a new baseline.
+
+### Fixed
+- Disabled observation keeps both sections unavailable with reason `disabled`, while preserving the prior provenance boundary.
+- Cancelled edit/write futures waiting on a shared path retain their unfinished-run slots until actual completion.

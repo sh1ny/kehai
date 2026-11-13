@@ -714,7 +714,11 @@ final class ToolRuntime {
     try {
       return await _executeReserved(live, input, mutationRun);
     } finally {
-      if (mutationRun != null && mutations.targetOf(mutationRun) == null) {
+      // Once invocation begins, _trackMutationRun releases the slot only
+      // after the actual tool future settles.
+      if (mutationRun != null &&
+          !live.running &&
+          mutations.targetOf(mutationRun) == null) {
         mutations.releaseUntargeted(mutationRun);
       }
     }

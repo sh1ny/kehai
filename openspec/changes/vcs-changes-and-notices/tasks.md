@@ -11,6 +11,8 @@
 | vcs-observation → Backend detection prefers jj | No repository | `test/workspace/vcs_backend_test.dart` (new) | no repository reads unavailable (no repository) | green |
 | vcs-observation → Backend detection prefers jj | Invalid backend setting | `test/config/config_test.dart` | invalid vcs.backend refuses configuration | green |
 | vcs-observation → Backend detection prefers jj | Observation disabled | `test/workspace/vcs_backend_test.dart` (new) | vcs.backend none starts no process and reads disabled | green |
+| vcs-observation → Backend detection prefers jj | Observation disabled | `test/loop/attribution_test.dart` | backend none disables both sections without a baseline | green |
+| vcs-observation → Backend detection prefers jj | Observation disabled | `test/loop/attribution_test.dart` | backend none disables both sections and preserves admitted provenance | green |
 | vcs-observation → Working-copy state is reported | Dirty jj working copy | `test/workspace/vcs_real_test.dart` (new) | real jj working copy renders change, description, parent and counts | green |
 | vcs-observation → Working-copy state is reported | Many changed paths | `test/loop/sensorium_composition_test.dart` | vcs section lists 12 paths then … +N more | green |
 | vcs-observation → Working-copy state is reported | Conflicted files | `test/workspace/vcs_collector_test.dart` (new) | conflicted paths are listed for jj and git | green |
@@ -92,6 +94,7 @@
 | workspace-change-attribution → Forks do not finish the parent's mutations | Foreign records overflow | `test/session/fork_mutation_test.dart` (new) | more than 16 foreign records set the overflow marker | green |
 | workspace-change-attribution → Forks do not finish the parent's mutations | Fork before post-rewind reconciliation | `test/session/fork_mutation_test.dart` (new) | fork before reconciliation retains the live target as foreign | green |
 | workspace-change-attribution → Unfinished mutations are bounded | Repeated cancellations on a stalled filesystem | `test/tools/cancelled_mutation_test.dart` | 40 cancelled writes keep 16 unfinished and refuse the rest untouched | green |
+| workspace-change-attribution → Unfinished mutations are bounded | Repeated cancellations on a stalled filesystem | `test/tools/cancelled_mutation_test.dart` | F2: same-path cancelled waiters retain capacity until their real futures finish | green |
 | workspace-change-attribution → Unfinished mutations are bounded | Capacity returns | `test/tools/cancelled_mutation_test.dart` | finished held rename admits the next write | green |
 | workspace-change-attribution → Baselines follow the session tree | Rewind | `test/loop/attribution_test.dart` (new) | rewind restores the earlier baseline | green |
 | workspace-change-attribution → Baselines follow the session tree | Resume after engine restart | `test/loop/attribution_test.dart` (new) | resume reads the baseline from the journal | green |

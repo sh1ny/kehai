@@ -73,6 +73,7 @@ final class MutationHarness {
     CallStage gate = const AllowAllStage(),
     ToolRuntimeSeams runtimeSeams = const ToolRuntimeSeams(),
     Tool? writeTool,
+    Tool? editTool,
   }) async {
     final root = await tempDir();
     Directory(p.join(root.path, '.git')).createSync();
@@ -85,7 +86,7 @@ final class MutationHarness {
       seams: runtimeSeams,
       tools: {
         'write': writeTool ?? WriteTool(seams: seams),
-        'edit': EditTool(seams: seams),
+        'edit': editTool ?? EditTool(seams: seams),
       },
     );
     addTearDown(runtime.close);

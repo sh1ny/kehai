@@ -110,6 +110,15 @@ final class WorkspacePerception {
       _ => null,
     };
     final currentBaseline = collection.baseline;
+    if (backend == 'none') {
+      return _failedFrame(
+        source,
+        frozen,
+        collection,
+        SensoriumReason.disabled,
+        disabled: true,
+      );
+    }
     if (!collection.captureCompleted ||
         currentVcs == null ||
         currentBaseline == null ||
@@ -119,6 +128,7 @@ final class WorkspacePerception {
         frozen,
         collection,
         _failureReason(collection),
+        disabled: false,
       );
     }
 
@@ -213,35 +223,42 @@ final class WorkspacePerception {
     SensoriumSource source,
     _FrozenWorkspace frozen,
     VcsCollection collection,
-    SensoriumReason failure,
-  ) {
+    SensoriumReason failure, {
+    required bool disabled,
+  }) {
     final stored = frozen.admitted;
     final notices = <SensoriumNotice>{};
     final baselineLost =
         frozen.baselineLost ||
         collection.baselineLost ||
         failure == SensoriumReason.baselineLost;
-    if (failure == SensoriumReason.timedOut || collection.deadlineExpired) {
+    if (!disabled &&
+        (failure == SensoriumReason.timedOut || collection.deadlineExpired)) {
       notices.add(SensoriumNotice.vcsTimeout);
-    } else if (_isFailureNotice(failure)) {
+    } else if (!disabled && _isFailureNotice(failure)) {
       notices.add(SensoriumNotice.vcsFailed);
     }
     if (baselineLost) notices.add(SensoriumNotice.baselineReset);
 
     final previousVcs = stored == null ? null : _decodeStoredVcs(stored.value);
     final hasStaleValue = previousVcs != null && stored?.observedTime != null;
-    final staleReason = baselineLost ? SensoriumReason.baselineLost : failure;
-    final changesReason = baselineLost
+    final preserveObserved = hasStaleValue || frozen.baseline != null;
+    final reason = disabled
+        ? SensoriumReason.disabled
+        : baselineLost
+        ? SensoriumReason.baselineLost
+        : failure;
+    final changesReason = disabled
+        ? SensoriumReason.disabled
+        : baselineLost
         ? SensoriumReason.baselineLost
         : frozen.baseline == null
         ? SensoriumReason.noBaseline
         : failure;
     final metadata = <String, Object?>{
-      'state': hasStaleValue ? 'stale' : 'unavailable',
-      'reason': baselineLost
-          ? _reasonLabel(SensoriumReason.baselineLost)
-          : _reasonLabel(failure),
-      'observed': hasStaleValue
+      'state': hasStaleValue && !disabled ? 'stale' : 'unavailable',
+      'reason': _reasonLabel(reason),
+      'observed': preserveObserved
           ? stored!.raw['observed']
           : {'turn': source.turn, 'time': source.time.toIso8601String()},
       if (hasStaleValue) 'value': stored!.value,
@@ -249,20 +266,22 @@ final class WorkspacePerception {
         'baseline': baseline,
     };
     if (_encodedLength(metadata) > _metadataByteLimit) {
-      metadata.remove('reason');
+      if (disabled) metadata.remove('value');
+      if (_encodedLength(metadata) > _metadataByteLimit) {
+        metadata.remove('reason');
+      }
     }
-    final age = hasStaleValue
-        ? source.time.difference(stored!.observedTime!)
-        : Duration.zero;
-    final observation = hasStaleValue
-        ? SensoriumStale<SensoriumVcs>(
-            previousVcs,
-            age: age.isNegative ? Duration.zero : age,
-            reason: staleReason,
-          )
-        : SensoriumUnavailable<SensoriumVcs>(
-            baselineLost ? SensoriumReason.baselineLost : failure,
-          );
+    late final SensoriumObservation<SensoriumVcs> observation;
+    if (hasStaleValue && !disabled) {
+      final age = source.time.difference(stored!.observedTime!);
+      observation = SensoriumStale<SensoriumVcs>(
+        previousVcs,
+        age: age.isNegative ? Duration.zero : age,
+        reason: reason,
+      );
+    } else {
+      observation = SensoriumUnavailable<SensoriumVcs>(reason);
+    }
     return WorkspacePerceptionFrame(
       source: source,
       vcs: observation,
