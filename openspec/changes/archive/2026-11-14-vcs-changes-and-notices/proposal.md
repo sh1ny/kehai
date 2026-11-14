@@ -41,7 +41,7 @@ It builds on entry 2, `sensorium-block-and-scratchpad`, which shipped the typed 
 - **Code:** `lib/src/loop/sensorium.dart` (typed VCS/changes inputs, notice codes), the request path in `lib/src/loop/driver.dart`/`request_builder.dart` (collection before the frozen snapshot, baseline recording with the admitted observation), a new collector module under `lib/src/workspace/` (process runner use, jj/git parsing), tool-call provenance for edit/write post-content hashes where missing, and `lib/src/config/user_config.dart` (strict `vcs` / collector-deadline startup keys).
 - **Session tree:** new collector baseline and last-known-value nodes. This is additive and rebuildable: older sessions without them take a fresh baseline. The journal format and RPC v1 shape are unchanged, apart from new fields in existing step metadata.
 - **User repository:** jj observation snapshots the working copy (ordinary jj behaviour, adding operation-log entries). Git observation writes unreferenced tree/blob objects through a temporary index. Neither moves refs, the user's index, HEAD or the working tree.
-- **External tools:** `jj` (pinned 0.46.0 in `mise.toml`) and `git` must be on PATH, or the section says unavailable. Tests use disposable repositories, and CI must provide both tools on Linux and Windows.
+- **External tools:** `jj` (pinned 0.46.0 in `mise.toml`) and Git ≥ 2.34 must be on PATH, or the section reports unavailable/failure. Tests use disposable repositories, and CI must provide both tools on Linux and Windows.
 - **Instructions/tool identity:** built-in perception guidance changes and its internal version becomes `kehai-4`. The instructions digest therefore changes. Existing native opaque history with the old lineage is rejected by the unchanged compatibility guard; recovery is rewind before the incompatible history or a new session. There is no history migration, compatibility fallback or package-version bump. Tool identity is unchanged.
 
 ## Release Notes
@@ -71,3 +71,6 @@ Add bounded repository observation, admitted change baselines and durable filesy
 - Finished ancestor orphan records expire at their inherited sequence boundary in forked children; unfinished foreign records remain uncertain.
 - Changes report diff truncation independently of status truncation and ordinary twelve-row display omissions.
 - Forking generic session trees accepts ordinary non-map body values without treating them as malformed mutation metadata.
+- Actual atomic temporary paths share durable mutation uncertainty across creation, cleanup, rewind, restart and fork instead of producing false user edits; legacy footprints without that path remain conservatively unknown for their existing lifetime.
+- Git capture includes sparse-checkout paths through the private index and requires Git ≥ 2.34 without fallback.
+- Pinned jj missing-revision failures reset the inaccessible comparison baseline while retaining the freshly completed capture.

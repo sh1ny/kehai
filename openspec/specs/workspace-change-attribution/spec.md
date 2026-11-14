@@ -312,3 +312,42 @@ The first accepted target record of a new edit/write attempt SHALL include `targ
 #### Scenario: Legacy unresolved target without a boundary
 - **WHEN** an unresolved interval target has no recorded boundary and a successful same-target effect matches both verification reads
 - **THEN** the row reads `by: unknown`, without substituting zero for the missing boundary
+
+### Requirement: Atomic temporary paths share mutation uncertainty
+Each edit/write SHALL publish and durably record its destination, actual atomic temporary path and order boundary together before mutation. The temporary path SHALL remain visible as `by: unknown` through the same open, interval, orphan, recovery and foreign lifetimes, irrespective of successful effects. Missing legacy temporary provenance SHALL make applicable comparisons wholly unknown. Filename patterns SHALL NOT establish ownership or suppress rows.
+
+#### Scenario: Capture while the temporary file exists
+- **WHEN** a cancelled edit/write still owns its unignored temporary file while the next request or status preview captures the repository
+- **THEN** the temporary-file row reads `by: unknown`, remains visible, and does not raise `user_edits`
+
+#### Scenario: Cleanup after an intervening baseline
+- **WHEN** that request admits a baseline containing the temporary file and the old tool then removes it before the following capture
+- **THEN** the removal reads `by: unknown` without `user_edits`, even though the destination was unchanged
+
+#### Scenario: Refused pre-mutation intent
+- **WHEN** the destination/temporary intent is refused or cannot be persisted
+- **THEN** neither the temporary file nor missing parent directories are created and the destination is unchanged
+
+#### Scenario: Capture freezes around intent publication
+- **WHEN** a request freezes its attribution input before the atomic intent commits and the temporary file is created during capture
+- **THEN** untargeted-run uncertainty or the already-published complete footprint prevents that file from being attributed to the user; no primary-only publication gap exists
+
+#### Scenario: Temporary cleanup after rewind and restart
+- **WHEN** rewind loses either path of a live atomic mutation and the engine dies after the cut
+- **THEN** replay retains both paths in the same orphan record, recovery finishes only its own record, and comparisons against pre-finish baselines classify temporary creation/removal `by: unknown`, including after restoration of an older baseline
+
+#### Scenario: Parent cleanup after child recovery
+- **WHEN** a fork inherits a parent mutation with a live temporary file, the child recovers and captures it, and the parent later removes it
+- **THEN** the child's foreign record retains both paths without being finished by child recovery, and the removal reads `by: unknown` without `user_edits`
+
+#### Scenario: Unrelated user file resembles an atomic temporary
+- **WHEN** a user changes an unrecorded `.name.kehai-0123abcd` file with no applying provenance or process activity
+- **THEN** its row remains visible as `by: user` and raises `user_edits`
+
+#### Scenario: Independent successful write to a temporary path
+- **WHEN** another call has a verified successful effect for a path still covered as an atomic temporary in the interval or applying record
+- **THEN** the path reads `by: unknown`, because the destination's lock does not order writes to its temporary path
+
+#### Scenario: Legacy footprint lacks a temporary path
+- **WHEN** an interval edit/write or applying open/orphan/foreign record has a destination but its legacy `temporary` field is absent
+- **THEN** replay, preservation, finish, recovery and fork accept and retain that absence without inventing a path or throwing, and the comparison classifies all rows `by: unknown` without `user_edits` for only the existing interval or applying lifetime

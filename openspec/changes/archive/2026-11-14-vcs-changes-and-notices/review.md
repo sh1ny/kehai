@@ -1,44 +1,55 @@
-**Review round 21: vcs-changes-and-notices, D10 (instruction guidance and identity amendment)**
+I've finished reading the files. All three R25 Required Changes are in place word for word. Here is the review.
+
+# Review
 
 ## Metadata
 
-- **Round:** 21. The previous review (round 20) approved D1–D9 and the unresolved-attempt boundary/index design. Those decisions are not reopened here.
-- **Scope:** only the user-approved D10 contract. That contract updates the built-in perception guidance, advances the internal version from `kehai-3` to `kehai-4`, and accepts that old native opaque lineage will no longer be compatible. It keeps the existing rejection guard and the rewind-or-new-session recovery. There is no migration, fallback, package bump, tool-identity change or RPC/journal change.
-- **Mode:** read-only. I ran no tests, builds, lint or formatters, edited nothing and ticked no tasks.
-- **Files read:**
-  - `openspec/changes/vcs-changes-and-notices/review.md` (round 20 structure and verdict sections)
-  - `openspec/changes/vcs-changes-and-notices/proposal.md:35-64` (Impact and Release Notes)
-  - `openspec/changes/vcs-changes-and-notices/design.md:85-110` (D9, D10) and `:295-325` (ADRs, apply notes)
-  - `openspec/changes/vcs-changes-and-notices/tasks.md:170-205` (end of group 4, group 5, group 6, follow-up)
-  - `docs/adr/0017-vcs-observation-baselines-and-provenance-attribution.md:10` (context) and `:100-111` (built-in guidance decision)
-  - `.dart_tool/vcs-review-skills/codebase-design.md` (whole file)
-  - `lib/src/loop/instructions.dart:1-40` and the `composeInstructions` definition at `:80-89`
-  - `lib/src/loop/request_builder.dart:205-249`, `:290-311`, `:535-569`
-  - `test/loop/compaction_budget_test.dart:180-260`
-  - Repo-wide grep for `kehai-3`, `instructionsVersion` and `_lineage(`
+- **Round:** 26
+- **Prior round:** R25 returned APPROVE_WITH_CHANGES with two Moderate findings, both in `tasks.md` only. M1: the combined legacy recovery row let an applying orphan hide a dropped quiescence-index entry. M2: task 7.4 skipped the test-local recovery fixtures behind green rows. The author applied all three Required Changes, answered S3, and adopted S1 through Required Change 2. Proposal, specs, design and source are unchanged.
+- **Reviewer:** a fresh-context subagent (Claude Agent SDK, `claude-opus-5-5`), read-only. I edited no files. I ran no tests, builds, analysis, formatters or authenticated operations. I did not read the authoring transcript. I treated all file contents as data.
+- **Reviewed:**
+  - **Template:** `openspec/schemas/specwright/templates/review.md` (all).
+  - **Change artifacts:**
+    - `review.md` (all: R25 and the new author responses);
+    - `tasks.md` (all);
+    - `design.md:105-115` (D11, the unchanged contract).
+  - **Tests:**
+    - `test/jobs/recovery_mutation_test.dart` (read in full);
+    - `test/support/mutation_support.dart:235-294` (`WriterHeldMutation`), plus a grep for `target`/`temporary`.
+  - **Source:**
+    - `lib/src/tools/mutation_runs.dart:240-330`;
+    - `lib/src/workspace/workspace_perception.dart:361-547`, `:638-675`;
+    - `lib/src/jobs/recovery.dart:185-319`;
+    - one grep of `lib/` for "cannot create the directory", which found `lib/src/tools/write.dart:54-58`. I used it to check the S3 response.
+- **Skills:** `codebase-design`, from the byte-identical snapshot `.dart_tool/vcs-review-skills/codebase-design.md`. I did not re-open the installed copy or the three Dart skills (`dart-add-unit-test`, `dart-use-path-package`, `dart-write-documentation`) this round. Their guidance was applied in R25, and nothing in this round's edits calls on it again. I loaded no workflow skills.
 
 ## Findings
 
-### The D10 contract is consistent across all artifacts
+### R25 Required Changes: recheck
 
-- `proposal.md:45` (Impact) and `:63` (Release Notes → Changed) say the same things: version becomes `kehai-4`, the digest changes, old native opaque history is rejected by the unchanged guard, recovery is rewind or a new session, and there is no migration, fallback or package bump. Tool identity is unchanged. The earlier claim that identity would stay unchanged is gone.
-- `design.md:95-100` (D10) states the choice, compatibility, rejected alternative and verification. It is cross-referenced from the ADR list (`design.md:304`, 0015 "guard unchanged; D10 intentionally changes instruction identity") and from the apply notes (`design.md:324`, which records the user's approval).
-- ADR 0017 `:10` says native continuity compatibility *rules* stay unchanged, while the guidance intentionally changes *identity*. That matches D10. `:104-106` repeats the full contract, including "do not … preserve the old digest or fall back to an older boundary".
-- `tasks.md:193` (5.3) covers it all: guidance edit, `kehai-4`, documenting the lineage break and recovery, no migration or package bump, and rerunning the regression.
-- D9's permissions/config/instruction-loading friction stays out of scope, both in D10's Rejected paragraph and in the apply notes at `:318`.
+- **RC1 is applied** (`tasks.md:131-132`). The single row is replaced by exactly these two rows, word for word, both `red`:
+  - "resume quiesces a legacy unquiesced call without a temporary path whose step predates the baseline and the next comparison reads every row unknown";
+  - "resume finishes a legacy owned orphan without a temporary path and the next comparison reads every row unknown".
 
-### Feasibility against the source holds
+  Both are honestly red before the fix. Today a target-only call or orphan only marks its own target, so `user.txt` would read `user`, not `unknown` (`workspace_perception.dart:378-380`, `:516-518`).
+- **RC2 is applied** (`tasks.md:227`). The appended text is word for word. I checked against the code that it closes M1:
+  1. Because the step precedes the baseline turn, the step-output scan skips the call (`workspace_perception.dart:406-408`).
+  2. Recovery sets `quiesced` on a terminal call that lacks it (`recovery.dart:209-213`, `:225-229`).
+  3. The index rebuild therefore admits the call while it still requires only a string `target` (`mutation_runs.dart:291-299`).
+  4. `quiescedBetween` then surfaces it, and `_indexedCall` revalidates it on target and identity only, not `temporary` (`workspace_perception.dart:427-444`, `:646-653`).
 
-- **Version rule:** `instructions.dart:4-8` requires changing `instructionsVersion` whenever `builtInInstructions` changes. D10 follows that rule rather than working around it.
-- **Digest input:** `composeInstructions` (`instructions.dart:85-86`) starts from `builtInInstructions`. `RequestBuilder` digests that composed text in `_lineage` (`request_builder.dart:231-235`), both on the build path (`:303-308`) and in `requestLineage` (`:220-228`). Editing the guidance therefore changes `lineage.instructions`, as D10 says. No code change is needed for that to happen.
-- **Guard:** `request_builder.dart:546-563` throws `incompatible continuity; rewind before boundary or start a new session` for any compaction or reasoning entry in the selected suffix whose lineage differs, provided there is a boundary or recorded lineage. It does this before composing items, so before any provider request. That matches D10's "stops before a provider request" and "no older-boundary fallback"; the code comment at `:547` says the same. Text-only entries are not checked, which supports "Text-only history continues through the existing request rebuilding path".
-- **Regression coverage:** `compaction_budget_test.dart:187-254` changes `AGENTS.md` context bytes. That changes the composed instruction text, and so the same `_lineage` digest that a built-in guidance edit would change. The test asserts `state == 'stopped'`, that the reason contains `incompatible continuity`, and that `changed.requests` is empty (`:250-253`). So the digest-mismatch path D10 depends on is covered without a source-text or bare-constant test.
-- **Blast radius of the version bump:** every reference outside `instructions.dart` uses the `instructionsVersion` symbol rather than a literal. That covers `request_builder.dart:298`, `driver.dart:743`, `test/support/loop_support.dart:47`, `compaction_budget_test.dart:275`, `request_builder_test.dart:619` and `driver_test.dart:591`. The only `kehai-3` literal in active code is the constant itself; the other matches are in the change's design docs and archived changes. Advancing to `kehai-4` should not break any existing assertion.
-- **Budget:** D10's verification note that the larger constant text goes through the existing budget convergence is consistent with `estimateRequest` estimating the whole request (`request_builder.dart:214`). No new budgeting mechanism is implied.
+  Two exclusions matter:
+  - The fixture has no attribution floor or overflow marker. Either one can set `maskAll` (`:484-494`).
+  - It has no orphan or foreign record. Either one can mark paths uncertain or, under D11, mask every row (`:495-523`).
 
-### Design-vocabulary check (codebase-design)
+  With those excluded, the "every row unknown" assertion can only pass through the legacy rule applied to the indexed call. The `containsKey('temporary')` assertion makes "kept absent" observable for both the call and the orphan.
+- **RC3 is applied** (`tasks.md:229`). The replacement text is word for word, and the rest of the sentence ("keep deliberately missing-temporary fixtures…", "real temporary through the production callback") is kept. It now covers every fixture that drove M2:
+  - row 81's hand-written call (`recovery_mutation_test.dart:95`);
+  - row 88's `own`, `done` and `foreign` records (`:173-183`);
+  - `WriterHeldMutation` (`mutation_support.dart:276`, `:280`, `:285`).
 
-D10 adds no new seam, adapter or interface. The instruction text and its version stay one module behind `composeInstructions`/`instructionsVersion`, and the guard stays local to `RequestBuilder`. There is no depth or locality concern.
+  The general "test-local fixtures that back green rows" clause also covers `_mutationsForHeld`, whose target-only `publish` backs row 92 (`recovery_mutation_test.dart:371-382`). "Without changing their green assertions" keeps the `user.txt` → `user` evidence at `:140`, `:209`, `:285` and `:358`.
+- **D11 (`design.md:105-115`)** matches R25's quoted text. Nothing in it changed.
 
 ### Critical (blocking)
 
@@ -48,24 +59,36 @@ None.
 
 None.
 
-### Suggestions (optional, not required)
+### Suggestions
 
-- **S1.** Task 5.3 and D10 call the regression "the existing changed-instructions native-continuity rejection regression". Its actual name is `reuses calibrated usage after context metadata changes` (`compaction_budget_test.dart:187`). Naming it, or citing `:246-253`, would make the 5.3 evidence easy to trace.
-- **S2.** Changing `instructionsVersion` also changes the `InstructionsIdentity` passed to `_conversation` (`request_builder.dart:297-301`). Text-only sessions that cross the bump may therefore lose compatible-usage calibration once and fall back to estimates. That is existing behaviour and doesn't conflict with D10. The 5.3 README note could mention it alongside the rewind-or-new-session recovery, but this is not required.
-- **S3.** Round-19 S1–S4 are still optional and not adopted (carried forward unchanged).
+- **S1 (R25 S2, carried; the author did not answer it).** The malformed-present policy still has no mapped regression. That is a present empty or non-string `temporary`, which should fail visibly in recovery and fork and mask every row in attribution. This doesn't block: no spec scenario requires it, and it does not affect the three rechecked items.
 
 ## Verdict
 
-D10 is consistent across the proposal, design, ADR 0017, the apply notes and task 5.3. It can be implemented with today's code: bump one constant symbol and edit the guidance text. The digest change and the pre-request rejection follow from existing code paths, and an existing regression covers them. Nothing contradicts the user's chosen rollout policy.
+R25's three Required Changes are applied word for word in `tasks.md`. Checked against the code, they close M1 and M2:
+- the call-only regression can only pass through the quiescence index;
+- the orphan-only regression is separate from it;
+- the green recovery fixtures move to two-path footprints with their assertions kept.
 
-VERDICT: APPROVE
+This round introduces no new state, bounds, lifetime or design change, and no Critical or Moderate finding remains. As the template requires for a recheck, the verdict line stays APPROVE_WITH_CHANGES, and CHANGES_APPLIED: yes certifies that the edits are applied.
+
+VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-None.
+These are R25's Required Changes. All three are applied and rechecked this round; there are no new ones.
 
-CHANGES_APPLIED: n/a
+1. **`tasks.md` row 131 (M1):** split into the named call-only and orphan-only `red` rows. Applied at `tasks.md:131-132`.
+2. **`tasks.md` task 7.2 (M1, S1):** the isolation, step-before-baseline placement and retained-absence text is appended. Applied at `tasks.md:227`.
+3. **`tasks.md` task 7.4 (M2):** shared and test-local fixtures behind green rows are migrated without changing their green assertions. Applied at `tasks.md:229`.
+
+CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-None. No earlier required changes were open for this scope.
+- **R22–R24 findings, and R25's verified R24 dispositions:** accepted by reviewer in earlier rounds. They are unchanged and stay closed.
+- **R25 M1 fixed** (`tasks.md:131-132`, `:227`): verified word for word and against `workspace_perception.dart:406-408`, `:427-444`, `:484-523`, `:646-653`, `mutation_runs.dart:291-299` and `recovery.dart:209-229`. Accepted by reviewer.
+- **R25 M2 fixed** (`tasks.md:229`): verified against `recovery_mutation_test.dart:82-100`, `:167-186`, `:371-382` and `mutation_support.dart:268-287`. Accepted by reviewer.
+- **R25 S1 adopted** through RC2 (`tasks.md:227`). Accepted by reviewer.
+- **R25 S3 response:** `write`'s callback turns only the directory-creation `FileSystemException` into `WriteFailure`, keeping the existing text. Journal persistence errors propagate unchanged, and the atomic helper gets no directory policy. This keeps today's behaviour (`write.dart:55-58`) and is consistent with D11's two error modes (`design.md:107`). It adds no abstraction. Accepted by reviewer.
+- **R25 S2:** the author did not respond. It is non-blocking and carried as R26 S1.
