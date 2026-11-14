@@ -15,6 +15,11 @@
 | vcs-observation → Backend detection prefers jj | Observation disabled | `test/loop/attribution_test.dart` | backend none disables both sections and preserves admitted provenance | green |
 | vcs-observation → Working-copy state is reported | Dirty jj working copy | `test/workspace/vcs_real_test.dart` (new) | real jj working copy renders change, description, parent and counts | green |
 | vcs-observation → Working-copy state is reported | Many changed paths | `test/loop/sensorium_composition_test.dart` | vcs section lists 12 paths then … +N more | green |
+| vcs-observation → Working-copy state is reported | Many changed paths through fresh admission and stale carry | `test/loop/attribution_test.dart` | display-limited omitted paths retain exact VCS counts | green |
+| vcs-observation → Working-copy state is reported | Collector-capped path preview through fresh admission and stale carry | `test/loop/attribution_test.dart` | display-limited collector path preview retain exact VCS counts | green |
+| vcs-observation → Working-copy state is reported | Conflicted files through fresh admission and stale carry | `test/loop/attribution_test.dart` | display-limited omitted conflicts retain exact VCS counts | green |
+| vcs-observation → Working-copy state is reported | Clipped path label with exact counts | `test/loop/attribution_test.dart` | display-limited clipped path retain exact VCS counts | green |
+| vcs-observation → Working-copy state is reported | Clipped conflict label with exact counts | `test/loop/attribution_test.dart` | display-limited clipped conflict retain exact VCS counts | green |
 | vcs-observation → Working-copy state is reported | Conflicted files | `test/workspace/vcs_collector_test.dart` (new) | conflicted paths are listed for jj and git | green |
 | vcs-observation → Working-copy state is reported | Unborn git branch | `test/workspace/vcs_real_test.dart` (new) | real git unborn branch reports branch without HEAD id | green |
 | vcs-observation → Collection is bounded by a deadline | Collection within deadline | `test/workspace/vcs_collector_test.dart` (new) | completed fake collection returns available | green |

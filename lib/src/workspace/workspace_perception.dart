@@ -950,14 +950,12 @@ SensoriumVcs? _decodeStoredVcs(Map<String, Object?>? value) {
 }
 
 Map<String, Object?> _vcsValue(SensoriumVcs vcs, Map<String, Object?> changes) {
-  var partial = vcs.partial;
   final paths = <String>[];
   var pathCount = 0;
   for (final path in vcs.paths) {
     pathCount++;
     if (paths.length == _displayRowLimit) continue;
     final clipped = _clipJsonString(path, 64);
-    if (clipped != path) partial = true;
     paths.add(clipped);
   }
   final conflicts = <String>[];
@@ -966,14 +964,10 @@ Map<String, Object?> _vcsValue(SensoriumVcs vcs, Map<String, Object?> changes) {
     conflictTotal++;
     if (conflicts.length == _displayRowLimit) continue;
     final clipped = _clipJsonString(path, 64);
-    if (clipped != path) partial = true;
     conflicts.add(clipped);
   }
   final totalPaths = vcs.totalPaths ?? pathCount;
   final conflictCount = vcs.conflictCount ?? conflictTotal;
-  if (totalPaths > paths.length || conflictCount > conflicts.length) {
-    partial = true;
-  }
   return {
     'backend': _clipJsonString(vcs.backend, 64),
     'branch': _clipJsonString(vcs.branch, 128),
@@ -989,7 +983,7 @@ Map<String, Object?> _vcsValue(SensoriumVcs vcs, Map<String, Object?> changes) {
     'conflictCount': conflictCount,
     'paths': paths,
     'totalPaths': totalPaths,
-    'partial': partial,
+    'partial': vcs.partial,
     'changes': changes,
   };
 }

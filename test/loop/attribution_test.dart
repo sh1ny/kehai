@@ -640,6 +640,82 @@ void main() {
     expect(stale.notices, contains(SensoriumNotice.vcsTimeout));
   });
 
+  final fortyPaths = [for (var i = 0; i < 40; i++) 'file-$i.dart'];
+  final longPath = 'lib/${'x' * 100}.dart';
+  for (final scenario in <String, SensoriumVcs>{
+    'omitted paths': SensoriumVcs(
+      branch: 'main',
+      paths: fortyPaths,
+      modified: 40,
+    ),
+    'collector path preview': SensoriumVcs(
+      branch: 'main',
+      paths: fortyPaths.take(12),
+      totalPaths: 40,
+      modified: 40,
+    ),
+    'omitted conflicts': SensoriumVcs(
+      branch: 'main',
+      paths: const [],
+      conflicts: fortyPaths,
+      conflictCount: 40,
+    ),
+    'clipped path': SensoriumVcs(
+      branch: 'main',
+      paths: [longPath],
+      modified: 1,
+    ),
+    'clipped conflict': SensoriumVcs(
+      branch: 'main',
+      paths: const [],
+      conflicts: [longPath],
+    ),
+  }.entries) {
+    test('display-limited ${scenario.key} retain exact VCS counts', () async {
+      final harness = await MutationHarness.create();
+      var failed = false;
+      final observer = CallbackWorkspaceObserver((request) {
+        if (failed) {
+          return const VcsCollection(
+            observation: SensoriumUnavailable(SensoriumReason.failed),
+            reason: 'failed',
+            captureCompleted: false,
+          );
+        }
+        return availableCollection(
+          request,
+          id: 'exact-counts',
+          value: scenario.value,
+        );
+      });
+      final perception = workspacePerception(harness, observer);
+      final fresh = await _capture(harness, perception);
+      final freshValue = (fresh.vcs as SensoriumAvailable<SensoriumVcs>).value;
+      expect(freshValue.partial, isFalse);
+      expect(freshValue.paths.length, lessThanOrEqualTo(12));
+      expect(freshValue.conflicts.length, lessThanOrEqualTo(12));
+      await admitWorkspaceFrame(harness.writer, fresh);
+      await harness.nextTurn();
+      failed = true;
+      final stale = await _capture(harness, perception);
+      final staleValue = (stale.vcs as SensoriumStale<SensoriumVcs>).value;
+      expect(staleValue.partial, isFalse);
+      expect(staleValue.modified, scenario.value.modified);
+      expect(staleValue.conflictCount, freshValue.conflictCount);
+      for (final frame in [fresh, stale]) {
+        final text = composeWorkspaceFrame(frame).text;
+        expect(text, contains('M ${scenario.value.modified}'));
+        expect(text, isNot(contains('≥')));
+        expect(text, isNot(contains('partial')));
+        if (scenario.key == 'omitted paths' ||
+            scenario.key == 'collector path preview' ||
+            scenario.key == 'omitted conflicts') {
+          expect(text, contains('… +28 more'));
+        }
+      }
+    });
+  }
+
   test('300 failed collections still find the carried baseline', () async {
     final harness = await MutationHarness.create(skipFlush: true);
     var failures = 0;

@@ -210,7 +210,8 @@ Observation reports `no repository`, `disabled`, `jj not found`, `git not found`
 `timeout`, `failed` or `cleanup pending` rather than pretending the repository is
 clean. With an earlier admitted value, a failed collection reports that value as
 `stale`, with its original age and the current reason. Truncated listings carry
-partial lower-bound counts and explicit omissions. Once both output streams and
+partial lower-bound counts and explicit omissions. The 12-path/conflict preview
+and clipped labels preserve exact counts. Once both output streams and
 the command exit have settled, a truncated capture releases its normal cleanup
 slot. Timed-out or stopped collections still quarantine private files until
 termination is confirmed. If all 16 cleanup slots are held, no new VCS process

@@ -726,7 +726,14 @@ String _noticesSection(Set<SensoriumNotice> notices) {
       ..write(notice.code);
     separator = ', ';
   }
-  return text.toString();
+  final rendered = text.toString();
+  if (estimateText(rendered) <= SensoriumAllocations.notices) return rendered;
+
+  final preview = _Preview(SensoriumNotice.values.length);
+  for (final notice in SensoriumNotice.values) {
+    if (notices.contains(notice)) preview.add(notice.code);
+  }
+  return _rows('notices', preview, SensoriumAllocations.notices);
 }
 
 final class _Sections {
