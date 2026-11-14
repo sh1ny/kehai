@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:kehai/kehai.dart';
+import 'package:kehai/src/workspace/vcs_collector.dart' show VcsTrust;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -237,6 +238,7 @@ void main() {
       provider,
       config: _config(collectorDeadlineMs: 10000),
       workspace: workspace,
+      vcsTrust: VcsTrust.grant(root: workspace.path),
       model: 'modelA',
       backendWindow: 500000,
     );
@@ -281,6 +283,7 @@ void main() {
       reopenedProvider,
       resumeSession: session,
       workspace: workspace,
+      vcsTrust: VcsTrust.grant(root: workspace.path),
       config: _config(collectorDeadlineMs: 10000),
       model: 'modelA',
       backendWindow: 500000,
@@ -310,6 +313,7 @@ void main() {
       provider,
       config: _config(collectorDeadlineMs: 10000),
       workspace: workspace,
+      vcsTrust: VcsTrust.grant(root: workspace.path),
       model: 'modelA',
       backendWindow: 500000,
     );
@@ -346,6 +350,7 @@ void main() {
       reopenedProvider,
       resumeSession: session,
       workspace: workspace,
+      vcsTrust: VcsTrust.grant(root: workspace.path),
       config: _config(collectorDeadlineMs: 10000),
       model: 'modelA',
       backendWindow: 500000,

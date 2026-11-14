@@ -39,6 +39,7 @@ import '../shell/detect.dart';
 import '../hooks/hook_stage.dart';
 import '../permissions/workspace_paths.dart';
 import '../workspace/project_root.dart';
+import '../workspace/vcs_collector.dart' show VcsTrust;
 
 import 'agent.dart';
 import 'ask.dart';
@@ -176,6 +177,7 @@ final class ToolRuntime {
     this.roster,
     this.model,
     this.effort,
+    this.vcsTrust,
   );
 
   /// Attaches a runtime to [writer] and [store].
@@ -210,6 +212,7 @@ final class ToolRuntime {
     ResultStore store, {
     required Directory workspace,
     UserConfig? config,
+    VcsTrust? vcsTrust,
     bool yolo = false,
     Answerer? answerer,
     Directory? kehaiHome,
@@ -321,6 +324,7 @@ final class ToolRuntime {
       roster,
       model,
       effort,
+      vcsTrust ?? VcsTrust.untrusted,
     );
     runtime.jobs
       ..liveCallKeys = (() => {
@@ -351,6 +355,9 @@ final class ToolRuntime {
 
   /// The user configuration.
   final UserConfig config;
+
+  /// Invocation-bound authority for automatic VCS observation.
+  final VcsTrust vcsTrust;
 
   /// Whether the user asked to skip permission prompts.
   final bool yolo;
@@ -772,6 +779,7 @@ final class ToolRuntime {
       cancel: live.token,
       workspace: workspace,
       config: config,
+      vcsTrust: vcsTrust,
       prompts: prompts,
       kehaiHome: kehaiHome,
       shell: shell,

@@ -32,6 +32,7 @@ void main() {
 
     final result =
         await VcsCollector(
+          trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
           processRunner: runner,
           deadlineScheduler: deadlines,
         ).collect(
@@ -71,6 +72,7 @@ void main() {
       );
       final result =
           await VcsCollector(
+            trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
             processRunner: runner,
             deadlineScheduler: deadlines,
           ).collect(
@@ -127,6 +129,7 @@ void main() {
       );
       final pending =
           VcsCollector(
+            trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
             processRunner: runner,
             deadlineScheduler: deadlines,
           ).collect(
@@ -171,6 +174,7 @@ void main() {
       },
     );
     final pending = VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
       processRunner: runner,
       deadlineScheduler: deadlines,
     ).collect(root: workspace.root, backend: 'git');
@@ -200,6 +204,7 @@ void main() {
         ('git', 'git', fakeGitRunner()),
       ]) {
         final result = await VcsCollector(
+          trust: VcsTrust.grant(root: workspace.root, backend: backend),
           processRunner: runner,
           deadlineScheduler: deadlines,
           environment: const {'PATH': ''},
@@ -222,6 +227,7 @@ void main() {
       ),
     );
     final result = await VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
       processRunner: runner,
       deadlineScheduler: deadlines,
     ).collect(root: workspace.root, backend: 'git');
@@ -259,6 +265,7 @@ void main() {
           },
         );
         final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.root, backend: backend),
           processRunner: runner,
           deadlineScheduler: deadlines,
         );
@@ -294,6 +301,7 @@ void main() {
       },
     );
     final result = await VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'jj'),
       processRunner: runner,
       deadlineScheduler: deadlines,
     ).collect(root: workspace.root, backend: 'jj');
@@ -315,6 +323,7 @@ void main() {
     const conflictPath = 'lib/conflict.dart';
     workspace.writeFile(conflictPath, 'conflicted file');
     final gitResult = await VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
       processRunner: fakeGitRunner(
         conflicts: const [conflictPath],
         headModified: const [conflictPath],
@@ -322,6 +331,7 @@ void main() {
       deadlineScheduler: deadlines,
     ).collect(root: workspace.root, backend: 'git');
     final jjResult = await VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'jj'),
       processRunner: fakeJjRunner(
         statuses: const [(conflictPath, 'C')],
         conflicts: const [conflictPath],
@@ -343,6 +353,7 @@ void main() {
     workspace = VcsWorkspace.create(jj: true);
     final result =
         await VcsCollector(
+          trust: VcsTrust.grant(root: workspace.root, backend: 'jj'),
           processRunner: fakeJjRunner(
             diff:
                 gitPatch(path: 'line\nbreak.dart', added: 2, removed: 1) +
@@ -370,6 +381,7 @@ void main() {
     final invocations = <VcsInvocation>[];
     for (final (backend, runner) in [('git', runners[0]), ('jj', runners[1])]) {
       await VcsCollector(
+        trust: VcsTrust.grant(root: workspace.root, backend: backend),
         processRunner: runner,
         deadlineScheduler: deadlines,
       ).collect(root: workspace.root, backend: backend);
@@ -418,6 +430,7 @@ void main() {
         },
       );
       final pending = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
         processRunner: runner,
         deadlineScheduler: deadlines,
       ).collect(root: workspace.root, backend: 'git');
@@ -455,6 +468,7 @@ void main() {
       },
     );
     final collector = VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
       processRunner: runner,
       deadlineScheduler: deadlines,
     );
@@ -492,6 +506,7 @@ void main() {
       );
       final previous = _previous('git', 'old-tree');
       final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
         processRunner: runner,
         deadlineScheduler: deadlines,
       );
@@ -529,6 +544,7 @@ void main() {
       final pathEntry = p.relative(bin.path, from: Directory.current.path);
       final runner = fakeGitRunner();
       final result = await VcsCollector(
+        trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
         processRunner: runner,
         deadlineScheduler: deadlines,
         environment: {'PATH': pathEntry},

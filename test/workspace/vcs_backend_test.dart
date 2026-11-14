@@ -22,6 +22,7 @@ void main() {
     workspace.writeFile('src/edited.dart', 'actual workspace file');
     final runner = fakeJjRunner(statuses: const [('src/edited.dart', 'M')]);
     final result = await VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'auto'),
       processRunner: runner,
       deadlineScheduler: deadlines,
     ).collect(root: workspace.root);
@@ -47,6 +48,7 @@ void main() {
       headModified: const ['lib/actual.dart'],
     );
     final result = await VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'auto'),
       processRunner: runner,
 
       deadlineScheduler: deadlines,
@@ -100,6 +102,7 @@ void main() {
         },
       );
       final result = await VcsCollector(
+        trust: VcsTrust.grant(root: nested.path, backend: 'auto'),
         processRunner: runner,
         deadlineScheduler: deadlines,
       ).collect(root: nested.path);

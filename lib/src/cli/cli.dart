@@ -156,6 +156,11 @@ final ArgParser _clientParser = ArgParser()
     negatable: false,
     help: "Reopen the workspace's latest session.",
   )
+  ..addFlag(
+    'trust-vcs',
+    negatable: false,
+    help: 'Trust repository VCS programs for this invocation.',
+  )
   ..addOption('session', help: 'Reopen the session with this id.')
   ..addOption('model', help: 'The model id to use.')
   ..addOption(
@@ -168,7 +173,7 @@ final ArgParser _clientParser = ArgParser()
 /// session, model and effort options.
 bool _startsClient(List<String> args) =>
     args.isEmpty ||
-    const ['--resume', '--session', '--model', '--effort'].any(
+    const ['--resume', '--session', '--model', '--effort', '--trust-vcs'].any(
       (option) => args.first == option || args.first.startsWith('$option='),
     );
 
@@ -207,6 +212,7 @@ Future<int> _runClient(List<String> args, CliContext context) async {
   try {
     return await runLineClient(
       engineArgs: [
+        if (results.flag('trust-vcs')) '--trust-vcs',
         if (results.flag('resume')) '--resume',
         if (results.option('session') case final id?) ...['--session', id],
         if (results.option('model') case final model?) ...['--model', model],
@@ -421,6 +427,12 @@ class _RpcCommand extends _KehaiCommand {
         help: "Reopen the workspace's latest session.",
       )
       ..addOption('session', help: 'Reopen the session with this id.')
+      ..addFlag(
+        'trust-vcs',
+        negatable: false,
+        help: 'Trust repository VCS programs for this invocation.',
+      )
+      ..addOption('vcs-trust-binding', hide: true)
       ..addOption('model', help: 'The model id to use.')
       ..addOption(
         'effort',
@@ -483,6 +495,7 @@ class _RpcCommand extends _KehaiCommand {
       sessionId: results.option('session'),
       modelFlag: results.option('model'),
       effortFlag: results.option('effort'),
+      trustVcs: results.flag('trust-vcs'),
       child: child,
     );
   }
@@ -500,11 +513,15 @@ ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
       ...childOnly,
       'yolo',
       'effort-default',
+      'vcs-trust-binding',
       'compaction-policy',
     ]) {
       if (results.wasParsed(name)) usage('--$name needs --child');
     }
     return null;
+  }
+  if (results.wasParsed('vcs-trust-binding') && !results.flag('trust-vcs')) {
+    usage('--vcs-trust-binding needs --trust-vcs');
   }
   if (results.flag('effort-default') && results.wasParsed('effort')) {
     usage('--effort-default cannot be combined with --effort');
@@ -531,5 +548,6 @@ ChildSpec? _childSpec(ArgResults results, Never Function(String) usage) {
     yolo: results.flag('yolo'),
     effortDefault: results.flag('effort-default'),
     compactionPolicy: policy,
+    vcsTrustBinding: results.option('vcs-trust-binding'),
   );
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:kehai/kehai.dart';
 import 'package:kehai/src/session/scratch.dart';
+import 'package:kehai/src/workspace/vcs_collector.dart' show VcsTrust;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -72,6 +73,7 @@ Future<_SensoriumRig> _sensoriumRig(
     writer,
     store,
     workspace: workspace,
+    vcsTrust: VcsTrust.grant(root: workspace.path, backend: 'git'),
     kehaiHome: await tempDir(),
     config: const UserConfig(
       sensorium: SensoriumSettings(collectorDeadlineMs: 10000),

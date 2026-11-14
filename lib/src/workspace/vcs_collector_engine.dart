@@ -20,6 +20,10 @@ final class _CollectionStopped implements Exception {
   const _CollectionStopped();
 }
 
+final class _TrustRefused implements Exception {
+  const _TrustRefused();
+}
+
 final class _CapturedBytes {
   const _CapturedBytes(this.bytes, this.truncated);
 
@@ -242,15 +246,20 @@ final class _NativeVcsProcess implements VcsProcess {
 
 final class _VcsCollectorEngine {
   _VcsCollectorEngine({
+    required VcsTrust trust,
     VcsProcessRunner? processRunner,
     VcsDeadlineScheduler? deadlineScheduler,
     VcsFileReader? readFile,
     Map<String, String>? environment,
-  }) : _processRunner = processRunner ?? const _NativeVcsProcessRunner(),
+  }) : _trust = trust,
+       _processRunner = processRunner ?? const _NativeVcsProcessRunner(),
        _deadlineScheduler = deadlineScheduler ?? _TimerVcsDeadlineScheduler(),
        _readFile = readFile ?? const _NativeVcsFileReader().read,
-       _environment = Map.unmodifiable(environment ?? Platform.environment);
+       _environment = trust._canStart
+           ? Map.unmodifiable(environment ?? Platform.environment)
+           : const {};
 
+  final VcsTrust _trust;
   final VcsProcessRunner _processRunner;
   final VcsDeadlineScheduler _deadlineScheduler;
   final VcsFileReader _readFile;
@@ -282,6 +291,28 @@ final class _VcsCollectorEngine {
       );
     }
 
+    if (backend != 'auto' &&
+        backend != 'git' &&
+        backend != 'jj' &&
+        backend != 'none') {
+      return _failedCollection(
+        previous,
+        SensoriumReason.failed,
+        'failed: invalid backend',
+        observedAt,
+      );
+    }
+    final workspace = _canonicalVcsWorkspace(root);
+    if (backend == 'none') {
+      return _unavailable(SensoriumReason.disabled, 'disabled');
+    }
+    final selection = _selectVcsRepository(workspace, backend);
+    final allowed = _trust._allows(selection, workspace: workspace);
+    if (selection.backend == null) {
+      return _unavailable(SensoriumReason.noRepository, 'no repository');
+    }
+    if (!allowed) return _trustRequired(previous);
+
     var effectiveDeadline = deadline;
     if (_firstCollection) {
       _firstCollection = false;
@@ -294,6 +325,8 @@ final class _VcsCollectorEngine {
       previous,
       observedAt,
       _deadlineScheduler.elapsed,
+      root,
+      backend,
       effectiveDeadline,
     );
     _runs.add(run);
@@ -328,7 +361,7 @@ final class _VcsCollectorEngine {
     final work =
         _collectSerialized(
           run,
-          root: root,
+          root: workspace,
           backend: backend,
           previous: previous,
           turn: turn,
@@ -408,6 +441,7 @@ final class _VcsCollectorEngine {
       );
     }
     run.checkActive();
+    run.checkTrust();
     run.markLockAcquired(_deadlineScheduler.elapsed);
     try {
       return await _collectLocked(
@@ -433,33 +467,15 @@ final class _VcsCollectorEngine {
     required DateTime time,
     required VcsAttributionInput? attribution,
   }) async {
+    final selection = run.checkTrust();
+    final start = root;
+    final repository = selection.repository;
+    final selected = selection.backend!;
     final sequence = attribution?.sequence;
     final jobsLive = attribution?.jobsLive ?? false;
     var effects = attribution?.effects;
     attribution = null;
     final captureSequence = sequence?.reserve();
-    if (backend == 'none') {
-      return _unavailable(SensoriumReason.disabled, 'disabled');
-    }
-    if (backend != 'auto' && backend != 'git' && backend != 'jj') {
-      throw const _CollectorFailure(
-        SensoriumReason.failed,
-        'failed: invalid backend',
-      );
-    }
-
-    final start = p.normalize(p.absolute(root));
-    final repository = p.normalize(p.absolute(projectRoot(start)));
-    final jjExists = _hasMarker(repository, '.jj');
-    final gitExists = _hasMarker(repository, '.git');
-    if (!jjExists && !gitExists) {
-      return _unavailable(SensoriumReason.noRepository, 'no repository');
-    }
-
-    final selected = backend == 'auto' ? (jjExists ? 'jj' : 'git') : backend;
-    if (selected == 'jj' && !jjExists || selected == 'git' && !gitExists) {
-      return _unavailable(SensoriumReason.noRepository, 'no repository');
-    }
     run.checkActive();
 
     final executable = resolveProgram(
@@ -533,7 +549,7 @@ final class _VcsCollectorEngine {
       candidates++;
       final absolute = _absoluteAttributionPath(repository, entry.key);
       if (absolute == null) continue;
-      final read = _startAttributionRead(absolute);
+      final read = _startAttributionRead(run, absolute);
       if (read == null) continue;
       final path = entry.key;
       reads.add(
@@ -567,7 +583,7 @@ final class _VcsCollectorEngine {
     for (final entry in before.entries) {
       final absolute = _absoluteAttributionPath(repository, entry.key);
       if (absolute == null) continue;
-      final read = _startAttributionRead(absolute);
+      final read = _startAttributionRead(run, absolute);
       if (read == null) continue;
       final path = entry.key;
       final sampleBefore = entry.value;
@@ -604,8 +620,12 @@ final class _VcsCollectorEngine {
     );
   }
 
-  Future<VcsFileSample?>? _startAttributionRead(String absolute) {
+  Future<VcsFileSample?>? _startAttributionRead(
+    _CollectionRun run,
+    String absolute,
+  ) {
     if (_outstandingAttributionReads >= _vcsAttributionPathLimit) return null;
+    run.checkTrust();
     _outstandingAttributionReads++;
     final read = Future<VcsFileSample?>.sync(
       () => _readFile(absolute, _vcsAttributionFileLimit),
@@ -671,6 +691,13 @@ final class _VcsCollectorEngine {
   VcsCollection _unavailable(SensoriumReason reason, String message) =>
       VcsCollection(observation: SensoriumUnavailable(reason), reason: message);
 
+  VcsCollection _trustRequired(VcsCollection? previous) => VcsCollection(
+    observation: const SensoriumUnavailable(SensoriumReason.trustRequired),
+    baseline: previous?.baseline,
+    reason: 'trust required',
+    baselineLost: previous?.baselineLost ?? false,
+  );
+
   VcsCollection _failedCollection(
     VcsCollection? previous,
     SensoriumReason reason,
@@ -717,6 +744,7 @@ final class _VcsCollectorEngine {
     Object error,
     DateTime now,
   ) {
+    if (error is _TrustRefused) return _trustRequired(previous);
     if (error case _CollectorFailure(:final reason, :final message)) {
       return _failedCollection(previous, reason, message, now);
     }
@@ -755,12 +783,13 @@ final class _VcsCollectorEngine {
     required Map<String, String> environment,
     required String tool,
   }) async {
-    run.checkActive();
+    run.checkTrust();
     run.reserveSlot();
     final permit = await run._commandLimiter.acquire(run._stoppedSignal.future);
     if (permit == null) throw const _CollectionStopped();
     var releasePermit = true;
     try {
+      run.checkTrust();
       run.checkActive();
       final tracked = _TrackedCommand(
         run,
@@ -888,13 +917,6 @@ final class _VcsCollectorEngine {
     jobsLive: jobsLive,
   );
 
-  bool _hasMarker(String directory, String marker) =>
-      FileSystemEntity.typeSync(
-        p.join(directory, marker),
-        followLinks: false,
-      ) !=
-      FileSystemEntityType.notFound;
-
   void _reserve(_CollectionRun run) {
     if (_leases.length >= _vcsCleanupLimit) {
       throw const _CollectorFailure(
@@ -975,6 +997,8 @@ final class _CollectionRun {
     this.previous,
     this.time,
     this.startedAt,
+    this.workspace,
+    this.backend,
     this.deadline,
   );
 
@@ -983,6 +1007,8 @@ final class _CollectionRun {
   final DateTime time;
   final Duration startedAt;
   final Duration deadline;
+  final String workspace;
+  final String backend;
   final Completer<VcsCollection> returned = Completer<VcsCollection>();
   final _CommandLimiter _commandLimiter = _CommandLimiter();
   final Set<_TrackedCommand> _commands = {};
@@ -1015,6 +1041,17 @@ final class _CollectionRun {
   void checkActive() {
     engine._expireIfDue(this, previous, time);
     if (isStopped) throw const _CollectionStopped();
+  }
+
+  _VcsRepositorySelection checkTrust() {
+    checkActive();
+    final actualWorkspace = _canonicalVcsWorkspace(workspace);
+    final selection = _selectVcsRepository(actualWorkspace, backend);
+    if (!engine._trust._allows(selection, workspace: actualWorkspace)) {
+      stop(engine._trustRequired(previous));
+      throw const _TrustRefused();
+    }
+    return selection;
   }
 
   void markLockAcquired(Duration elapsed) {

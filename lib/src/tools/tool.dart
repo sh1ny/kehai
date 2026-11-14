@@ -18,6 +18,7 @@ import '../jobs/supervisor.dart';
 import '../results/composer.dart';
 import '../results/descriptor.dart';
 import '../shell/detect.dart';
+import '../workspace/vcs_collector.dart' show VcsTrust;
 import 'ask.dart';
 
 /// What a tool reports when it finishes.
@@ -148,7 +149,8 @@ final class ToolContext {
     this.effort,
     this.mutation,
     this.yolo = false,
-  });
+    VcsTrust? vcsTrust,
+  }) : vcsTrust = vcsTrust ?? VcsTrust.untrusted;
 
   /// Sends one ephemeral progress line of [kind] to the client, when the
   /// answerer takes progress; it is not recorded (design D13).
@@ -206,6 +208,9 @@ final class ToolContext {
 
   /// The user configuration read at attach.
   final UserConfig config;
+
+  /// Invocation-bound authority, denied unless explicitly supplied.
+  final VcsTrust vcsTrust;
 
   /// The answerer channel of the runtime, or null when the context has none.
   final PromptChannel? prompts;

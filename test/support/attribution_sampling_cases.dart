@@ -285,6 +285,7 @@ Future<_SamplingFixture> _createFixture(
   final git = _ScenarioVcsRunner(vcsOrder);
   final clock = ManualVcsDeadlineScheduler();
   final collector = VcsCollector(
+    trust: VcsTrust.grant(root: harness.root.path, backend: 'git'),
     processRunner: git.runner,
     deadlineScheduler: clock,
     readFile: reader.read,

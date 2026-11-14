@@ -19,7 +19,6 @@ import '../session/writer.dart';
 import '../session/tree.dart';
 import '../tools/runtime.dart';
 import '../workspace/inventory.dart';
-import '../workspace/project_root.dart';
 import '../workspace/vcs_collector.dart';
 import '../workspace/workspace_perception.dart';
 import '../workspace/load.dart';
@@ -233,7 +232,7 @@ final class ExchangeDriver {
   final ChildRole? childRole;
   final DateTime Function() _clock;
   final Future<void> Function()? _onRequestCaptured;
-  final VcsCollector _vcsCollector = VcsCollector();
+  late final VcsCollector _vcsCollector = VcsCollector(trust: runtime.vcsTrust);
   late final RequestBuilder _builder = RequestBuilder(
     sessionDir: writer.sessionDir,
     model: model,
@@ -288,7 +287,7 @@ final class ExchangeDriver {
     clock: _clock,
     onCaptured: _onRequestCaptured,
     workspacePerception: WorkspacePerception(
-      root: projectRoot(runtime.workspace.path),
+      root: runtime.workspace.path,
       observer: _vcsCollector,
       mutations: runtime.mutations,
       backend: runtime.config.vcs.backend,

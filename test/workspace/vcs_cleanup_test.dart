@@ -35,6 +35,7 @@ void main() {
       },
     );
     final collector = VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
       processRunner: runner,
       deadlineScheduler: deadlines,
     );
@@ -94,6 +95,7 @@ void main() {
       },
     );
     final collector = VcsCollector(
+      trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
       processRunner: runner,
       deadlineScheduler: deadlines,
     );
@@ -134,6 +136,7 @@ void main() {
         },
       );
       final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.root, backend: 'git'),
         processRunner: runner,
         deadlineScheduler: deadlines,
       );
@@ -213,6 +216,7 @@ void main() {
         },
       );
       final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.root, backend: 'jj'),
         processRunner: runner,
         deadlineScheduler: deadlines,
       );

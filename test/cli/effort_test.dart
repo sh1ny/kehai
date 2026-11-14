@@ -52,6 +52,7 @@ captureStartup(List<String> args, TestHome home) async {
           String? sessionId,
           String? modelFlag,
           String? effortFlag,
+          bool trustVcs = false,
           child,
         }) async {
           rpcStarts++;

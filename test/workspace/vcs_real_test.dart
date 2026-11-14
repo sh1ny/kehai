@@ -17,6 +17,7 @@ import 'package:test/test.dart';
 import '../support/attribution_support.dart' as attribution;
 import '../support/mutation_support.dart';
 import '../support/session_support.dart';
+import '../support/vcs_trust_support.dart';
 
 const _gitName = 'Nikolay Bochev';
 const _gitEmail = '309868+sh1ny@users.noreply.github.com';
@@ -26,11 +27,85 @@ const _collectionDeadline = Duration(seconds: 5);
 
 void main() {
   group('real process VCS collection', () {
+    test(
+      'configured Git programs require trust and retain native content',
+      () async {
+        final fixture = await ConfiguredVcsWorkspace.create();
+        final root = fixture.workspace.path;
+        final index = File(p.join(root, '.git', 'index'));
+        final head = File(p.join(root, '.git', 'HEAD'));
+        final branch = File(p.join(root, '.git', 'refs', 'heads', 'main'));
+        final originalIndex = await index.readAsBytes();
+        final originalHead = await head.readAsBytes();
+        final originalBranch = await branch.readAsBytes();
+        const dirtyContent = 'initial dirty content\n';
+        fixture.clearMarkers();
+
+        final denied = VcsCollector(environment: fixture.environment);
+        addTearDown(denied.close);
+        final inactive = await denied.collect(
+          root: root,
+          backend: 'git',
+          deadline: _collectionDeadline,
+        );
+        expect(inactive.observation, isA<SensoriumUnavailable<SensoriumVcs>>());
+        expect(
+          (inactive.observation as SensoriumUnavailable<SensoriumVcs>).reason,
+          SensoriumReason.trustRequired,
+        );
+        expect(inactive.reason, 'trust required');
+        expect(inactive.baseline, isNull);
+        expect(inactive.captureCompleted, isFalse);
+        expect(fixture.monitorMarker.existsSync(), isFalse);
+        expect(fixture.filterMarker.existsSync(), isFalse);
+        expect(await fixture.tracked.readAsString(), dirtyContent);
+        expect(await index.readAsBytes(), orderedEquals(originalIndex));
+        expect(await head.readAsBytes(), orderedEquals(originalHead));
+        expect(await branch.readAsBytes(), orderedEquals(originalBranch));
+
+        final trusted = VcsCollector(
+          trust: VcsTrust.grant(root: root, backend: 'git'),
+          environment: fixture.environment,
+        );
+        addTearDown(trusted.close);
+        final captured = await trusted.collect(
+          root: root,
+          backend: 'git',
+          deadline: _collectionDeadline,
+        );
+        final value = _available(captured);
+        expect(captured.captureCompleted, isTrue);
+        expect(value.backend, 'git');
+        expect(value.modified, 1);
+        expect(value.paths, contains('tracked.txt'));
+        expect(fixture.monitorMarker.existsSync(), isTrue);
+        expect(fixture.filterMarker.existsSync(), isTrue);
+        expect(fixture.monitorMarker.readAsStringSync(), contains('monitor'));
+        expect(fixture.filterMarker.readAsStringSync(), contains('filter'));
+        expect(await fixture.tracked.readAsString(), dirtyContent);
+        expect(await index.readAsBytes(), orderedEquals(originalIndex));
+        expect(await head.readAsBytes(), orderedEquals(originalHead));
+        expect(await branch.readAsBytes(), orderedEquals(originalBranch));
+
+        final show = await Process.run(
+          'git',
+          ['show', '${_baselineId(captured)}:tracked.txt'],
+          workingDirectory: root,
+          environment: fixture.environment,
+          includeParentEnvironment: false,
+        );
+        expect(show.exitCode, 0, reason: '${show.stderr}');
+        expect(show.stdout, dirtyContent);
+      },
+    );
+
     test('completed truncated native collections do not exhaust cleanup slots', () async {
       final workspace = _RealWorkspace.create();
-      final collector = VcsCollector();
-      _registerCleanup(workspace, collector);
       await workspace.initGit();
+      final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.directory.path),
+      );
+      _registerCleanup(workspace, collector);
       final empty = await _gitText(workspace.directory, [
         'hash-object',
         '-w',
@@ -103,9 +178,11 @@ void main() {
 
     test('private-index capture includes sparse-checkout paths', () async {
       final workspace = _RealWorkspace.create();
-      final collector = VcsCollector();
-      _registerCleanup(workspace, collector);
       await workspace.initGit();
+      final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.directory.path),
+      );
+      _registerCleanup(workspace, collector);
       workspace.write('inside/visible.txt', 'inside\n');
       workspace.write('outside/tracked.txt', 'retained tracked content\n');
       await workspace.commit('sparse baseline');
@@ -181,12 +258,16 @@ void main() {
     test('missing jj baseline is replaced by the fresh capture', () async {
       final source = _RealWorkspace.create();
       final destination = _RealWorkspace.create();
-      final sourceCollector = VcsCollector();
-      final collector = VcsCollector();
-      _registerCleanup(source, sourceCollector);
-      _registerCleanup(destination, collector);
       await source.initJj();
       await destination.initJj();
+      final sourceCollector = VcsCollector(
+        trust: VcsTrust.grant(root: source.directory.path),
+      );
+      final collector = VcsCollector(
+        trust: VcsTrust.grant(root: destination.directory.path),
+      );
+      _registerCleanup(source, sourceCollector);
+      _registerCleanup(destination, collector);
       source.write('only-source.txt', 'source clone content\n');
       destination.write('destination.txt', 'before\n');
       final (writer, runtime) = await _realSession(destination);
@@ -223,13 +304,15 @@ void main() {
         '$backend temporary-file deltas stay uncertain through cancellation',
         () async {
           final workspace = _RealWorkspace.create();
-          final collector = VcsCollector();
-          _registerCleanup(workspace, collector);
           if (backend == 'git') {
             await workspace.initGit();
           } else {
             await workspace.initJj();
           }
+          final collector = VcsCollector(
+            trust: VcsTrust.grant(root: workspace.directory.path),
+          );
+          _registerCleanup(workspace, collector);
           workspace.write('tracked.txt', 'before\n');
           if (backend == 'git') await workspace.commit('temporary baseline');
           final entered = Completer<void>();
@@ -319,9 +402,11 @@ void main() {
       'dirty jj reports identity, first description, parent, MAD and opid',
       () async {
         final workspace = _RealWorkspace.create();
-        final collector = VcsCollector();
-        _registerCleanup(workspace, collector);
         await workspace.initJj();
+        final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.directory.path),
+        );
+        _registerCleanup(workspace, collector);
         workspace.write('notes.txt', 'base one\nbase two\n');
         workspace.write('second.txt', 'second baseline\n');
         await _jjOk(workspace.directory, ['describe', '--message', 'parent']);
@@ -384,9 +469,11 @@ void main() {
 
     test('unborn git branch reports its branch and untracked path', () async {
       final workspace = _RealWorkspace.create();
-      final collector = VcsCollector();
-      _registerCleanup(workspace, collector);
       await workspace.initGit(branch: 'unborn-topic');
+      final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.directory.path),
+      );
+      _registerCleanup(workspace, collector);
       workspace.write('new.txt', 'unborn content\n');
 
       final result = await collector.collect(
@@ -405,9 +492,11 @@ void main() {
       'partial staging preserves the original index bytes, refs and split',
       () async {
         final workspace = _RealWorkspace.create();
-        final collector = VcsCollector();
-        _registerCleanup(workspace, collector);
         await workspace.initGit();
+        final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.directory.path),
+        );
+        _registerCleanup(workspace, collector);
         workspace.write('split.txt', 'alpha\nbeta\ngamma\n');
         await workspace.commit('base');
         workspace.write('split.txt', 'alpha\nstaged\nbeta\ngamma\n');
@@ -467,9 +556,11 @@ void main() {
       'private-index capture does not execute repository index hooks',
       () async {
         final workspace = _RealWorkspace.create();
-        final collector = VcsCollector();
-        _registerCleanup(workspace, collector);
         await workspace.initGit();
+        final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.directory.path),
+        );
+        _registerCleanup(workspace, collector);
         workspace.write('watched.txt', 'committed content\n');
         await workspace.commit('base');
         workspace.write('watched.txt', 'pending user content\n');
@@ -513,9 +604,11 @@ void main() {
 
     test('user git add succeeds while collection is blocked without original index lock', () async {
       final workspace = _RealWorkspace.create();
-      final collector = VcsCollector();
-      _registerCleanup(workspace, collector);
       await workspace.initGit();
+      final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.directory.path),
+      );
+      _registerCleanup(workspace, collector);
       workspace.write('base.txt', 'base\n');
       await workspace.commit('base');
 
@@ -587,9 +680,11 @@ void main() {
       'edited force-added ignored file remains in captured tree membership',
       () async {
         final workspace = _RealWorkspace.create();
-        final collector = VcsCollector();
-        _registerCleanup(workspace, collector);
         await workspace.initGit();
+        final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.directory.path),
+        );
+        _registerCleanup(workspace, collector);
         workspace.write('.gitignore', 'ignored.txt\n');
         workspace.write('ignored.txt', 'tracked despite ignore\n');
         await _gitOk(workspace.directory, ['add', '--', '.gitignore']);
@@ -629,9 +724,11 @@ void main() {
       'git rm cached plus ignore removes path from captured tree membership',
       () async {
         final workspace = _RealWorkspace.create();
-        final collector = VcsCollector();
-        _registerCleanup(workspace, collector);
         await workspace.initGit();
+        final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.directory.path),
+        );
+        _registerCleanup(workspace, collector);
         workspace.write('cached-away.txt', 'tracked before removal\n');
         await _gitOk(workspace.directory, ['add', '--', 'cached-away.txt']);
         await workspace.commit('track file');
@@ -677,9 +774,11 @@ void main() {
 
     test('autocrlf true agent write still reads by agent', () async {
       final workspace = _RealWorkspace.create();
-      final collector = VcsCollector();
-      _registerCleanup(workspace, collector);
       await workspace.initGit();
+      final collector = VcsCollector(
+        trust: VcsTrust.grant(root: workspace.directory.path),
+      );
+      _registerCleanup(workspace, collector);
       await _gitOk(workspace.directory, ['config', 'core.autocrlf', 'true']);
       workspace.write('tracked.txt', 'baseline\n');
       await workspace.commit('baseline');
@@ -724,9 +823,11 @@ void main() {
       'git baseline reports one-file added and removed line counts',
       () async {
         final workspace = _RealWorkspace.create();
-        final collector = VcsCollector();
-        _registerCleanup(workspace, collector);
         await workspace.initGit();
+        final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.directory.path),
+        );
+        _registerCleanup(workspace, collector);
         workspace.write('counts.txt', 'zero\none\ntwo\n');
         await workspace.commit('baseline');
 
@@ -763,9 +864,11 @@ void main() {
       'jj baseline reports one-file added and removed line counts',
       () async {
         final workspace = _RealWorkspace.create();
-        final collector = VcsCollector();
-        _registerCleanup(workspace, collector);
         await workspace.initJj();
+        final collector = VcsCollector(
+          trust: VcsTrust.grant(root: workspace.directory.path),
+        );
+        _registerCleanup(workspace, collector);
         workspace.write('counts.txt', 'zero\none\ntwo\n');
         await _jjOk(workspace.directory, ['describe', '--message', 'baseline']);
 

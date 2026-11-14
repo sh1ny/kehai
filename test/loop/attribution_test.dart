@@ -212,7 +212,471 @@ void _expectMetadataListsBounded(Object? value) {
   }
 }
 
+const _trustBlocked = VcsCollection(
+  observation: SensoriumUnavailable(SensoriumReason.trustRequired),
+  captureCompleted: false,
+);
+
+void _expectTrustBlocked(WorkspacePerceptionFrame frame) {
+  expect(
+    (frame.vcs as SensoriumUnavailable<SensoriumVcs>).reason,
+    SensoriumReason.trustRequired,
+  );
+  _expectChangesUnavailable(
+    frame,
+    SensoriumReason.trustRequired,
+    'changes_since_last_turn: unavailable (trust required)',
+  );
+  expect(
+    composeWorkspaceFrame(frame).text,
+    contains('vcs: unavailable (trust required)'),
+  );
+  expect(frame.metadata['state'], 'unavailable');
+  expect(frame.metadata['reason'], 'trust required');
+  expect(frame.notices, isEmpty);
+  expect(
+    utf8.encode(jsonEncode(frame.metadata)).length,
+    lessThanOrEqualTo(4096),
+  );
+}
+
+Future<void> _exhaustLookup(MutationHarness harness) async {
+  for (var turn = 1; turn <= 256; turn++) {
+    await harness.writer.apply(
+      JournalRecord(
+        turn: turn,
+        path: mutationStepPath(turn),
+        op: Op.set,
+        value: {'status': 'failed-without-admission'},
+      ),
+    );
+  }
+}
+
+Map<String, Object?> _legacyNearLimit({
+  required bool partial,
+  required String counts,
+}) {
+  final paths = <Object?>[for (var i = 0; i < 12; i++) 'p$i'];
+  final conflicts = <Object?>[for (var i = 0; i < 12; i++) 'c$i'];
+  final rows = <Object?>[
+    for (var i = 0; i < 12; i++)
+      {'path': 'r$i', 'added': 1, 'removed': 0, 'by': 'user', 'binary': false},
+  ];
+  final changes = <String, Object?>{
+    'state': 'available',
+    'sinceTurn': 0,
+    'rows': rows,
+    if (counts == 'present') 'totalPaths': 19,
+    if (counts == 'null') 'totalPaths': null,
+    'partial': partial,
+  };
+  final value = <String, Object?>{
+    'backend': 'git',
+    'branch': '',
+    'change': '',
+    'description': '',
+    'parent': '',
+    'operation': '',
+    'modified': 19,
+    'added': 0,
+    'deleted': 0,
+    'paths': paths,
+    'conflicts': conflicts,
+    if (counts == 'present') 'totalPaths': 19,
+    if (counts == 'present') 'conflictCount': 17,
+    if (counts == 'null') 'totalPaths': null,
+    if (counts == 'null') 'conflictCount': null,
+    'partial': partial,
+    'changes': changes,
+  };
+  final metadata = <String, Object?>{
+    'state': 'available',
+    'observed': {'turn': 0, 'time': DateTime.utc(2026).toIso8601String()},
+    'baseline': {
+      'backend': 'git',
+      'id': 'legacy-tree',
+      'seq': 1,
+      'jobsLive': false,
+    },
+    'value': value,
+  };
+  // Fill only fields produced by the old bounded preview, stopping just below
+  // its former 4 KiB limit and leaving too little room for the new envelope.
+  final fields = <(Map<String, Object?>, String, int)>[
+    (value, 'branch', 128),
+    (value, 'change', 128),
+    (value, 'description', 160),
+    (value, 'parent', 96),
+    (value, 'operation', 96),
+    for (final row in rows) (row as Map<String, Object?>, 'path', 64),
+  ];
+  for (final (map, key, max) in fields) {
+    while ((map[key] as String).length < max &&
+        utf8.encode(jsonEncode(metadata)).length < 4090) {
+      map[key] = '${map[key]}x';
+    }
+  }
+  for (final list in [paths, conflicts]) {
+    for (var i = 0; i < list.length; i++) {
+      while ((list[i] as String).length < 64 &&
+          utf8.encode(jsonEncode(metadata)).length < 4090) {
+        list[i] = '${list[i]}x';
+      }
+    }
+  }
+  return metadata;
+}
+
 void main() {
+  test('trust withheld disables both sections without a baseline', () async {
+    final harness = await MutationHarness.create();
+    final perception = workspacePerception(
+      harness,
+      CallbackWorkspaceObserver((_) => _trustBlocked),
+    );
+    final frame = await _capture(harness, perception);
+    _expectTrustBlocked(frame);
+    expect(frame.metadata, isNot(contains('baseline')));
+    expect(frame.metadata, isNot(contains('value')));
+    await admitWorkspaceFrame(harness.writer, frame);
+    expect(
+      mutationNode(
+        harness.writer,
+        '${mutationStepPath(frame.source.turn)}/sensorium',
+      )['vcs'],
+      frame.metadata,
+    );
+  });
+
+  test(
+    'trust withheld preserves admitted provenance without collection',
+    () async {
+      final harness = await MutationHarness.create();
+      final file = harness.file('external.txt', 'before\n');
+      var blocked = false;
+      final observer = CallbackWorkspaceObserver((request) {
+        if (blocked) return _trustBlocked;
+        return availableCollection(
+          request,
+          id: request.previous == null ? 'before-gap' : 'after-gap',
+          value: const SensoriumVcs(
+            branch: 'private-branch',
+            paths: ['private-path'],
+          ),
+          changes: request.previous == null ? [] : [_delta('external.txt')],
+          verification: {'external.txt': verifiedFile(file)},
+        );
+      });
+      final perception = workspacePerception(harness, observer);
+      final before = await _capture(harness, perception);
+      await admitWorkspaceFrame(harness.writer, before);
+      await harness.nextTurn();
+      blocked = true;
+      file.writeAsStringSync('external edit\n');
+      final inactive = await _capture(harness, perception);
+      _expectTrustBlocked(inactive);
+      expect(inactive.metadata['baseline'], before.metadata['baseline']);
+      expect(inactive.metadata['observed'], before.metadata['observed']);
+      expect(inactive.metadata['value'], before.metadata['value']);
+      expect(
+        composeWorkspaceFrame(inactive).text,
+        isNot(contains('private-branch')),
+      );
+      expect(
+        composeWorkspaceFrame(inactive).text,
+        isNot(contains('private-path')),
+      );
+      await admitWorkspaceFrame(harness.writer, inactive);
+      final (writer, runtime) = await _reopenHarness(harness);
+      await writer.apply(
+        JournalRecord(
+          turn: writer.currentTurn + 1,
+          path: 'body/markers/trust-resume',
+          op: Op.set,
+          value: true,
+        ),
+      );
+      blocked = false;
+      final resumed = WorkspacePerception(
+        root: harness.root.path,
+        observer: observer,
+        mutations: runtime.mutations,
+      );
+      final frame = await captureWorkspace(resumed, writer).collect();
+      expect(observer.requests.last.previous?.baseline?.id, 'before-gap');
+      expect(_changes(frame).sinceTurn, before.source.turn);
+      _expectBy(frame, 'external.txt', SensoriumChangeBy.user);
+      expect(frame.notices, contains(SensoriumNotice.userEdits));
+    },
+  );
+
+  test('trust withheld carries a limit-sized admitted value with its reason within 4 KiB', () async {
+    final harness = await MutationHarness.create();
+    var blocked = false;
+    final observer = CallbackWorkspaceObserver((request) {
+      if (blocked) return _trustBlocked;
+      return availableCollection(
+        request,
+        id: 'fresh-limit',
+        value: SensoriumVcs(
+          branch: 'b' * 128,
+          change: 'c' * 128,
+          description: 'd' * 160,
+          parent: 'p' * 96,
+          operation: 'o' * 96,
+          paths: [
+            for (var i = 0; i < 12; i++)
+              '${i.toString().padLeft(2, '0')}${'x' * 62}',
+          ],
+          conflicts: [
+            for (var i = 0; i < 12; i++)
+              '${i.toString().padLeft(2, '0')}${'y' * 62}',
+          ],
+          totalPaths: 20,
+          conflictCount: 20,
+        ),
+        changes: [
+          for (var i = 0; i < 12; i++)
+            _delta('${i.toString().padLeft(2, '0')}${'z' * 62}'),
+        ],
+      );
+    });
+    final perception = workspacePerception(harness, observer);
+    await _captureAndAdmit(harness, perception);
+    await harness.nextTurn();
+    final fresh = await _capture(harness, perception);
+    await admitWorkspaceFrame(harness.writer, fresh);
+    await harness.nextTurn();
+    blocked = true;
+    final inactive = await _capture(harness, perception);
+    _expectTrustBlocked(inactive);
+    expect(inactive.metadata['value'], fresh.metadata['value']);
+    expect(inactive.metadata['baseline'], fresh.metadata['baseline']);
+    expect(inactive.metadata['observed'], fresh.metadata['observed']);
+  });
+
+  for (final (partial, counts) in [
+    (false, 'present'),
+    (true, 'present'),
+    (false, 'absent'),
+    (false, 'null'),
+  ]) {
+    test(
+      'legacy limit-sized carry refits only its preview with counted omissions partial=$partial counts=$counts',
+      () async {
+        final harness = await MutationHarness.create();
+        final legacy = _legacyNearLimit(partial: partial, counts: counts);
+        expect(
+          utf8.encode(jsonEncode(legacy)).length,
+          inInclusiveRange(4070, 4096),
+        );
+        await harness.writer.apply(
+          JournalRecord(
+            turn: 0,
+            path: mutationStepPath(0),
+            op: Op.merge,
+            value: {
+              'sensorium': {'vcs': legacy},
+            },
+          ),
+        );
+        final original = jsonEncode(
+          mutationNode(
+            harness.writer,
+            '${mutationStepPath(0)}/sensorium',
+          )['vcs'],
+        );
+        await harness.nextTurn();
+        final perception = workspacePerception(
+          harness,
+          CallbackWorkspaceObserver((_) => _trustBlocked),
+        );
+        final inactive = await _capture(harness, perception);
+        _expectTrustBlocked(inactive);
+        final value = inactive.metadata['value']! as Map<String, Object?>;
+        final changes = value['changes']! as Map<String, Object?>;
+        expect(value['totalPaths'], counts == 'present' ? 19 : 12);
+        expect(value['conflictCount'], counts == 'present' ? 17 : 12);
+        expect(changes['totalPaths'], counts == 'present' ? 19 : 12);
+        expect(value['partial'], partial);
+        expect(changes['partial'], partial);
+        expect((changes['rows']! as List).length, lessThan(12));
+        expect(inactive.metadata['baseline'], legacy['baseline']);
+        expect(inactive.metadata['observed'], legacy['observed']);
+        expect(
+          jsonEncode(
+            mutationNode(
+              harness.writer,
+              '${mutationStepPath(0)}/sensorium',
+            )['vcs'],
+          ),
+          original,
+        );
+        await admitWorkspaceFrame(harness.writer, inactive);
+        expect(
+          mutationNode(
+            harness.writer,
+            '${mutationStepPath(inactive.source.turn)}/sensorium',
+          )['vcs'],
+          inactive.metadata,
+        );
+      },
+    );
+  }
+  test(
+    'trust refusal suppresses deadline and supplied capture results',
+    () async {
+      final harness = await MutationHarness.create();
+      final observer = CallbackWorkspaceObserver((request) {
+        final result = availableCollection(request, id: 'must-not-be-admitted');
+        return VcsCollection(
+          observation: const SensoriumUnavailable(
+            SensoriumReason.trustRequired,
+          ),
+          baseline: result.baseline,
+          captureCompleted: true,
+          baselineLost: true,
+          deadlineExpired: true,
+        );
+      });
+      final frame = await _capture(
+        harness,
+        workspacePerception(harness, observer),
+      );
+      _expectTrustBlocked(frame);
+      expect(frame.metadata, isNot(contains('baseline')));
+      expect(frame.metadata['baselineLost'], isTrue);
+    },
+  );
+
+  test(
+    'trusted failure consumes deferred loss even with a carried value',
+    () async {
+      final harness = await MutationHarness.create();
+      final legacy = _legacyNearLimit(partial: false, counts: 'present');
+      legacy.remove('baseline');
+      await harness.writer.apply(
+        JournalRecord(
+          turn: 0,
+          path: mutationStepPath(0),
+          op: Op.merge,
+          value: {
+            'sensorium': {'vcs': legacy},
+          },
+        ),
+      );
+      await harness.nextTurn();
+      var phase = 'blocked';
+      final observer = CallbackWorkspaceObserver((request) {
+        if (phase == 'blocked') return _trustBlocked;
+        if (phase == 'failed') {
+          return const VcsCollection(
+            observation: SensoriumUnavailable(SensoriumReason.failed),
+          );
+        }
+        return availableCollection(request, id: 'replacement');
+      });
+      final perception = workspacePerception(harness, observer);
+      for (var i = 0; i < 2; i++) {
+        final frame = await _capture(harness, perception);
+        _expectTrustBlocked(frame);
+        expect(frame.metadata['baselineLost'], isTrue);
+        expect(frame.metadata['value'], isNotNull);
+        await admitWorkspaceFrame(harness.writer, frame);
+        await harness.nextTurn();
+      }
+      phase = 'failed';
+      final failed = await _capture(harness, perception);
+      expect(failed.vcs, isA<SensoriumStale<SensoriumVcs>>());
+      expect(
+        failed.notices,
+        containsAll([SensoriumNotice.vcsFailed, SensoriumNotice.baselineReset]),
+      );
+      await admitWorkspaceFrame(harness.writer, failed);
+      await harness.nextTurn();
+      phase = 'success';
+      final recovered = await _capture(harness, perception);
+      expect(recovered.notices, isNot(contains(SensoriumNotice.baselineReset)));
+      _expectChangesUnavailable(
+        recovered,
+        SensoriumReason.noBaseline,
+        'changes_since_last_turn: unavailable (no baseline)',
+      );
+    },
+  );
+
+  for (final resolution in [
+    'success',
+    'failure',
+    'disabled',
+    'no repository',
+  ]) {
+    test(
+      'deferred lookup loss survives trust blocks and is consumed by $resolution',
+      () async {
+        final harness = await MutationHarness.create(skipFlush: true);
+        var phase = 'initial';
+        final observer = CallbackWorkspaceObserver((request) {
+          if (phase == 'blocked') return _trustBlocked;
+          if (phase == 'failure') {
+            return const VcsCollection(
+              observation: SensoriumUnavailable(SensoriumReason.failed),
+            );
+          }
+          if (phase == 'no repository') {
+            return const VcsCollection(
+              observation: SensoriumUnavailable(SensoriumReason.noRepository),
+            );
+          }
+          return availableCollection(request, id: 'tree-$phase');
+        });
+        final perception = workspacePerception(harness, observer);
+        await _captureAndAdmit(harness, perception);
+        await _exhaustLookup(harness);
+        phase = 'blocked';
+        for (var i = 0; i < 2; i++) {
+          final frame = await _capture(harness, perception);
+          _expectTrustBlocked(frame);
+          expect(frame.metadata['baselineLost'], isTrue);
+          await admitWorkspaceFrame(harness.writer, frame);
+          await harness.nextTurn();
+        }
+        phase = resolution;
+        final resolving = resolution == 'disabled'
+            ? workspacePerception(harness, observer, backend: 'none')
+            : perception;
+        final frame = await _capture(harness, resolving);
+        expect(frame.notices, contains(SensoriumNotice.baselineReset));
+        expect(frame.metadata, isNot(contains('baselineLost')));
+        if (resolution == 'disabled') {
+          _expectDisabled(frame);
+        } else {
+          _expectChangesUnavailable(
+            frame,
+            SensoriumReason.baselineLost,
+            'changes_since_last_turn: unavailable (baseline lost)',
+          );
+        }
+        if (resolution == 'failure') {
+          expect(frame.notices, contains(SensoriumNotice.vcsFailed));
+        }
+        await admitWorkspaceFrame(harness.writer, frame);
+        await harness.nextTurn();
+        phase = 'success';
+        final after = await _capture(harness, perception);
+        expect(after.notices, isNot(contains(SensoriumNotice.baselineReset)));
+        if (resolution != 'success') {
+          _expectChangesUnavailable(
+            after,
+            SensoriumReason.noBaseline,
+            'changes_since_last_turn: unavailable (no baseline)',
+          );
+        }
+      },
+    );
+  }
+
   for (final malformed in <Object?>['', null, 42]) {
     test(
       'malformed temporary provenance remains visible as unknown: ${jsonEncode(malformed)}',

@@ -117,6 +117,17 @@ final class WorkspacePerception {
         disabled: true,
       );
     }
+    if (collection.observation case SensoriumUnavailable<SensoriumVcs>(
+      reason: SensoriumReason.trustRequired,
+    )) {
+      return _failedFrame(
+        source,
+        frozen,
+        collection,
+        SensoriumReason.trustRequired,
+        disabled: false,
+      );
+    }
     if (!collection.captureCompleted ||
         currentVcs == null ||
         currentBaseline == null ||
@@ -225,24 +236,29 @@ final class WorkspacePerception {
     required bool disabled,
   }) {
     final stored = frozen.admitted;
+    final inactive = failure == SensoriumReason.trustRequired;
     final notices = <SensoriumNotice>{};
     final baselineLost =
         frozen.baselineLost ||
         collection.baselineLost ||
         failure == SensoriumReason.baselineLost;
-    if (!disabled &&
-        (failure == SensoriumReason.timedOut || collection.deadlineExpired)) {
-      notices.add(SensoriumNotice.vcsTimeout);
-    } else if (!disabled && _isFailureNotice(failure)) {
-      notices.add(SensoriumNotice.vcsFailed);
+    if (!inactive) {
+      if (!disabled &&
+          (failure == SensoriumReason.timedOut || collection.deadlineExpired)) {
+        notices.add(SensoriumNotice.vcsTimeout);
+      } else if (!disabled && _isFailureNotice(failure)) {
+        notices.add(SensoriumNotice.vcsFailed);
+      }
+      if (baselineLost) notices.add(SensoriumNotice.baselineReset);
     }
-    if (baselineLost) notices.add(SensoriumNotice.baselineReset);
 
     final previousVcs = stored == null ? null : _decodeStoredVcs(stored.value);
     final hasStaleValue = previousVcs != null && stored?.observedTime != null;
     final preserveObserved = hasStaleValue || frozen.baseline != null;
     final reason = disabled ? SensoriumReason.disabled : failure;
-    final changesReason = disabled
+    final changesReason = inactive
+        ? SensoriumReason.trustRequired
+        : disabled
         ? SensoriumReason.disabled
         : baselineLost
         ? SensoriumReason.baselineLost
@@ -250,7 +266,9 @@ final class WorkspacePerception {
         ? SensoriumReason.noBaseline
         : failure;
     final metadata = <String, Object?>{
-      'state': hasStaleValue && !disabled ? 'stale' : 'unavailable',
+      'state': hasStaleValue && !disabled && !inactive
+          ? 'stale'
+          : 'unavailable',
       'reason': _reasonLabel(reason),
       'observed': preserveObserved
           ? stored!.raw['observed']
@@ -258,18 +276,21 @@ final class WorkspacePerception {
       if (hasStaleValue) 'value': stored!.value,
       if (stored?.raw['baseline'] case final Map<String, Object?> baseline)
         'baseline': baseline,
+      if (inactive && baselineLost && frozen.baseline == null)
+        'baselineLost': true,
+      if (!inactive &&
+          !disabled &&
+          baselineLost &&
+          frozen.baseline == null &&
+          hasStaleValue)
+        'baselineLost': false,
     };
-    if (_encodedLength(metadata) > _metadataByteLimit) {
-      if (disabled) metadata.remove('value');
-      if (_encodedLength(metadata) > _metadataByteLimit) {
-        metadata.remove('reason');
-      }
-    }
+    _fitCarriedMetadata(metadata);
     late final SensoriumObservation<SensoriumVcs> observation;
-    if (hasStaleValue && !disabled) {
+    if (hasStaleValue && !disabled && !inactive) {
       final age = source.time.difference(stored!.observedTime!);
       observation = SensoriumStale<SensoriumVcs>(
-        previousVcs,
+        _decodeVcs(metadata['value']! as Map<String, Object?>),
         age: age.isNegative ? Duration.zero : age,
         reason: reason,
       );
@@ -312,7 +333,7 @@ final class WorkspacePerception {
   ) {
     final vcs = _decodeStoredVcs(stored.value);
     final SensoriumObservation<SensoriumVcs> observation;
-    if (vcs == null) {
+    if (vcs == null || stored.state == 'unavailable') {
       observation = SensoriumUnavailable(
         stored.reason ?? SensoriumReason.notCollected,
       );
@@ -902,7 +923,11 @@ _StoredPerception? _parseStored(Map<String, Object?> raw) {
     }
   }
   final reason = _parseReason(raw['reason']);
-  final lost = (state == 'available' || state == 'stale') && baseline == null;
+  final lost =
+      baseline == null &&
+      (raw['baselineLost'] == true ||
+          (raw['baselineLost'] != false &&
+              (state == 'available' || state == 'stale')));
   return _StoredPerception(
     raw: raw,
     state: state,
@@ -1042,25 +1067,75 @@ SensoriumChanges _decodeChanges(Map<String, Object?> value) {
 }
 
 void _fitFreshMetadata(Map<String, Object?> metadata) {
+  // Future inactive/failure admissions add a reason, the longer unavailable
+  // state, and possibly the deferred lookup-loss marker.
+  final envelope = <String, Object?>{
+    ...metadata,
+    'state': 'unavailable',
+    'reason': 'cleanup pending',
+    'baselineLost': true,
+  };
+  _fitMetadata(envelope);
+}
+
+void _fitCarriedMetadata(Map<String, Object?> metadata) {
+  if (_encodedLength(metadata) <= _metadataByteLimit) return;
+  final original = metadata['value'];
+  if (original is! Map<String, Object?>) {
+    throw StateError('Workspace perception metadata exceeds 4 KiB.');
+  }
+  final value = Map<String, Object?>.from(original);
+  for (final key in ['paths', 'conflicts']) {
+    final list = value[key];
+    if (list is List<Object?>) value[key] = List<Object?>.from(list);
+  }
+  final paths = value['paths'];
+  final conflicts = value['conflicts'];
+  if (value['totalPaths'] == null && paths is List<Object?>) {
+    value['totalPaths'] = paths.length;
+  }
+  if (value['conflictCount'] == null && conflicts is List<Object?>) {
+    value['conflictCount'] = conflicts.length;
+  }
+  final originalChanges = value['changes'];
+  if (originalChanges is Map<String, Object?>) {
+    final changes = Map<String, Object?>.from(originalChanges);
+    final originalRows = changes['rows'];
+    if (originalRows is List<Object?>) {
+      changes['rows'] = [
+        for (final row in originalRows)
+          if (row is Map<String, Object?>)
+            Map<String, Object?>.from(row)
+          else
+            row,
+      ];
+      if (changes['totalPaths'] == null) {
+        changes['totalPaths'] = originalRows.length;
+      }
+    }
+    value['changes'] = changes;
+  }
+  metadata['value'] = value;
+  _fitMetadata(metadata);
+}
+
+void _fitMetadata(Map<String, Object?> metadata) {
   while (_encodedLength(metadata) > _metadataByteLimit) {
     final value = metadata['value']! as Map<String, Object?>;
-    final changes = value['changes']! as Map<String, Object?>;
-    final rows = changes['rows']! as List<Object?>;
-    final paths = value['paths']! as List<Object?>;
-    final conflicts = value['conflicts']! as List<Object?>;
-    if (rows.isNotEmpty) {
+    final changes = value['changes'];
+    final rows = changes is Map<String, Object?> ? changes['rows'] : null;
+    final paths = value['paths'];
+    final conflicts = value['conflicts'];
+    if (rows is List<Object?> && rows.isNotEmpty) {
       rows.removeLast();
-      changes['partial'] = true;
       continue;
     }
-    if (paths.isNotEmpty) {
+    if (paths is List<Object?> && paths.isNotEmpty) {
       paths.removeLast();
-      value['partial'] = true;
       continue;
     }
-    if (conflicts.isNotEmpty) {
+    if (conflicts is List<Object?> && conflicts.isNotEmpty) {
       conflicts.removeLast();
-      value['partial'] = true;
       continue;
     }
     final shrink = _longestMetadataString(value);
@@ -1074,7 +1149,6 @@ void _fitFreshMetadata(Map<String, Object?> metadata) {
       throw StateError('Workspace perception metadata exceeds 4 KiB.');
     }
     shrink.$2(next);
-    value['partial'] = true;
   }
 }
 
@@ -1201,6 +1275,7 @@ String _reasonLabel(SensoriumReason reason) => switch (reason) {
   SensoriumReason.timedOut => 'timeout',
   SensoriumReason.noRepository => 'no repository',
   SensoriumReason.disabled => 'disabled',
+  SensoriumReason.trustRequired => 'trust required',
   SensoriumReason.jjNotFound => 'jj not found',
   SensoriumReason.gitNotFound => 'git not found',
   SensoriumReason.noBaseline => 'no baseline',
@@ -1214,6 +1289,7 @@ SensoriumReason? _parseReason(Object? raw) => switch (raw) {
   'timeout' || 'timedOut' => SensoriumReason.timedOut,
   'no repository' || 'noRepository' => SensoriumReason.noRepository,
   'disabled' => SensoriumReason.disabled,
+  'trust required' || 'trustRequired' => SensoriumReason.trustRequired,
   'jj not found' || 'jjNotFound' => SensoriumReason.jjNotFound,
   'git not found' || 'gitNotFound' => SensoriumReason.gitNotFound,
   'no baseline' || 'noBaseline' => SensoriumReason.noBaseline,

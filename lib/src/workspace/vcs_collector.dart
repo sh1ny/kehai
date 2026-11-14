@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' show Digest, sha256;
 import 'package:path/path.dart' as p;
 
+import '../permissions/workspace_paths.dart' show realPath;
 import '../session/mutations.dart' show MutationSequence;
 import '../loop/sensorium.dart';
 import '../shell/direct_exec.dart' show resolveProgram;
@@ -16,6 +17,7 @@ import 'project_root.dart' show projectRoot;
 part 'vcs_collector_engine.dart';
 part 'vcs_collector_git.dart';
 part 'vcs_collector_jj.dart';
+part 'vcs_trust.dart';
 
 /// The bounded latest effects and shared capture authority for attribution.
 typedef VcsAttributionInput = ({
@@ -166,12 +168,15 @@ abstract interface class VcsDeadlineScheduler {
 
 /// Collects bounded jj or git observations for one engine.
 final class VcsCollector implements WorkspaceObserver {
+  /// Creates an observer with native execution denied unless [trust] permits it.
   VcsCollector({
+    VcsTrust? trust,
     VcsProcessRunner? processRunner,
     VcsDeadlineScheduler? deadlineScheduler,
     VcsFileReader? readFile,
     Map<String, String>? environment,
   }) : _engine = _VcsCollectorEngine(
+         trust: trust ?? VcsTrust.untrusted,
          processRunner: processRunner,
          deadlineScheduler: deadlineScheduler,
          readFile: readFile,

@@ -147,8 +147,9 @@ window. These display estimates do not grant permission or establish provider
 capacity. Long workspace/model display names are shortened at UTF-8 boundaries
 with a counted `…`; canonical identities remain unchanged.
 
-The builder collects VCS and baseline-relative changes on each request, alongside
-live pending/running jobs, scratch and notices. Jobs show bounded
+With an explicit VCS invocation grant, the builder collects VCS and
+baseline-relative changes on each request. Independently, it collects live
+pending/running jobs, scratch and notices. Jobs show bounded
 id/kind/command/state/age previews and total omissions. Logs are **unavailable
 until published at exit**; composing never opens a job's spool. Supported empty
 sections say `none`. Diagnostics, tests, plan and checkpoints remain
@@ -178,10 +179,27 @@ a repository setting, hot-reloaded policy or captured provider policy.
 
 ### VCS observation settings
 
-`vcs.backend` accepts `auto`, `jj`, `git` or `none`. The default `auto` observes
-the nearest ancestor containing `.jj` or `.git` and selects jj when both exist.
-Explicit `jj` and `git` select that backend. `none` starts no VCS process and
-reports `unavailable (disabled)`. Paths are repository-relative and use `/`,
+VCS observation and user-edit notices are **off by default**. Opt in explicitly
+for each invocation:
+
+```sh
+kehai --trust-vcs
+kehai rpc --trust-vcs
+```
+
+Omitting the flag denies VCS execution, including on `--resume` or `--session`.
+Configuration, environment, roles, history and `--yolo` cannot grant it.
+The grant binds the canonical startup workspace, repository root, marker kind
+and selected backend. Managed children inherit the original binding only in the
+same workspace. An observed selection change permanently revokes that engine's
+grant; restoring a marker does not restore trust. A new explicit invocation is
+required. These checks are not a sandbox or configuration/filesystem integrity.
+
+`vcs.backend` accepts `auto`, `jj`, `git` or `none`. After explicit trust, the
+default `auto` observes the nearest ancestor containing `.jj` or `.git` and
+selects jj when both exist. Explicit `jj` and `git` select that backend.
+`none` starts no VCS process even with a grant and reports
+`unavailable (disabled)`. Paths are repository-relative and use `/`,
 including on native Windows; observation does not recurse into submodules.
 
 `sensorium.collectorDeadlineMs` must be an integer from 100 to 10000 and defaults
@@ -197,25 +215,43 @@ log entries. Git observation copies the current user index into a fresh private
 index, then captures a tree with `git add --sparse -A` and `git write-tree`.
 Git 2.34 or newer is required; older versions report a failed/stale observation,
 without a plain-add fallback. Sparse-checkout rules and absent tracked paths are
-preserved. Observation never writes the user's index, refs, HEAD or working-tree
-files. Unreferenced blob/tree objects remain until git's normal prune.
+preserved. Kehai's fixed command plan never writes the user's index, refs, HEAD
+or working-tree files. Unreferenced blob/tree objects remain until git's normal
+prune.
 
-Repository-configured clean filters and fsmonitor may run during capture, as for
-status-equivalent reads, under the same deadline. Kehai does not emulate or
-disable them. It invokes no fetch, push, pull, clone, checkout, switch, restore or
-smudge. Set `vcs.backend` to `none` for a repository whose filters are unsafe to
-run unattended. Git receives `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0`.
+**Trust permits arbitrary configured-program effects as your OS user.**
+Repository-configured clean/process filters and fsmonitor can execute code,
+read credentials, modify or delete files, and access the network. Configuration,
+attributes and Git gitfiles may change within the binding; permitted edits to
+them can enable execution at the next collection. Kehai does not emulate or
+disable those programs, and revocation cannot undo already-triggered effects.
+Owned processes retain normal deadline/cleanup handling. The fixed plan invokes
+no fetch, push, pull, clone, checkout, switch, restore or smudge; that restriction
+does not constrain configured programs. Omit `--trust-vcs` to withhold authority.
+Git receives `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0`.
 
-Observation reports `no repository`, `disabled`, `jj not found`, `git not found`,
-`timeout`, `failed` or `cleanup pending` rather than pretending the repository is
-clean. With an earlier admitted value, a failed collection reports that value as
-`stale`, with its original age and the current reason. Truncated listings carry
+Observation reports `no repository`, `disabled`, `trust required`, `jj not found`,
+`git not found`, `timeout`, `failed` or `cleanup pending` rather than pretending
+the repository is clean. With an earlier admitted value, a failed collection
+reports that value as `stale`, with its original age and the current reason.
+Truncated listings carry
 partial lower-bound counts and explicit omissions. The 12-path/conflict preview
 and clipped labels preserve exact counts. Once both output streams and
 the command exit have settled, a truncated capture releases its normal cleanup
 slot. Timed-out or stopped collections still quarantine private files until
 termination is confirmed. If all 16 cleanup slots are held, no new VCS process
 starts.
+
+Without trust, both VCS and changes report `unavailable (trust required)`, even
+when earlier facts exist. Bounded facts, the effective baseline and the original
+observation time are carried but not displayed as current or stale. Inactivity
+alone raises no timeout, failure, user-edit or baseline-reset notice. Later
+trusted collection compares against the carried baseline.
+
+Admitted VCS metadata stays within 4 KiB, including its carried envelope. New
+values reserve headroom; a near-cap legacy preview may be shortened with counted
+omissions, without changing count precision, baseline, time, typed reason or
+earlier admissions.
 
 ### Changes since the previous capture
 
@@ -239,12 +275,16 @@ bounded to 64 effect paths of at most 4 MiB each. Incomplete or over-limit reads
 cannot prove agent authorship; abandoned reads keep their slots until I/O ends.
 
 A failed collection retains the original bounded value, age and effective
-baseline without relabelling its old rows. The first request reads
-`unavailable (no baseline)`. An unreadable baseline, backend switch or 256 steps
+baseline without relabelling its old rows. The first successful trusted capture
+reads changes `unavailable (no baseline)`. An unreadable baseline, backend switch or 256 steps
 without an admitted observation reads `unavailable (baseline lost)` and raises
 `baseline_reset`; the new capture starts the next comparison. Consecutive admitted
 failures carry the old baseline forward rather than exhausting that lookup.
 Rewind and resume use the surviving journalled observations, not a side cache.
+A lookup loss deferred while trust is withheld survives inactive admissions.
+The next trusted collection reports/consumes it under normal loss handling;
+disabled or no-repository admission instead consumes it under its existing
+semantics, without a duplicate reset after trust returns.
 
 ### Filesystem mutation provenance
 

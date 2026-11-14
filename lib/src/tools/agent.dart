@@ -58,6 +58,10 @@ final class AgentTool implements Tool {
   ) {
     // Validate and bound the snapshot before invoking even the command builder.
     final payload = context.config.captureProviderPolicy();
+    final binding = context.vcsTrust.childBinding(
+      root: context.workspace.path,
+      backend: context.config.vcs.backend,
+    );
     final command = (engine ?? engineCommand)([
       ...rpcArgs,
       if (context.effort case final effort?) ...[
@@ -66,6 +70,7 @@ final class AgentTool implements Tool {
       ] else
         '--effort-default',
       if (context.yolo) '--yolo',
+      if (binding != null) ...['--trust-vcs', '--vcs-trust-binding', binding],
       '--compaction-policy',
       payload,
     ]);
