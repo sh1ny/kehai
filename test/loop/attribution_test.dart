@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:kehai/kehai.dart';
 import 'package:kehai/src/workspace/vcs_collector.dart';
 import 'package:kehai/src/workspace/workspace_perception.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/attribution_sampling_cases.dart';
@@ -211,6 +213,265 @@ void _expectMetadataListsBounded(Object? value) {
 }
 
 void main() {
+  for (final malformed in <Object?>['', null, 42]) {
+    test(
+      'malformed temporary provenance remains visible as unknown: ${jsonEncode(malformed)}',
+      () async {
+        final h = await MutationHarness.create();
+        final user = h.file('user.txt', 'before\n');
+        var changes = <VcsDelta>[];
+        var ordinal = 0;
+        final perception = workspacePerception(
+          h,
+          CallbackWorkspaceObserver(
+            (request) => availableCollection(
+              request,
+              id: 'malformed-${ordinal++}',
+              changes: changes,
+            ),
+          ),
+        );
+        await _captureAndAdmit(h, perception);
+        await h.writer.apply(
+          JournalRecord(
+            turn: h.writer.currentTurn,
+            path: 'meta/orphanedMutations',
+            op: Op.set,
+            value: {
+              'malformed': {
+                'target': 'tracked.txt',
+                'temporary': malformed,
+                'session': mutationNode(h.writer, 'meta')['session'],
+              },
+            },
+          ),
+        );
+        user.writeAsStringSync('user after malformed provenance\n');
+        changes = [_delta('user.txt', removed: 1)];
+        await h.nextTurn();
+        final frame = await _capture(h, perception);
+        expect(frame.vcs, isA<SensoriumAvailable<SensoriumVcs>>());
+        _expectBy(frame, 'user.txt', SensoriumChangeBy.unknown);
+        expect(frame.notices, isNot(contains(SensoriumNotice.userEdits)));
+      },
+    );
+  }
+
+  test('unrecorded temporary-looking user file remains a user edit', () async {
+    final h = await MutationHarness.create();
+    var changes = <VcsDelta>[];
+    var ordinal = 0;
+    final perception = workspacePerception(
+      h,
+      CallbackWorkspaceObserver(
+        (request) => availableCollection(
+          request,
+          id: 'lookalike-${ordinal++}',
+          changes: changes,
+        ),
+      ),
+    );
+    await _captureAndAdmit(h, perception);
+    h.file('.name.kehai-0123abcd', 'user file\n');
+    changes = [_delta('.name.kehai-0123abcd')];
+    await h.nextTurn();
+    final frame = await _capture(h, perception);
+    _expectBy(frame, '.name.kehai-0123abcd', SensoriumChangeBy.user);
+    expect(frame.notices, contains(SensoriumNotice.userEdits));
+  });
+
+  test('temporary paths cannot reuse another call\'s effect proof', () async {
+    String? firstTemporary;
+    final h = await MutationHarness.create(
+      seams: FileWriteSeams(
+        beforeContent: (path) async {
+          firstTemporary ??= path;
+        },
+      ),
+    );
+    var changes = <VcsDelta>[];
+    var ordinal = 0;
+    final perception = workspacePerception(
+      h,
+      CallbackWorkspaceObserver(
+        (request) => availableCollection(
+          request,
+          id: 'temporary-effect-${ordinal++}',
+          changes: changes,
+          verification: {
+            for (final change in changes)
+              change.path: verifiedFile(h.file(change.path)),
+          },
+        ),
+      ),
+    );
+    await _captureAndAdmit(h, perception);
+    await h.write('primary', 'tracked.txt', 'first replacement\n', stepTurn: 0);
+    final temporary = p.posix.joinAll(
+      p.split(p.relative(firstTemporary!, from: h.root.path)),
+    );
+    await h.write(
+      'independent',
+      temporary,
+      'independent replacement\n',
+      stepTurn: 0,
+    );
+    changes = [_delta('tracked.txt'), _delta(temporary)];
+    await h.nextTurn();
+    final frame = await _capture(h, perception);
+    _expectBy(frame, 'tracked.txt', SensoriumChangeBy.agent);
+    _expectBy(frame, temporary, SensoriumChangeBy.unknown);
+    expect(frame.notices, isNot(contains(SensoriumNotice.userEdits)));
+  });
+
+  test(
+    'legacy temporary provenance uncertainty keeps its existing lifetime',
+    () async {
+      final h = await MutationHarness.create();
+      final user = h.file('user.txt', 'before\n');
+      var changes = <VcsDelta>[];
+      var ordinal = 0;
+      final perception = workspacePerception(
+        h,
+        CallbackWorkspaceObserver(
+          (request) => availableCollection(
+            request,
+            id: 'legacy-temporary-${ordinal++}',
+            changes: changes,
+            verification: {
+              for (final change in changes)
+                change.path: verifiedFile(h.file(change.path)),
+            },
+          ),
+        ),
+      );
+      await _captureAndAdmit(h, perception);
+      await h.write('legacy', 'tracked.txt', 'agent bytes\n', stepTurn: 0);
+      final legacy = Map<String, Object?>.of(h.call('legacy'))
+        ..remove('temporary');
+      await h.writer.apply(
+        JournalRecord(
+          turn: h.writer.currentTurn,
+          path: 'body/calls/${callKey('legacy')}',
+          op: Op.set,
+          value: legacy,
+        ),
+      );
+      user.writeAsStringSync('user while legacy interval applies\n');
+      changes = [_delta('tracked.txt'), _delta('user.txt')];
+      await h.nextTurn();
+      final uncertain = await _capture(h, perception);
+      _expectBy(uncertain, 'tracked.txt', SensoriumChangeBy.unknown);
+      _expectBy(uncertain, 'user.txt', SensoriumChangeBy.unknown);
+      expect(uncertain.notices, isNot(contains(SensoriumNotice.userEdits)));
+      await admitWorkspaceFrame(h.writer, uncertain);
+      user.writeAsStringSync('user after legacy interval\n');
+      changes = [_delta('user.txt')];
+      await h.nextTurn();
+      final expired = await _capture(h, perception);
+      _expectBy(expired, 'user.txt', SensoriumChangeBy.user);
+      expect(expired.notices, contains(SensoriumNotice.userEdits));
+    },
+  );
+
+  test('temporary paths survive fork and rewind', () async {
+    final held = HeldRename();
+    final h = await MutationHarness.create(
+      seams: FileWriteSeams(rename: held.rename),
+    );
+    releaseMutationAfterTest(h, held);
+    h.file('tracked.txt', 'before\n');
+    final user = h.file('user.txt', 'before\n');
+    var changes = <VcsDelta>[];
+    var ordinal = 0;
+    final observer = CallbackWorkspaceObserver(
+      (request) => availableCollection(
+        request,
+        id: 'temporary-lifecycle-${ordinal++}',
+        changes: changes,
+      ),
+    );
+    final perception = workspacePerception(h, observer);
+    await _captureAndAdmit(h, perception);
+    await h.nextTurn();
+    final pending = h.write(
+      'held-temporary',
+      'tracked.txt',
+      'late\n',
+      stepTurn: 1,
+    );
+    await held.entered.future;
+    final temporary = p.posix.joinAll(
+      p.split(p.relative(held.temporary!, from: h.root.path)),
+    );
+    await h.runtime.cancelTurn();
+    await pending;
+    await h.writer.rewind(0);
+    await h.nextTurn();
+    changes = [_delta(temporary)];
+    final containing = await _capture(h, perception);
+    _expectBy(containing, temporary, SensoriumChangeBy.unknown);
+    expect(containing.notices, isNot(contains(SensoriumNotice.userEdits)));
+    await admitWorkspaceFrame(h.writer, containing);
+    final containingTurn = h.writer.currentTurn;
+    final fork = await h.writer.fork(containingTurn);
+    final child = await SessionWriter.open(fork.childDir);
+    addTearDown(child.close);
+    final childRuntime = await ToolRuntime.attach(
+      child,
+      ResultStore(child.sessionDir),
+      workspace: h.root,
+      gate: const AllowAllStage(),
+    );
+    addTearDown(childRuntime.close);
+    final childPerception = WorkspacePerception(
+      root: h.root.path,
+      observer: observer,
+      mutations: childRuntime.mutations,
+    );
+    final finished = mutationRecord(
+      h.writer,
+      'meta/orphanedMutations',
+      (records) => records.values.any(
+        (record) =>
+            record is Map &&
+            record['target'] == 'tracked.txt' &&
+            record['finishedSeq'] is int,
+      ),
+    );
+    await h.drain(held);
+    await finished;
+    expect(File(held.temporary!).existsSync(), isFalse);
+    user.writeAsStringSync('unrelated user edit\n');
+    changes = [
+      _delta(temporary, added: 0, removed: 1),
+      _delta('tracked.txt', removed: 1),
+      _delta('user.txt', removed: 1),
+    ];
+    await h.nextTurn();
+    final removed = await _capture(h, perception);
+    _expectBy(removed, temporary, SensoriumChangeBy.unknown);
+    _expectBy(removed, 'user.txt', SensoriumChangeBy.user);
+    await admitWorkspaceFrame(h.writer, removed);
+    await child.apply(
+      JournalRecord(
+        turn: child.currentTurn + 1,
+        path: 'body/markers/temporary-child',
+        op: Op.set,
+        value: true,
+      ),
+    );
+    final childFrame = await captureWorkspace(childPerception, child).collect();
+    _expectBy(childFrame, temporary, SensoriumChangeBy.unknown);
+    _expectBy(childFrame, 'user.txt', SensoriumChangeBy.user);
+    expect(childFrame.notices, contains(SensoriumNotice.userEdits));
+    await h.writer.rewind(containingTurn);
+    await h.nextTurn();
+    final restored = await _capture(h, perception);
+    _expectBy(restored, temporary, SensoriumChangeBy.unknown);
+    _expectBy(restored, 'user.txt', SensoriumChangeBy.user);
+  });
+
   for (final stderr in const [
     'filter disabled',
     'filter timed out',

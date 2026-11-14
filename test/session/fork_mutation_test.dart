@@ -31,6 +31,71 @@ Iterable<Map<Object?, Object?>> _foreign(SessionWriter writer) =>
         .where((record) => record['foreign'] == true);
 
 void main() {
+  for (final malformed in <Object?>['', null, 42]) {
+    test('fork rejects malformed temporary footprints: $malformed', () async {
+      final parent = await MutationHarness.create();
+      final user = parent.file('user.txt', 'unchanged\n');
+      await parent.writer.apply(
+        JournalRecord(
+          turn: parent.writer.currentTurn,
+          path: 'meta/orphanedMutations',
+          op: Op.set,
+          value: {
+            'malformed': {
+              'target': 'parent.txt',
+              'temporary': malformed,
+              'session': mutationNode(parent.writer, 'meta')['session'],
+            },
+          },
+        ),
+      );
+      await expectLater(
+        parent.writer.fork(parent.writer.currentTurn),
+        throwsA(isA<StateError>()),
+      );
+      expect(user.readAsStringSync(), 'unchanged\n');
+      final record =
+          mutationNode(parent.writer, 'meta/orphanedMutations')['malformed']!
+              as Map;
+      expect(record['temporary'], malformed);
+      expect(record.containsKey('finishedSeq'), isFalse);
+    });
+  }
+
+  test('fork carries a legacy unfinished record without a temporary path as foreign uncertainty', () async {
+    final parent = await MutationHarness.create();
+    parent.file('parent.txt', 'before\n');
+    final user = parent.file('user.txt', 'before\n');
+    await _capture(parent, parent.writer, parent.runtime, []);
+    await parent.writer.apply(
+      JournalRecord(
+        turn: parent.writer.currentTurn,
+        path: 'meta/orphanedMutations',
+        op: Op.set,
+        value: {
+          'legacy-open': {
+            'target': 'parent.txt',
+            'session': mutationNode(parent.writer, 'meta')['session'],
+          },
+        },
+      ),
+    );
+    final fork = await parent.writer.fork(parent.writer.currentTurn);
+    final (child, runtime) = await _openChild(parent, fork);
+    expect(_foreign(child).single.containsKey('temporary'), isFalse);
+    user.writeAsStringSync('first user change\n');
+    await _nextTurn(child);
+    final first = await _capture(parent, child, runtime, [_delta('user.txt')]);
+    _expectBy(first, 'user.txt', SensoriumChangeBy.unknown, userEdits: false);
+    user.writeAsStringSync('later user change\n');
+    await _nextTurn(child);
+    final later = await _capture(parent, child, runtime, [_delta('user.txt')]);
+    _expectBy(later, 'user.txt', SensoriumChangeBy.unknown, userEdits: false);
+    final foreign = _foreign(child).single;
+    expect(foreign.containsKey('temporary'), isFalse);
+    expect(foreign.containsKey('finishedSeq'), isFalse);
+  });
+
   test(
     'finished parent orphan expires after the child admits its finish',
     () async {
@@ -215,6 +280,7 @@ void main() {
           for (var i = 0; i < 16; i++)
             'inherited-$i': {
               'target': 'inherited-$i.txt',
+              'temporary': '.inherited-$i.txt.kehai-0123abcd',
               'session': 'ancestor',
               'foreign': true,
             },

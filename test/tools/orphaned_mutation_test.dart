@@ -649,7 +649,7 @@ _LiveFixture _registryFor(WriterHeldMutation held) {
     attempt: actual.runId,
     callPath: actual.callPath,
   )!;
-  expect(mutations.publish(run, actual.target), isTrue);
+  expect(mutations.publish(run, actual.target, actual.temporary), isTrue);
   return (mutations: mutations, run: run);
 }
 

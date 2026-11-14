@@ -9,6 +9,8 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/mutation_support.dart';
+import '../support/session_support.dart';
+import '../support/tool_support.dart';
 import '../workspace/link_support.dart';
 import '../support/attribution_support.dart' as attribution;
 
@@ -17,6 +19,184 @@ import 'package:kehai/src/workspace/vcs_collector.dart';
 import 'package:kehai/src/workspace/workspace_perception.dart';
 
 void main() {
+  test('refused atomic intent creates no file or parent', () async {
+    final workspace = await tempDir();
+    final existing = File(p.join(workspace.path, 'existing.txt'))
+      ..writeAsStringSync('unchanged\n');
+    var effects = 0;
+    for (final path in ['nested/new.txt', 'existing.txt']) {
+      final outcome = await const WriteTool().run(
+        ToolContext(
+          callKey: callKey('refused'),
+          callId: 'refused',
+          output: RecordingOutput(),
+          cancel: CancelToken(),
+          workspace: workspace,
+          config: const UserConfig(),
+          mutation: FileMutation(
+            target: (_, _) async => false,
+            effect: (_) async {
+              effects++;
+            },
+          ),
+        ),
+        {'path': path, 'content': 'must not land\n'},
+      );
+      expect(outcome.status, ResultStatus.error);
+      expect(existing.readAsStringSync(), 'unchanged\n');
+      expect(Directory(p.join(workspace.path, 'nested')).existsSync(), isFalse);
+      expect(workspace.listSync().map((entry) => p.basename(entry.path)), [
+        'existing.txt',
+      ]);
+    }
+    expect(effects, 0);
+  });
+
+  test('temporary attribution freezes while the intent is flushing', () async {
+    final workspace = await tempDir();
+    Directory(p.join(workspace.path, '.git')).createSync();
+    File(p.join(workspace.path, 'tracked.txt')).writeAsStringSync('before\n');
+    final user = File(p.join(workspace.path, 'user.txt'))
+      ..writeAsStringSync('before\n');
+    final (writer, io) = await createHooked(workspace);
+    final held = HeldRename();
+    final runtime = await ToolRuntime.attach(
+      writer,
+      ResultStore(writer.sessionDir),
+      workspace: workspace,
+      gate: const AllowAllStage(),
+      tools: {'write': WriteTool(seams: FileWriteSeams(rename: held.rename))},
+    );
+    addTearDown(runtime.close);
+    await _capture(workspace.path, writer, runtime.mutations, []);
+    await _nextTurn(writer);
+    const id = 'flushing-temporary';
+    final callPath = 'body/calls/${callKey(id)}';
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    final quiesced = mutationRecord(
+      writer,
+      callPath,
+      (node) => node['quiesced'] == true,
+    );
+    io.onWrite = (bytes) async {
+      final record = jsonDecode(utf8.decode(bytes)) as Map<String, Object?>;
+      final value = record['value'];
+      if (record['path'] == callPath &&
+          value is Map &&
+          value['target'] is String) {
+        entered.complete();
+        await release.future;
+      }
+    };
+    addTearDown(() async {
+      final cancelling = runtime.cancelTurn();
+      if (!release.isCompleted) release.complete();
+      held.unblock();
+      await cancelling;
+      if (entered.isCompleted) await quiesced;
+    });
+    final pending = runtime.run(
+      ToolCall(
+        callId: id,
+        name: 'write',
+        argumentsJson: jsonEncode({
+          'path': 'tracked.txt',
+          'content': 'after\n',
+        }),
+      ),
+      stepTurn: 1,
+    );
+    await entered.future;
+    user.writeAsStringSync('user edit\n');
+    late String temporary;
+    final observer = attribution.CallbackWorkspaceObserver((request) async {
+      release.complete();
+      await held.entered.future;
+      temporary = p.posix.joinAll(
+        p.split(p.relative(held.temporary!, from: workspace.path)),
+      );
+      return attribution.availableCollection(
+        request,
+        id: 'during-intent-flush',
+        changes: [_delta(temporary), _delta('user.txt')],
+      );
+    });
+    final frame = await attribution
+        .captureWorkspace(
+          WorkspacePerception(
+            root: workspace.path,
+            observer: observer,
+            mutations: runtime.mutations,
+          ),
+          writer,
+        )
+        .collect();
+    _expectBy(frame, temporary, SensoriumChangeBy.unknown, userEdits: true);
+    _expectBy(frame, 'user.txt', SensoriumChangeBy.user, userEdits: true);
+    held.unblock();
+    await pending;
+    await quiesced;
+  });
+
+  test(
+    'readmitted untargeted runs cannot reuse an older run\'s footprint',
+    () async {
+      const id = 'same-id';
+      final gate = _HeldCall(id, skip: 1);
+      final old = HeldRename();
+      final newer = HeldRename();
+      final h = await MutationHarness.create(
+        gate: gate,
+        seams: FileWriteSeams(
+          rename: (from, to) => p.basename(to) == 'a.txt'
+              ? old.rename(from, to)
+              : newer.rename(from, to),
+        ),
+      );
+      releaseMutationAfterTest(h, old);
+      releaseMutationAfterTest(h, newer);
+      addTearDown(() {
+        if (!gate.release.isCompleted) gate.release.complete();
+      });
+      h.file('a.txt', 'before\n');
+      h.file('b.txt', 'before\n');
+      await _capture(h.root.path, h.writer, h.runtime.mutations, []);
+      await h.nextTurn();
+      final first = h.write(id, 'a.txt', 'old late write\n', stepTurn: 1);
+      await old.entered.future;
+      await h.runtime.cancelTurn();
+      await first;
+      await h.writer.rewind(0);
+      await h.nextTurn();
+      final second = h.write(id, 'b.txt', 'new late write\n', stepTurn: 1);
+      await gate.entered.future;
+      late String temporary;
+      final observer = attribution.CallbackWorkspaceObserver((request) async {
+        gate.release.complete();
+        await newer.entered.future;
+        temporary = p.posix.joinAll(
+          p.split(p.relative(newer.temporary!, from: h.root.path)),
+        );
+        return attribution.availableCollection(
+          request,
+          id: 'untargeted-readmission',
+          changes: [_delta(temporary)],
+        );
+      });
+      final frame = await attribution
+          .captureWorkspace(
+            attribution.workspacePerception(h, observer),
+            h.writer,
+          )
+          .collect();
+      _expectBy(frame, temporary, SensoriumChangeBy.unknown, userEdits: false);
+      await h.drain(newer);
+      await second;
+      await h.drain(old);
+    },
+  );
+
   for (final tool in ['write', 'edit']) {
     test(
       '$tool records resolved target, resulting bytes and quiescence',
@@ -509,15 +689,20 @@ int _effectSequence(MutationHarness h, String id) {
 }
 
 final class _HeldCall implements CallStage {
-  _HeldCall(this.id);
+  _HeldCall(this.id, {this.skip = 0});
 
   final String id;
+  int skip;
   final entered = Completer<void>();
   final release = Completer<void>();
 
   @override
   Future<StageOutcome> check(StageCall call, CancelToken cancel) async {
     if (call.callId == id) {
+      if (skip > 0) {
+        skip--;
+        return const StageOutcome.proceed();
+      }
       entered.complete();
       await release.future;
     }

@@ -49,18 +49,25 @@ final class WriteTool implements Tool {
     }
     final bytes = Uint8List.fromList(utf8.encode(content));
     final mutation = context.mutation;
-    if (mutation != null && !await mutation.target(target)) {
-      return failure('write target was refused');
-    }
-    try {
-      Directory(File(target).parent.path).createSync(recursive: true);
-    } on FileSystemException catch (e) {
-      return failure('cannot create the directory of $path: ${e.message}');
-    }
     try {
       await writeAtomically(
         target,
         bytes,
+        beforeWrite: (temporary) async {
+          if (mutation != null && !await mutation.target(target, temporary)) {
+            throw const WriteFailure('write target was refused');
+          }
+          if (context.cancel.isCancelled) {
+            throw const WriteFailure(writeCancelled);
+          }
+          try {
+            Directory(File(target).parent.path).createSync(recursive: true);
+          } on FileSystemException catch (e) {
+            throw WriteFailure(
+              'cannot create the directory of $path: ${e.message}',
+            );
+          }
+        },
         seams: seams,
         isCancelled: () => context.cancel.isCancelled,
       );

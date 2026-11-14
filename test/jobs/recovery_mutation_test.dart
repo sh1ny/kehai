@@ -39,6 +39,113 @@ Future<ToolRuntime> _recover(Directory workspace, SessionWriter writer) async {
 }
 
 void main() {
+  for (final malformed in <Object?>['', null, 42]) {
+    test(
+      'malformed temporary footprint fails recovery: ${jsonEncode(malformed)}',
+      () async {
+        final (workspace, writer) = await _restart((workspace, writer) async {
+          File(p.join(workspace.path, 'user.txt'))
+              .writeAsStringSync('unchanged\n');
+          await writer.apply(
+            JournalRecord(
+              turn: writer.currentTurn,
+              path: 'meta/orphanedMutations',
+              op: Op.set,
+              value: {
+                'malformed': {
+                  'target': 'tracked.txt',
+                  'temporary': malformed,
+                  'session': mutationNode(writer, 'meta')['session'],
+                },
+              },
+            ),
+          );
+        });
+        await expectLater(
+          _recover(workspace, writer),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          File(p.join(workspace.path, 'user.txt')).readAsStringSync(),
+          'unchanged\n',
+        );
+        final record =
+            mutationNode(writer, 'meta/orphanedMutations')['malformed']! as Map;
+        expect(record['temporary'], malformed);
+        expect(record.containsKey('finishedSeq'), isFalse);
+      },
+    );
+  }
+
+  test(
+    'resume quiesces a legacy unquiesced call without a temporary path whose step predates the baseline and the next comparison reads every row unknown',
+    () => _legacyRecoveryComparison(callOnly: true),
+  );
+  test(
+    'resume finishes a legacy owned orphan without a temporary path and the next comparison reads every row unknown',
+    () => _legacyRecoveryComparison(callOnly: false),
+  );
+  test('rewound temporary footprint survives engine death, recovery and older-baseline restoration', () async {
+    final held = await WriterHeldMutation.start(
+      beforeMutation: (workspace, writer) async {
+        File(p.join(workspace.path, 'user.txt')).writeAsStringSync('before\n');
+        await _capture(workspace, writer, _mutations(writer), []);
+      },
+    );
+    final temporary = p.posix.joinAll(
+      p.split(p.relative(held.held.temporary!, from: held.workspace.path)),
+    );
+    final mutations = _mutationsForHeld(held);
+    await held.writer.rewind(0);
+    await _nextTurn(held.writer);
+    await _capture(held.workspace, held.writer, mutations, [_delta(temporary)]);
+    final containingTurn = held.writer.currentTurn;
+    await held.writer.close();
+    await held.land();
+    expect(File(held.held.temporary!).existsSync(), isFalse);
+    final writer = await SessionWriter.open(held.writer.sessionDir);
+    addTearDown(writer.close);
+    final runtime = await _recover(held.workspace, writer);
+    final removed = [
+      VcsDelta(path: temporary, added: 0, removed: 1, binary: false),
+      _delta(held.run.target),
+    ];
+    await _nextTurn(writer);
+    final afterCrash = await _capture(
+      held.workspace,
+      writer,
+      runtime.mutations,
+      removed,
+    );
+    _expectBy(
+      afterCrash,
+      temporary,
+      SensoriumChangeBy.unknown,
+      userEdits: false,
+    );
+    _expectBy(
+      afterCrash,
+      held.run.target,
+      SensoriumChangeBy.unknown,
+      userEdits: false,
+    );
+    File(p.join(held.workspace.path, 'user.txt'))
+        .writeAsStringSync('user after recovery\n');
+    await _nextTurn(writer);
+    final later = await _capture(held.workspace, writer, runtime.mutations, [
+      _delta('user.txt'),
+    ]);
+    _expectBy(later, 'user.txt', SensoriumChangeBy.user, userEdits: true);
+    await writer.rewind(containingTurn);
+    await _nextTurn(writer);
+    final restored = await _capture(held.workspace, writer, runtime.mutations, [
+      ...removed,
+      _delta('user.txt'),
+    ]);
+    _expectBy(restored, temporary, SensoriumChangeBy.unknown, userEdits: true);
+    _expectBy(restored, 'user.txt', SensoriumChangeBy.user, userEdits: true);
+  });
+
   for (final tool in ['write', 'edit']) {
     test(
       'resume quiesces a terminal cancelled $tool at the resume turn',
@@ -93,6 +200,7 @@ void main() {
                   'content': 'landed before crash\n',
                 },
                 'target': 'lib/a.dart',
+                'temporary': 'lib/.a.dart.kehai-0123abcd',
                 'status': 'cancelled',
                 'reason': 'user',
               },
@@ -170,14 +278,20 @@ void main() {
           path: 'meta/orphanedMutations',
           op: Op.set,
           value: {
-            'own': {'target': 'own.txt', 'session': session},
+            'own': {
+              'target': 'own.txt',
+              'temporary': '.own.txt.kehai-0123abcd',
+              'session': session,
+            },
             'done': {
               'target': 'done.txt',
+              'temporary': '.done.txt.kehai-0123abcd',
               'session': session,
               'finishedSeq': 8,
             },
             'foreign': {
               'target': 'foreign.txt',
+              'temporary': '.foreign.txt.kehai-0123abcd',
               'session': 'another-session',
               'foreign': true,
             },
@@ -360,6 +474,99 @@ void main() {
   );
 }
 
+Future<void> _legacyRecoveryComparison({required bool callOnly}) async {
+  const id = 'legacy-before-baseline';
+  final (workspace, writer) = await _restart((workspace, writer) async {
+    final tracked = File(p.join(workspace.path, 'tracked.txt'))
+      ..writeAsStringSync('before\n');
+    final user = File(p.join(workspace.path, 'user.txt'))
+      ..writeAsStringSync('before\n');
+    await _capture(workspace, writer, _mutations(writer), []);
+    if (callOnly) {
+      final input = {'path': 'tracked.txt', 'content': 'after\n'};
+      await writer.apply(
+        JournalRecord(
+          turn: 0,
+          path: mutationStepPath(0),
+          op: Op.merge,
+          value: {
+            'output': [
+              {
+                'type': 'call',
+                'call': callKey(id),
+                'callId': id,
+                'name': 'write',
+                'arguments': jsonEncode(input),
+              },
+            ],
+          },
+        ),
+      );
+      await writer.apply(
+        JournalRecord(
+          turn: 0,
+          path: 'body/calls/${callKey(id)}',
+          op: Op.set,
+          value: {
+            'tool': 'write',
+            'callId': id,
+            'attempt': 'legacy-attempt',
+            'input': input,
+            'target': 'tracked.txt',
+            'status': 'cancelled',
+            'reason': 'user',
+          },
+        ),
+      );
+    } else {
+      await writer.apply(
+        JournalRecord(
+          turn: 0,
+          path: 'meta/orphanedMutations',
+          op: Op.set,
+          value: {
+            'legacy-orphan': {
+              'target': 'tracked.txt',
+              'session': mutationNode(writer, 'meta')['session'],
+            },
+          },
+        ),
+      );
+    }
+    await _nextTurn(writer);
+    // This baseline follows the call's response step, while work is unquiesced.
+    await _capture(workspace, writer, _mutations(writer), []);
+    tracked.writeAsStringSync('late work\n');
+    user.writeAsStringSync('outside session provenance\n');
+  });
+  final runtime = await _recover(workspace, writer);
+  if (callOnly) {
+    final call = mutationNode(writer, 'body/calls/${callKey(id)}');
+    expect(call['quiesced'], isTrue);
+    expect(call.containsKey('temporary'), isFalse);
+    expect(mutationNode(writer, 'meta/orphanedMutations'), isEmpty);
+  } else {
+    final record =
+        mutationNode(writer, 'meta/orphanedMutations')['legacy-orphan']! as Map;
+    expect(record['finishedSeq'], isA<int>());
+    expect(record.containsKey('temporary'), isFalse);
+  }
+  await _nextTurn(writer);
+  final first = await _capture(workspace, writer, runtime.mutations, [
+    _delta('tracked.txt'),
+    _delta('user.txt'),
+  ]);
+  _expectBy(first, 'tracked.txt', SensoriumChangeBy.unknown, userEdits: false);
+  _expectBy(first, 'user.txt', SensoriumChangeBy.unknown, userEdits: false);
+  File(p.join(workspace.path, 'user.txt'))
+      .writeAsStringSync('later user edit\n');
+  await _nextTurn(writer);
+  final next = await _capture(workspace, writer, runtime.mutations, [
+    _delta('user.txt'),
+  ]);
+  _expectBy(next, 'user.txt', SensoriumChangeBy.user, userEdits: true);
+}
+
 var _captureOrdinal = 0;
 
 MutationRuns _mutations(SessionWriter writer) {
@@ -376,7 +583,7 @@ MutationRuns _mutationsForHeld(WriterHeldMutation held) {
       attempt: target.runId,
       callPath: target.callPath,
     )!;
-    expect(mutations.publish(run, target.target), isTrue);
+    expect(mutations.publish(run, target.target, target.temporary), isTrue);
   }
   return mutations;
 }

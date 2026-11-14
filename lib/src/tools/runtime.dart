@@ -556,7 +556,8 @@ final class ToolRuntime {
             for (final mutation in targets)
               if (read(mutation.callPath) case final Map<String, Object?> node
                   when node['attempt'] != mutation.runId ||
-                      node['target'] != mutation.target)
+                      node['target'] != mutation.target ||
+                      node['temporary'] != mutation.temporary)
                 mutation,
           ];
           final meta = read('meta');
@@ -871,7 +872,8 @@ final class ToolRuntime {
   }
 
   FileMutation _mutationCapability(_Live live, MutationRun run) => FileMutation(
-    target: (absolute) => _recordMutationTarget(live, run, absolute),
+    target: (absolute, temporary) =>
+        _recordMutationTarget(live, run, absolute, temporary),
     effect: (hash) => _recordMutationEffect(live, run, hash),
   );
 
@@ -879,9 +881,11 @@ final class ToolRuntime {
     _Live live,
     MutationRun run,
     String absolute,
+    String absoluteTemporary,
   ) async {
     final target = _repoRelativeMutationTarget(absolute);
-    if (target == null) return false;
+    final temporary = _repoRelativeMutationTarget(absoluteTemporary);
+    if (target == null || temporary == null) return false;
     final outcome = await _write(
       () => writer.applyGuarded((read) {
         final node = read(live.path);
@@ -891,13 +895,14 @@ final class ToolRuntime {
             node is! Map<String, Object?> ||
             node['attempt'] != run.attempt ||
             _terminalStatuses.contains(node['status']) ||
-            (node['target'] != null && node['target'] != target)) {
+            (node['target'] != null && node['target'] != target) ||
+            (node['temporary'] != null && node['temporary'] != temporary)) {
           return const GuardedRefusal('stale');
         }
         final boundary = node['target'] == null
             ? _mutationSequenceHigh(read('meta/vcs'))
             : null;
-        if (!mutations.publish(run, target)) {
+        if (!mutations.publish(run, target, temporary)) {
           return const GuardedRefusal('stale');
         }
         return GuardedAppend(
@@ -905,7 +910,11 @@ final class ToolRuntime {
             turn: writer.currentTurn,
             path: live.path,
             op: Op.merge,
-            value: {'target': target, 'targetAfterSeq': ?boundary},
+            value: {
+              'target': target,
+              'temporary': temporary,
+              'targetAfterSeq': ?boundary,
+            },
           ),
         );
       }),
@@ -941,6 +950,7 @@ final class ToolRuntime {
               node is Map<String, Object?> &&
               node['attempt'] == run.attempt &&
               node['target'] == mutation.target &&
+              node['temporary'] == mutation.temporary &&
               !_terminalStatuses.contains(node['status']);
         },
       ),

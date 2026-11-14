@@ -367,13 +367,26 @@ final class WorkspacePerception {
   }) {
     final targets = <String>{};
     final pathFacts = <String, _MutationPathFacts>{};
-    var processActivity = currentJobsLive || (baseline?.jobsLive ?? false);
+    var maskAll = false;
+    var processActivity =
+        currentJobsLive ||
+        (baseline?.jobsLive ?? false) ||
+        _mutations.hasUntargetedRuns;
 
     void observeMutation(_CallFacts call) {
       final target = call.target;
       if (target == null || target.isEmpty) {
         processActivity = true;
         return;
+      }
+      final temporary = call.temporary;
+      if (temporary == null || temporary.isEmpty) {
+        maskAll = true;
+      } else {
+        targets.add(temporary);
+        pathFacts.putIfAbsent(temporary, _MutationPathFacts.new)
+          ..hasMutation = true
+          ..temporary = true;
       }
       targets.add(target);
       final facts = pathFacts.putIfAbsent(target, _MutationPathFacts.new);
@@ -444,42 +457,44 @@ final class WorkspacePerception {
       }
     }
 
-    final liveByCall = <String, String>{};
-    for (final target in _mutations.liveTargets) {
-      final key = target.callPath.startsWith('body/calls/')
-          ? target.callPath.substring('body/calls/'.length)
+    final liveCalls = <String>{};
+    for (final mutation in _mutations.liveTargets) {
+      final key = mutation.callPath.startsWith('body/calls/')
+          ? mutation.callPath.substring('body/calls/'.length)
           : '';
-      if (key.isNotEmpty) liveByCall[key] = target.target;
-      targets.add(target.target);
-      pathFacts.putIfAbsent(target.target, _MutationPathFacts.new).open = true;
-    }
-    final activeKeys = _mutations.activeCallKeys;
-    for (final key in _mutations.openCallKeys) {
-      final target =
-          liveByCall[key] ?? _stringAt(tree, 'body/calls/$key/target');
-      if (target == null || target.isEmpty) {
-        if (activeKeys.contains(key)) processActivity = true;
-        continue;
+      if (key.isNotEmpty) liveCalls.add(key);
+      targets.add(mutation.target);
+      pathFacts.putIfAbsent(mutation.target, _MutationPathFacts.new).open =
+          true;
+      final temporary = mutation.temporary;
+      if (temporary == null || temporary.isEmpty) {
+        maskAll = true;
+      } else {
+        targets.add(temporary);
+        pathFacts.putIfAbsent(temporary, _MutationPathFacts.new)
+          ..open = true
+          ..temporary = true;
       }
+    }
+    for (final key in _mutations.openCallKeys) {
+      if (liveCalls.contains(key)) continue;
+      final target = _stringAt(tree, 'body/calls/$key/target');
+      if (target == null || target.isEmpty) continue;
       targets.add(target);
       pathFacts.putIfAbsent(target, _MutationPathFacts.new).open = true;
-    }
-    for (final key in activeKeys) {
-      final target =
-          liveByCall[key] ?? _stringAt(tree, 'body/calls/$key/target');
-      if (target == null || target.isEmpty) {
-        // An unfinished edit/write with no durable or published target may
-        // still mutate an arbitrary path while collection is in flight.
-        processActivity = true;
+      final temporary = _stringAt(tree, 'body/calls/$key/temporary');
+      if (temporary == null || temporary.isEmpty) {
+        maskAll = true;
       } else {
-        targets.add(target);
-        pathFacts.putIfAbsent(target, _MutationPathFacts.new).open = true;
+        targets.add(temporary);
+        pathFacts.putIfAbsent(temporary, _MutationPathFacts.new)
+          ..open = true
+          ..temporary = true;
       }
     }
 
     final session = _stringAt(tree, 'meta/session');
     final orphaned = tree.get(SessionPath.parse('meta/orphanedMutations'));
-    var maskAll = false;
     final vcsMeta = tree.get(SessionPath.parse('meta/vcs'));
     if (vcsMeta is Map<String, Object?>) {
       if (vcsMeta['foreignOverflow'] == true) maskAll = true;
@@ -516,6 +531,15 @@ final class WorkspacePerception {
         if (applies) {
           targets.add(target);
           pathFacts.putIfAbsent(target, _MutationPathFacts.new).orphan = true;
+          final temporary = value['temporary'];
+          if (temporary is! String || temporary.isEmpty) {
+            maskAll = true;
+          } else {
+            targets.add(temporary);
+            pathFacts.putIfAbsent(temporary, _MutationPathFacts.new)
+              ..orphan = true
+              ..temporary = true;
+          }
         }
       }
     } else if (orphaned != null) {
@@ -530,6 +554,7 @@ final class WorkspacePerception {
             value.missingEffectSequence ||
             value.open ||
             value.orphan ||
+            value.temporary ||
             value.unresolvedBoundaries.any(
               (boundary) => boundary == null || effect.sequence <= boundary,
             )) {
@@ -561,7 +586,9 @@ final class WorkspacePerception {
     }
     if (attribution.maskAll) return SensoriumChangeBy.unknown;
     final facts = attribution.pathFacts[path];
-    if (facts?.open == true || facts?.orphan == true) {
+    if (facts?.open == true ||
+        facts?.orphan == true ||
+        facts?.temporary == true) {
       return SensoriumChangeBy.unknown;
     }
     if (facts != null && _provesAgent(facts, verification[path])) {
@@ -618,6 +645,7 @@ final class WorkspacePerception {
       callKey: key,
       tool: tool,
       target: _stringAt(tree, '$path/target'),
+      temporary: _stringAt(tree, '$path/temporary'),
       targetAfterSeq: tree.get(SessionPath.parse('$path/targetAfterSeq')),
       effect: tree.get(SessionPath.parse('$path/effect')),
       hooks: _hasHooks(tree, '$path/hooks'),
@@ -668,6 +696,7 @@ final class WorkspacePerception {
       callKey: link.callKey,
       tool: link.tool,
       target: target,
+      temporary: _stringAt(tree, '$path/temporary'),
       targetAfterSeq: tree.get(SessionPath.parse('$path/targetAfterSeq')),
       effect: tree.get(SessionPath.parse('$path/effect')),
       hooks: _hasHooks(tree, '$path/hooks'),
@@ -806,6 +835,7 @@ final class _MutationPathFacts {
   bool hasMutation = false;
   bool open = false;
   bool orphan = false;
+  bool temporary = false;
   bool missingEffectSequence = false;
   _Effect? latestEffect;
   final List<int?> unresolvedBoundaries = [];
@@ -823,6 +853,7 @@ final class _CallFacts {
     required this.callKey,
     required this.tool,
     required this.target,
+    required this.temporary,
     required this.targetAfterSeq,
     required this.effect,
     required this.hooks,
@@ -831,6 +862,7 @@ final class _CallFacts {
   final String callKey;
   final String tool;
   final String? target;
+  final String? temporary;
   final Object? targetAfterSeq;
   final Object? effect;
   final bool hooks;

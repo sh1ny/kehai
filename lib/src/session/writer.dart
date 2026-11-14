@@ -957,7 +957,8 @@ final class SessionWriter {
             );
             if (node is! Map<String, Object?> ||
                 node['attempt'] != mutation.runId ||
-                node['target'] != mutation.target) {
+                node['target'] != mutation.target ||
+                node['temporary'] != mutation.temporary) {
               lost.add(mutation);
             }
           }

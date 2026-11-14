@@ -126,14 +126,19 @@ final class EditTool implements Tool {
     final output = plan.apply(lines);
     if (_sameBytes(output, bytes)) return failure('edit made no change');
     final mutation = context.mutation;
-    if (mutation != null && !await mutation.target(target)) {
-      return failure('edit target was refused');
-    }
 
     try {
       await writeAtomically(
         target,
         output,
+        beforeWrite: (temporary) async {
+          if (mutation != null && !await mutation.target(target, temporary)) {
+            throw const WriteFailure('edit target was refused');
+          }
+          if (context.cancel.isCancelled) {
+            throw const WriteFailure(writeCancelled);
+          }
+        },
         unchangedSince: stat,
         seams: seams,
         isCancelled: () => context.cancel.isCancelled,

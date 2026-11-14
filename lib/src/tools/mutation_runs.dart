@@ -41,6 +41,14 @@ final class MutationRuns {
   Set<String> get activeCallKeys =>
       Set.unmodifiable({for (final run in _runs.values) run.callKey});
 
+  /// Whether any reserved run lacks its own published mutation footprint.
+  bool get hasUntargetedRuns {
+    for (final run in _runs.values) {
+      if (run._target == null) return true;
+    }
+    return false;
+  }
+
   /// The call keys open in the current tree or in an unfinished live run.
   Set<String> get openCallKeys => Set.unmodifiable({
     ..._treeOpenCallKeys,
@@ -175,13 +183,17 @@ final class MutationRuns {
     return run;
   }
 
-  /// Publishes [target] inside the accepted guarded target append decision.
-  bool publish(MutationRun run, String target) {
+  /// Publishes both paths inside the accepted guarded intent decision.
+  bool publish(MutationRun run, String target, String? temporary) {
     if (!isActive(run)) return false;
+    if (temporary != null && temporary.isEmpty) {
+      throw StateError('Invalid mutation temporary path.');
+    }
     final resolved = (
       runId: run.attempt,
       callPath: run.callPath,
       target: target,
+      temporary: temporary,
       session: run.session,
     );
     final current = run._target;

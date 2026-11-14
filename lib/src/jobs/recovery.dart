@@ -249,6 +249,7 @@ final class JobRecovery {
         runId: attempt,
         callPath: 'body/calls/$key',
         target: target,
+        temporary: mutationTemporary(node),
         session: session,
       ),
       sequence: _mutationSequenceForFinish(),
@@ -272,6 +273,7 @@ final class JobRecovery {
       if (record is! Map<String, Object?>) {
         throw StateError('Invalid orphaned mutation record during recovery.');
       }
+      final temporary = mutationTemporary(record);
       if (record['foreign'] == true ||
           record['session'] != session ||
           record['finishedSeq'] is int) {
@@ -286,6 +288,7 @@ final class JobRecovery {
           runId: id,
           callPath: _mutationCallPath(id),
           target: target,
+          temporary: temporary,
           session: session,
         ),
         sequence: _mutationSequenceForFinish(),

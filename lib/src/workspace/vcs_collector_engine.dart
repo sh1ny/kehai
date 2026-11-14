@@ -1350,6 +1350,11 @@ String _processFailure(String tool, VcsProcessResult result) {
   return _boundedReason('$tool failed', detail);
 }
 
+final _missingJjRevision = RegExp(
+  r"^error: revision `[^`\r\n]+` doesn't exist\r?$",
+  multiLine: true,
+);
+
 bool _looksLikeMissingBaseline(VcsProcessResult result) {
   final length = result.stderr.length < 2048 ? result.stderr.length : 2048;
   final message = _decodeBytes(result.stderr, 0, length).toLowerCase();
@@ -1358,7 +1363,8 @@ bool _looksLikeMissingBaseline(VcsProcessResult result) {
       message.contains('revision not found') ||
       message.contains('not a valid object') ||
       message.contains('no such revision') ||
-      message.contains('cannot resolve revision');
+      message.contains('cannot resolve revision') ||
+      _missingJjRevision.hasMatch(message);
 }
 
 List<int> _byteView(List<int> bytes, int start, int end) => bytes is Uint8List

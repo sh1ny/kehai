@@ -99,7 +99,7 @@ extension _GitCollector on _VcsCollectorEngine {
       executable: executable,
       cwd: repositoryRoot,
       command: 'add',
-      arguments: const ['-A'],
+      arguments: const ['--sparse', '-A'],
       environment: privateEnvironment,
     );
     _requireGitSuccess('git', addResult);

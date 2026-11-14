@@ -109,15 +109,19 @@ abstract interface class ToolOutput {
 
 /// The runtime-owned capability for one filesystem mutation.
 ///
-/// [target] records the resolved absolute target before it changes. Returning
-/// `false` means no target was recorded, so the tool must not mutate.
+/// [target] records the resolved absolute destination and temporary paths before
+/// either changes. Returning `false` means the tool must not mutate.
 /// [effect] records the SHA-256 of the exact bytes successfully written.
 final class FileMutation {
   /// Creates a mutation capability from its target and effect callbacks.
   const FileMutation({required this.target, required this.effect});
 
-  /// Records [resolvedAbsoluteTarget] before the filesystem changes.
-  final Future<bool> Function(String resolvedAbsoluteTarget) target;
+  /// Records both resolved absolute paths before the filesystem changes.
+  final Future<bool> Function(
+    String resolvedAbsoluteTarget,
+    String resolvedAbsoluteTemporary,
+  )
+  target;
 
   /// Records [sha256] for the exact bytes written successfully.
   final Future<void> Function(String sha256) effect;

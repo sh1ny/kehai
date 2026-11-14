@@ -42,9 +42,11 @@ final class HeldRename {
   final release = Completer<void>();
   final finished = Completer<void>();
   String? target;
+  String? temporary;
   bool fail = false;
 
   Future<void> rename(String from, String to) async {
+    temporary = from;
     target = to;
     entered.complete();
     try {
@@ -265,37 +267,55 @@ final class WriterHeldMutation {
     await writer.apply(rec(0, 'meta/vcs', Op.merge, {'seqHigh': 7}));
     await beforeMutation?.call(workspace, writer);
     final callPath = 'body/calls/${callKey('writer-held')}';
-    await writer.apply(
-      rec(callSurvives ? 0 : 1, callPath, Op.set, {
-        'tool': 'write',
-        'callId': 'writer-held',
-        'attempt': 'held-attempt',
-        'input': {'path': 'lib/a.dart', 'content': 'after\n'},
-        'status': 'cancelled',
-        'reason': 'user',
-        if (!callSurvives) 'target': 'lib/a.dart',
-      }),
-    );
+    final call = <String, Object?>{
+      'tool': 'write',
+      'callId': 'writer-held',
+      'attempt': 'held-attempt',
+      'input': {'path': 'lib/a.dart', 'content': 'after\n'},
+      'status': 'cancelled',
+      'reason': 'user',
+    };
     if (callSurvives) {
-      await writer.apply(rec(1, callPath, Op.merge, {'target': 'lib/a.dart'}));
+      await writer.apply(rec(0, callPath, Op.set, call));
     }
-    final MutationTarget run = (
-      runId: 'held-attempt',
-      callPath: callPath,
-      target: 'lib/a.dart',
-      session: mutationNode(writer, 'meta')['session']! as String,
-    );
     final held = HeldRename();
-    final fixture = WriterHeldMutation._(workspace, writer, io, run, held);
-    final live = [run];
-    writer.liveMutationTargets = () => fixture._live ? live : const [];
-    fixture._write = writeAtomically(
+    late final WriterHeldMutation fixture;
+    final writing = writeAtomically(
       target.path,
       utf8.encode('after\n'),
+      beforeWrite: (temporary) async {
+        final relative = p.posix.joinAll(
+          p.split(p.relative(temporary, from: workspace.path)),
+        );
+        final MutationTarget run = (
+          runId: 'held-attempt',
+          callPath: callPath,
+          target: 'lib/a.dart',
+          temporary: relative,
+          session: mutationNode(writer, 'meta')['session']! as String,
+        );
+        fixture = WriterHeldMutation._(workspace, writer, io, run, held);
+        final live = [run];
+        writer.liveMutationTargets = () => fixture._live ? live : const [];
+        final intent = <String, Object?>{
+          'target': run.target,
+          'temporary': relative,
+          'targetAfterSeq': mutationNode(writer, 'meta/vcs')['seqHigh'],
+        };
+        await writer.apply(
+          rec(
+            1,
+            callPath,
+            callSurvives ? Op.merge : Op.set,
+            callSurvives ? intent : {...call, ...intent},
+          ),
+        );
+      },
       seams: FileWriteSeams(rename: held.rename),
     );
+    await Future.any([held.entered.future, writing]);
+    fixture._write = writing;
     addTearDown(fixture.land);
-    await held.entered.future;
     return fixture;
   }
 

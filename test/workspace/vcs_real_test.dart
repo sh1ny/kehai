@@ -26,6 +26,220 @@ const _collectionDeadline = Duration(seconds: 5);
 
 void main() {
   group('real process VCS collection', () {
+    test('private-index capture includes sparse-checkout paths', () async {
+      final workspace = _RealWorkspace.create();
+      final collector = VcsCollector();
+      _registerCleanup(workspace, collector);
+      await workspace.initGit();
+      workspace.write('inside/visible.txt', 'inside\n');
+      workspace.write('outside/tracked.txt', 'retained tracked content\n');
+      await workspace.commit('sparse baseline');
+      await _gitOk(workspace.directory, [
+        'sparse-checkout',
+        'init',
+        '--cone',
+        '--sparse-index',
+      ]);
+      await _gitOk(workspace.directory, ['sparse-checkout', 'set', 'inside']);
+      expect(
+        File(p.join(workspace.directory.path, 'outside', 'tracked.txt'))
+            .existsSync(),
+        isFalse,
+      );
+      final index = File(p.join(workspace.directory.path, '.git', 'index'));
+      final rules = File(
+        p.join(workspace.directory.path, '.git', 'info', 'sparse-checkout'),
+      );
+      final originalIndex = index.readAsBytesSync();
+      final originalRules = rules.readAsBytesSync();
+      final originalRefs = await _gitText(workspace.directory, ['show-ref']);
+      final baseline = await collector.collect(
+        root: workspace.directory.path,
+        deadline: _collectionDeadline,
+      );
+      _available(baseline);
+      expect(
+        await _gitText(workspace.directory, [
+          'show',
+          '${_baselineId(baseline)}:outside/tracked.txt',
+        ]),
+        'retained tracked content',
+      );
+      workspace.write('outside/new.txt', 'out-of-cone user file\n');
+      expect(
+        await _gitText(workspace.directory, [
+          '--no-optional-locks',
+          'status',
+          '--porcelain=v1',
+          '--untracked-files=all',
+        ]),
+        contains('?? outside/new.txt'),
+      );
+      final captured = await collector.collect(
+        root: workspace.directory.path,
+        deadline: _collectionDeadline,
+        previous: baseline,
+      );
+      _available(captured);
+      expect(captured.changes.single.path, 'outside/new.txt');
+      expect(captured.changes.single.added, 1);
+      expect(captured.changes.single.removed, 0);
+      expect(
+        await _gitText(workspace.directory, [
+          'show',
+          '${_baselineId(captured)}:outside/new.txt',
+        ]),
+        'out-of-cone user file',
+      );
+      expect(
+        await _gitText(workspace.directory, [
+          'show',
+          '${_baselineId(captured)}:outside/tracked.txt',
+        ]),
+        'retained tracked content',
+      );
+      expect(index.readAsBytesSync(), originalIndex);
+      expect(rules.readAsBytesSync(), originalRules);
+      expect(await _gitText(workspace.directory, ['show-ref']), originalRefs);
+    });
+
+    test('missing jj baseline is replaced by the fresh capture', () async {
+      final source = _RealWorkspace.create();
+      final destination = _RealWorkspace.create();
+      final sourceCollector = VcsCollector();
+      final collector = VcsCollector();
+      _registerCleanup(source, sourceCollector);
+      _registerCleanup(destination, collector);
+      await source.initJj();
+      await destination.initJj();
+      source.write('only-source.txt', 'source clone content\n');
+      destination.write('destination.txt', 'before\n');
+      final (writer, runtime) = await _realSession(destination);
+      final original = await _captureReal(
+        _realPerception(source, runtime, sourceCollector),
+        writer,
+      );
+      final oldId = (original.metadata['baseline']! as Map)['id'];
+      await _nextTurn(writer);
+      final perception = _realPerception(destination, runtime, collector);
+      final reset = await _captureReal(perception, writer);
+      expect(reset.vcs, isA<SensoriumAvailable<SensoriumVcs>>());
+      expect(
+        (reset.changes as SensoriumUnavailable<SensoriumChanges>).reason,
+        SensoriumReason.baselineLost,
+      );
+      expect(reset.notices, contains(SensoriumNotice.baselineReset));
+      expect(reset.notices, isNot(contains(SensoriumNotice.vcsFailed)));
+      expect((reset.metadata['baseline']! as Map)['id'], isNot(oldId));
+      destination.write('destination.txt', 'after\n');
+      await _nextTurn(writer);
+      final next = await _captureReal(perception, writer);
+      _expectBy(
+        next,
+        'destination.txt',
+        SensoriumChangeBy.user,
+        userEdits: true,
+      );
+      expect(next.notices, isNot(contains(SensoriumNotice.baselineReset)));
+    });
+
+    for (final backend in ['git', 'jj']) {
+      test(
+        '$backend temporary-file deltas stay uncertain through cancellation',
+        () async {
+          final workspace = _RealWorkspace.create();
+          final collector = VcsCollector();
+          _registerCleanup(workspace, collector);
+          if (backend == 'git') {
+            await workspace.initGit();
+          } else {
+            await workspace.initJj();
+          }
+          workspace.write('tracked.txt', 'before\n');
+          if (backend == 'git') await workspace.commit('temporary baseline');
+          final entered = Completer<void>();
+          final release = Completer<void>();
+          late String temporary;
+          final (writer, runtime) = await _realSession(
+            workspace,
+            seams: FileWriteSeams(
+              beforeContent: (path) async {
+                temporary = path;
+              },
+              beforeRename: () async {
+                entered.complete();
+                await release.future;
+              },
+            ),
+          );
+          const id = 'temporary-write';
+          final callPath = 'body/calls/${callKey(id)}';
+          final quiesced = mutationRecord(
+            writer,
+            callPath,
+            (node) => node['quiesced'] == true,
+          );
+          addTearDown(() async {
+            if (!release.isCompleted) release.complete();
+            if (entered.isCompleted) {
+              await quiesced;
+            }
+          });
+          final perception = _realPerception(workspace, runtime, collector);
+          await _captureReal(perception, writer);
+          final arguments = jsonEncode({
+            'path': 'tracked.txt',
+            'content': 'agent replacement\n',
+          });
+          await _linkCall(writer, id, 'write', arguments, 0);
+          final pending = runtime.run(
+            ToolCall(callId: id, name: 'write', argumentsJson: arguments),
+            stepTurn: 0,
+          );
+          await entered.future;
+          await runtime.cancelTurn();
+          await pending;
+          final relative = p.posix.joinAll(
+            p.split(p.relative(temporary, from: workspace.directory.path)),
+          );
+          expect(File(temporary).readAsStringSync(), 'agent replacement\n');
+          await _nextTurn(writer);
+          // Admit the capture containing the temporary, not just a preview.
+          final created = await _captureReal(perception, writer);
+          _expectBy(
+            created,
+            relative,
+            SensoriumChangeBy.unknown,
+            userEdits: false,
+          );
+          expect(
+            File(p.join(workspace.directory.path, 'tracked.txt'))
+                .readAsStringSync(),
+            'before\n',
+          );
+          release.complete();
+          await quiesced;
+          expect(File(temporary).existsSync(), isFalse);
+          await _nextTurn(writer);
+          final removed = await _captureReal(perception, writer);
+          _expectBy(
+            removed,
+            relative,
+            SensoriumChangeBy.unknown,
+            userEdits: false,
+          );
+          expect(
+            (removed.changes as SensoriumAvailable<SensoriumChanges>)
+                .value
+                .rows
+                .single
+                .removed,
+            1,
+          );
+        },
+      );
+    }
+
     test(
       'dirty jj reports identity, first description, parent, MAD and opid',
       () async {
@@ -656,8 +870,9 @@ final class _RealWorkspace {
 }
 
 Future<(SessionWriter, ToolRuntime)> _realSession(
-  _RealWorkspace workspace,
-) async {
+  _RealWorkspace workspace, {
+  FileWriteSeams seams = const FileWriteSeams(),
+}) async {
   final sessionRoot = await tempDir();
   final writer = await createWriter(sessionRoot);
   final runtime = await ToolRuntime.attach(
@@ -665,6 +880,10 @@ Future<(SessionWriter, ToolRuntime)> _realSession(
     ResultStore(writer.sessionDir),
     workspace: workspace.directory,
     gate: const AllowAllStage(),
+    tools: {
+      'write': WriteTool(seams: seams),
+      'edit': EditTool(seams: seams),
+    },
   );
   addTearDown(runtime.close);
   return (writer, runtime);

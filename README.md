@@ -194,9 +194,11 @@ require an engine restart.
 
 jj observation performs its ordinary working-copy snapshot and may add operation
 log entries. Git observation copies the current user index into a fresh private
-index, then captures a tree with `git add -A` and `git write-tree`. It never writes
-the user's index, refs, HEAD or working-tree files. Unreferenced blob/tree objects
-remain until git's normal prune.
+index, then captures a tree with `git add --sparse -A` and `git write-tree`.
+Git 2.34 or newer is required; older versions report a failed/stale observation,
+without a plain-add fallback. Sparse-checkout rules and absent tracked paths are
+preserved. Observation never writes the user's index, refs, HEAD or working-tree
+files. Unreferenced blob/tree objects remain until git's normal prune.
 
 Repository-configured clean filters and fsmonitor may run during capture, as for
 status-equivalent reads, under the same deadline. Kehai does not emulate or
@@ -244,15 +246,21 @@ Rewind and resume use the surviving journalled observations, not a side cache.
 ### Filesystem mutation provenance
 
 Cancelling an `edit` or `write` call does not stop a rename already in flight.
-While its actual tool future is unfinished, the recorded target stays
-`by: unknown`, even across further captures.
+Before creating a file or parent directory, each call durably records its
+resolved destination and the actual adjacent temporary path selected for that
+write. While its actual tool future is unfinished, both paths stay
+`by: unknown`, even across further captures. Temporary-file creation and removal
+never become agent-proved edits; no filename pattern hides unrelated user files.
 
-Before a rewind removes a live target, the writer preserves it outside the
-rewound history. Comparisons against a baseline captured before that mutation
+Before a rewind removes a live footprint, the writer preserves both paths outside
+the rewound history. Comparisons against a baseline captured before that mutation
 finished remain uncertain; restoring an older baseline restores that uncertainty.
-A fork keeps the parent's already-open targets as foreign uncertainty for the
-child's lifetime. Child recovery cannot finish the parent's work. If more than
-16 foreign records would be inherited, every change row in the child is unknown.
+A fork keeps the parent's already-open footprints as foreign uncertainty for the
+child's lifetime. Child recovery cannot finish the parent's work. Legacy records
+without a temporary path conservatively make every change row unknown only for
+their existing uncertainty lifetime, including the foreign child's lifetime.
+If more than 16 foreign records would be inherited, every change row in the child
+is unknown.
 
 At most 16 edit/write futures may remain unfinished per engine. Detached,
 cancelled calls still count. At the limit, another edit/write fails before

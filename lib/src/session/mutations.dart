@@ -1,12 +1,26 @@
 /// One unfinished filesystem mutation supplied by its engine.
 ///
 /// `runId` is the original call attempt; `callPath` locates its call node.
+/// A null `temporary` represents absent legacy provenance.
 typedef MutationTarget = ({
   String runId,
   String callPath,
   String target,
+  String? temporary,
   String session,
 });
+
+/// Reads the temporary path while preserving absent legacy provenance.
+///
+/// Throws [StateError] for a present empty or non-string field.
+String? mutationTemporary(Map<String, Object?> record) {
+  if (!record.containsKey('temporary')) return null;
+  final temporary = record['temporary'];
+  if (temporary is! String || temporary.isEmpty) {
+    throw StateError('Invalid mutation temporary path.');
+  }
+  return temporary;
+}
 
 /// The engine's capture and mutation-finish sequence allocator.
 final class MutationSequence {
@@ -42,11 +56,16 @@ Map<String, Object?> _ownedRecord(
   Map<String, Object?> records,
   MutationTarget mutation,
 ) {
+  final temporary = mutation.temporary;
+  if (temporary != null && temporary.isEmpty) {
+    throw StateError('Invalid mutation temporary path.');
+  }
   final existing = _map(records[mutation.runId]);
   if (existing.isNotEmpty &&
       (existing['foreign'] == true ||
           existing['session'] != mutation.session ||
-          existing['target'] != mutation.target)) {
+          existing['target'] != mutation.target ||
+          mutationTemporary(existing) != temporary)) {
     throw StateError('Mutation run ownership or target changed.');
   }
   return existing;
@@ -63,6 +82,7 @@ Map<String, Object?> orphanMutationMerge(
   final record = <String, Object?>{
     ...existing,
     'target': mutation.target,
+    'temporary': ?mutation.temporary,
     'session': mutation.session,
   };
   if (finishedSeq != null && record['finishedSeq'] is! int) {
@@ -114,6 +134,7 @@ Map<String, Object?> preserveMutationTargets(
     updated ??= Map<String, Object?>.of(original);
     updated[mutation.runId] = {
       'target': mutation.target,
+      'temporary': ?mutation.temporary,
       'session': mutation.session,
     };
   }
@@ -145,13 +166,21 @@ Map<String, Object?> forkMutationMeta(
   final retained = <String, Object?>{};
   final foreign = <String, Object?>{};
   var overflow = _map(parentMeta['vcs'])['foreignOverflow'] == true;
-  void keep(String id, String target, String session) {
+  void keep(String id, String target, String session, String? temporary) {
+    if (temporary != null && temporary.isEmpty) {
+      throw StateError('Invalid mutation temporary path.');
+    }
     if (foreign.containsKey(id)) return;
     if (foreign.length == 16) {
       overflow = true;
       return;
     }
-    foreign[id] = {'target': target, 'session': session, 'foreign': true};
+    foreign[id] = {
+      'target': target,
+      'temporary': ?temporary,
+      'session': session,
+      'foreign': true,
+    };
   }
 
   // Replace inherited unfinished records rather than duplicating them at each
@@ -162,8 +191,9 @@ Map<String, Object?> forkMutationMeta(
       'target': final String target,
       'session': final String session,
     }) {
+      final temporary = mutationTemporary(record);
       if (record['foreign'] == true || record['finishedSeq'] is! int) {
-        keep(key, target, session);
+        keep(key, target, session, temporary);
       } else {
         retained[key] = record;
       }
@@ -191,12 +221,13 @@ Map<String, Object?> forkMutationMeta(
           attempt is String ? attempt : 'legacy:$key',
           target,
           parentSession,
+          mutationTemporary(value),
         );
       }
     }
   }
   for (final mutation in live) {
-    keep(mutation.runId, mutation.target, mutation.session);
+    keep(mutation.runId, mutation.target, mutation.session, mutation.temporary);
   }
   if (inherited.isEmpty && foreign.isEmpty && !overflow) return parentMeta;
   final vcs = _map(parentMeta['vcs']);
