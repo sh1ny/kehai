@@ -286,7 +286,15 @@ extension _GitCollector on _VcsCollectorEngine {
       run,
       executable: executable,
       cwd: cwd,
-      arguments: ['--no-pager', '-c', 'color.ui=false', command, ...arguments],
+      arguments: [
+        '--no-pager',
+        '-c',
+        'color.ui=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        command,
+        ...arguments,
+      ],
       environment: environment,
       tool: 'git',
     );

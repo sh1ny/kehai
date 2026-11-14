@@ -174,6 +174,54 @@ void main() {
       },
     );
 
+    test(
+      'private-index capture does not execute repository index hooks',
+      () async {
+        final workspace = _RealWorkspace.create();
+        final collector = VcsCollector();
+        _registerCleanup(workspace, collector);
+        await workspace.initGit();
+        workspace.write('watched.txt', 'committed content\n');
+        await workspace.commit('base');
+        workspace.write('watched.txt', 'pending user content\n');
+        final watched = File(p.join(workspace.directory.path, 'watched.txt'));
+        final hooks = Directory(p.join(workspace.temporary.path, 'hooks'))
+          ..createSync();
+        final hook = File(p.join(hooks.path, 'post-index-change'));
+        await hook.writeAsString(
+          "#!/bin/sh\nprintf 'hook mutation\\n' > watched.txt\n",
+        );
+        if (!Platform.isWindows) {
+          final chmod = await Process.run('chmod', ['755', hook.path]);
+          expect(chmod.exitCode, 0, reason: 'chmod failed: ${chmod.stderr}');
+        }
+        await _gitOk(workspace.directory, [
+          'config',
+          'core.hooksPath',
+          hooks.path,
+        ]);
+        final index = File(p.join(workspace.directory.path, '.git', 'index'));
+        final originalIndex = await index.readAsBytes();
+
+        final result = await collector.collect(
+          root: workspace.directory.path,
+          deadline: _collectionDeadline,
+        );
+
+        expect(_available(result).paths, contains('watched.txt'));
+        expect(await watched.readAsString(), 'pending user content\n');
+        expect(await index.readAsBytes(), orderedEquals(originalIndex));
+        expect(
+          await _gitText(workspace.directory, [
+            'config',
+            '--get',
+            'core.hooksPath',
+          ]),
+          hooks.path,
+        );
+      },
+    );
+
     test('user git add succeeds while collection is blocked without original index lock', () async {
       final workspace = _RealWorkspace.create();
       final collector = VcsCollector();

@@ -471,3 +471,13 @@ Qualified code head: `7853234c290d8377490e02e0621afe892a8a3252`. These receipts 
 | Full configured suite, including slow/native-process cases | success | success | [43456204557](https://github.com/sh1ny/kehai/actions/runs/43456204557) |
 
 Both subsequent gates passed without changing auth code or its assertions. The existing property suite was not narrowed. The local official-MCP evidence includes all 226 mapped tests, the exact failing property seed, fork provenance and the retained full-byte truncation behavior test. Pinned fatal-info analysis and the 43-file format check passed. No package version was bumped.
+
+### PR feedback round 1
+
+- Preserved the current VCS collection failure independently of change-baseline availability. A lookup-bound loss can report `changes_since_last_turn: unavailable (baseline lost)` and `baseline_reset` while VCS availability and admitted metadata retain `timeout`. Later failures do not rediscover baseline loss from the prior reason label.
+- Disabled repository Git hooks per command with `core.hooksPath=/dev/null`, preventing private-index writes from executing `post-index-change`. Existing clean-filter and fsmonitor policy is unchanged; the repository's configured hooks path is not modified.
+- Both new regression tests failed before the fixes: the first returned `baselineLost` instead of `timedOut`, and the native hook changed a tracked working-tree file. After the fixes, the official Dart MCP runner passed all 49 attribution tests and both targeted native Git cases, including the existing clean-filter barrier with a concurrent user index update. Formatting covered only the four changed Dart files.
+- Codex remains a required reviewer. Its automatic reviews run first; unconditional request comments are disabled. The user explicitly authorized `@codex review` if no response arrives within the configured 20-minute head window.
+- Pinned fatal-info analysis reported no issues, and strict OpenSpec validation passed. The current-source CLI emitted protocol-v1 `hello`, accepted a successful VM hot reload, returned the expected `not-admitted` status reply without any submit, and exited 0 on EOF. Its temporary session, workspace and owned tooling daemon were removed or stopped.
+- The earlier lost-baseline masking P2 is addressed by this round. Qualification and pre-ship receipts above remain evidence for their named historical heads, not this later fix head.
+

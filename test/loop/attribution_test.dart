@@ -629,6 +629,76 @@ void main() {
   });
 
   test(
+    'lookup loss preserves current failures without replaying reset',
+    () async {
+      final harness = await MutationHarness.create();
+      var failCollection = false;
+      var failure = SensoriumReason.timedOut;
+      final observer = CallbackWorkspaceObserver((request) {
+        if (!failCollection) {
+          return availableCollection(
+            request,
+            id: 'baseline-before-lookup-loss',
+          );
+        }
+        return VcsCollection(
+          observation: SensoriumUnavailable(failure),
+          reason: failure == SensoriumReason.timedOut ? 'timeout' : 'failed',
+          captureCompleted: false,
+        );
+      });
+      final perception = workspacePerception(harness, observer);
+      await _captureAndAdmit(harness, perception);
+      for (var turn = 1; turn <= 256; turn++) {
+        await harness.writer.apply(
+          JournalRecord(
+            turn: turn,
+            path: mutationStepPath(turn),
+            op: Op.set,
+            value: {'status': 'failed-without-admission'},
+          ),
+        );
+      }
+      failCollection = true;
+
+      final timedOut = await _capture(harness, perception);
+
+      expect(
+        (timedOut.vcs as SensoriumUnavailable<SensoriumVcs>).reason,
+        SensoriumReason.timedOut,
+      );
+      expect(timedOut.metadata['reason'], 'timeout');
+      expect(
+        composeWorkspaceFrame(timedOut).text,
+        contains('vcs: unavailable (timeout)'),
+      );
+      _expectChangesUnavailable(
+        timedOut,
+        SensoriumReason.baselineLost,
+        'changes_since_last_turn: unavailable (baseline lost)',
+      );
+      expect(timedOut.notices, contains(SensoriumNotice.vcsTimeout));
+      expect(timedOut.notices, contains(SensoriumNotice.baselineReset));
+      await admitWorkspaceFrame(harness.writer, timedOut);
+      await harness.nextTurn();
+      failure = SensoriumReason.failed;
+
+      final failed = await _capture(harness, perception);
+
+      expect(
+        (failed.vcs as SensoriumUnavailable<SensoriumVcs>).reason,
+        SensoriumReason.failed,
+      );
+      expect(failed.metadata['reason'], 'failed');
+      expect(
+        composeWorkspaceFrame(failed).text,
+        contains('vcs: unavailable (failed)'),
+      );
+      expect(failed.notices, isNot(contains(SensoriumNotice.baselineReset)));
+    },
+  );
+
+  test(
     'edit linked from the baseline step output is in the interval',
     () async {
       final harness = await MutationHarness.create();

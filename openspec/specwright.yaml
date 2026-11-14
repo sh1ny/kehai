@@ -86,7 +86,7 @@ pr:
   # timeout: wait per head (default 20m), request: comment that triggers a
   # reviewer that only runs when tagged. Replaces github.review_request.
   reviewers:
-    chatgpt-codex-connector: { role: required, request: "@codex review" }
+    chatgpt-codex-connector: { role: required, request: "" }
   # Account that posts the requests. Default: review_request.login, else
   # github.login.
   request_as: "sh1ny"

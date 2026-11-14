@@ -241,11 +241,7 @@ final class WorkspacePerception {
     final previousVcs = stored == null ? null : _decodeStoredVcs(stored.value);
     final hasStaleValue = previousVcs != null && stored?.observedTime != null;
     final preserveObserved = hasStaleValue || frozen.baseline != null;
-    final reason = disabled
-        ? SensoriumReason.disabled
-        : baselineLost
-        ? SensoriumReason.baselineLost
-        : failure;
+    final reason = disabled ? SensoriumReason.disabled : failure;
     final changesReason = disabled
         ? SensoriumReason.disabled
         : baselineLost
@@ -305,10 +301,7 @@ final class WorkspacePerception {
       final key = keys[index].$2;
       final raw = tree.get(SessionPath.parse('body/steps/$key/sensorium/vcs'));
       if (raw is! Map<String, Object?> || raw['state'] is! String) continue;
-      return _Lookup(
-        _parseStored(raw),
-        lost: raw['reason'] == _reasonLabel(SensoriumReason.baselineLost),
-      );
+      return _Lookup(_parseStored(raw), lost: false);
     }
     return _Lookup(null, lost: keys.length >= _baselineStepLimit);
   }
@@ -877,9 +870,7 @@ _StoredPerception? _parseStored(Map<String, Object?> raw) {
     }
   }
   final reason = _parseReason(raw['reason']);
-  final lost =
-      reason == SensoriumReason.baselineLost ||
-      ((state == 'available' || state == 'stale') && baseline == null);
+  final lost = (state == 'available' || state == 'stale') && baseline == null;
   return _StoredPerception(
     raw: raw,
     state: state,
