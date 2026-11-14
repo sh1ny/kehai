@@ -69,7 +69,18 @@ abstract final class SensoriumAllocations {
 }
 
 /// A bounded reason vocabulary for finite supplied observations.
-enum SensoriumReason { notCollected, failed, timedOut }
+enum SensoriumReason {
+  notCollected,
+  failed,
+  timedOut,
+  noRepository,
+  disabled,
+  jjNotFound,
+  gitNotFound,
+  noBaseline,
+  baselineLost,
+  cleanupPending,
+}
 
 /// The availability of a supplied section, not a collector registration.
 sealed class SensoriumObservation<T> {
@@ -126,21 +137,69 @@ final class SensoriumBudget {
 
 /// A VCS summary supplied without scanning the workspace.
 final class SensoriumVcs {
-  const SensoriumVcs({required this.branch, required this.paths});
+  const SensoriumVcs({
+    required this.branch,
+    required this.paths,
+    this.backend = 'git',
+    this.change,
+    this.description,
+    this.parent,
+    this.operation,
+    this.modified = 0,
+    this.added = 0,
+    this.deleted = 0,
+    this.conflicts = const [],
+    this.partial = false,
+    this.totalPaths,
+    this.conflictCount,
+  });
   final String branch;
   final Iterable<String> paths;
+  final String backend;
+  final String? change;
+  final String? description;
+  final String? parent;
+  final String? operation;
+  final int modified;
+  final int added;
+  final int deleted;
+  final Iterable<String> conflicts;
+  final bool partial;
+  final int? totalPaths;
+  final int? conflictCount;
 }
 
-/// One changed path and its line counts.
+/// The origin a captured file difference can prove.
+enum SensoriumChangeBy { agent, user, unknown }
+
+/// One changed path, its line counts and its verified origin.
 final class SensoriumChange {
   const SensoriumChange(
     this.path, {
     required this.added,
     required this.removed,
+    this.by = SensoriumChangeBy.unknown,
+    this.binary = false,
   });
   final String path;
   final int added;
   final int removed;
+  final SensoriumChangeBy by;
+  final bool binary;
+}
+
+/// A supplied difference from one captured baseline.
+final class SensoriumChanges {
+  const SensoriumChanges({
+    required this.sinceTurn,
+    required this.rows,
+    this.totalPaths,
+    this.partial = false,
+  });
+  final int sinceTurn;
+  final Iterable<SensoriumChange> rows;
+  final int? totalPaths;
+  final bool partial;
 }
 
 /// One supplied diagnostic, with bounded presentation applied at composition.
@@ -180,7 +239,17 @@ final class SensoriumCheckpoint {
 }
 
 /// The finite notice codes; recovery prose remains a separate request item.
-enum SensoriumNotice { compactionRecovery, legacyWindowIgnored }
+enum SensoriumNotice {
+  compactionRecovery('compaction_recovery'),
+  legacyWindowIgnored('legacy_window_ignored'),
+  vcsTimeout('vcs_timeout'),
+  vcsFailed('vcs_failed'),
+  userEdits('user_edits'),
+  baselineReset('baseline_reset');
+
+  const SensoriumNotice(this.code);
+  final String code;
+}
 
 /// One request's finite typed composition input.
 final class SensoriumSnapshot {
@@ -202,7 +271,7 @@ final class SensoriumSnapshot {
   final String workspaceName;
   final SensoriumBudget budget;
   final SensoriumObservation<SensoriumVcs> vcs;
-  final SensoriumObservation<Iterable<SensoriumChange>> changes;
+  final SensoriumObservation<SensoriumChanges> changes;
   final SensoriumObservation<Iterable<SensoriumDiagnostic>> diagnostics;
   final SensoriumObservation<SensoriumTests> tests;
   final Iterable<SensoriumProcess> processes;
@@ -312,6 +381,13 @@ String _reason(SensoriumReason reason) => switch (reason) {
   SensoriumReason.notCollected => 'not collected',
   SensoriumReason.failed => 'failed',
   SensoriumReason.timedOut => 'timeout',
+  SensoriumReason.noRepository => 'no repository',
+  SensoriumReason.disabled => 'disabled',
+  SensoriumReason.jjNotFound => 'jj not found',
+  SensoriumReason.gitNotFound => 'git not found',
+  SensoriumReason.noBaseline => 'no baseline',
+  SensoriumReason.baselineLost => 'baseline lost',
+  SensoriumReason.cleanupPending => 'cleanup pending',
 };
 
 String _number(int value) => value > -1000000 && value < 1000000
@@ -364,6 +440,168 @@ String _clip(String value, int bytes) {
     size += width;
   }
   return out.toString();
+}
+
+bool _repositoryEscape(int rune) =>
+    rune < 32 ||
+    (rune >= 0x7f && rune <= 0x9f) ||
+    rune == 0x2028 ||
+    rune == 0x2029 ||
+    rune == 60 ||
+    rune == 62;
+
+bool _lineBoundary(int rune) =>
+    rune == 10 ||
+    rune == 13 ||
+    rune == 11 ||
+    rune == 12 ||
+    rune == 0x85 ||
+    rune == 0x2028 ||
+    rune == 0x2029;
+
+int _repositoryWidth(int rune) {
+  if (_repositoryEscape(rune)) {
+    return 4 +
+        (rune < 16
+            ? 1
+            : rune < 256
+            ? 2
+            : rune < 4096
+            ? 3
+            : 4);
+  }
+  return rune <= 0x7f
+      ? 1
+      : rune <= 0x7ff
+      ? 2
+      : rune <= 0xffff
+      ? 3
+      : 4;
+}
+
+String _repositoryText(String value, int limit, {bool firstLine = false}) {
+  var bytes = 0;
+  var end = 0;
+  var escaped = false;
+  var truncated = false;
+  for (final rune in value.runes) {
+    if (firstLine && _lineBoundary(rune)) break;
+    final width = _repositoryWidth(rune);
+    if (bytes + width > limit) {
+      truncated = true;
+      break;
+    }
+    bytes += width;
+    end += rune > 0xffff ? 2 : 1;
+    escaped |= _repositoryEscape(rune);
+  }
+  if (!truncated && !escaped) {
+    return end == value.length ? value : value.substring(0, end);
+  }
+  // A second bounded scan avoids per-character strings and rollback buffers.
+  final budget = truncated ? limit - 5 - value.length.toString().length : limit;
+  final out = StringBuffer();
+  var consumed = 0;
+  bytes = 0;
+  for (final rune in value.runes) {
+    if (firstLine && _lineBoundary(rune)) break;
+    final width = _repositoryWidth(rune);
+    if (bytes + width > budget) break;
+    if (_repositoryEscape(rune)) {
+      out.write('\\u{${rune.toRadixString(16).toUpperCase()}}');
+    } else {
+      out.writeCharCode(rune);
+    }
+    consumed += rune > 0xffff ? 2 : 1;
+    bytes += width;
+  }
+  if (truncated) out.write('… +${value.length - consumed}');
+  return out.toString();
+}
+
+(String, String) _changesSection(SensoriumChanges changes, int cap) {
+  final full = _Preview(12);
+  final folded = _Preview(12);
+  for (final change in changes.rows) {
+    final path = _repositoryText(change.path, 45);
+    final counts = change.binary
+        ? 'binary'
+        : '+${_number(change.added)} -${_number(change.removed)}';
+    full.add('$path $counts by: ${change.by.name}');
+    folded.add('$path by: ${change.by.name}');
+  }
+  final total = changes.totalPaths;
+  if (total != null && total > full.count) full.count = total;
+  folded.count = full.count;
+  final detail =
+      'since_turn: ${_number(changes.sinceTurn)}${changes.partial ? ' partial' : ''}';
+  if (changes.partial && full.count == 0) {
+    final text = 'changes_since_last_turn: $detail';
+    return (text, text);
+  }
+  return (
+    _rows('changes_since_last_turn', full, cap, detail: detail),
+    _rows('changes_since_last_turn', folded, cap, detail: detail),
+  );
+}
+
+String _vcsCounts(SensoriumVcs vcs, int conflicts) {
+  final conflictCount = conflicts == 0 && !vcs.partial
+      ? 'none'
+      : '${vcs.partial ? '≥ ' : ''}${_number(conflicts)}';
+  return '${vcs.partial ? '≥ ' : ''}M ${_number(vcs.modified)}  '
+      'A ${_number(vcs.added)}  D ${_number(vcs.deleted)}'
+      '${vcs.partial ? ' partial' : ''} · conflicts: $conflictCount';
+}
+
+(String, String) _vcsSection(SensoriumVcs vcs, int cap) {
+  final paths = _Preview(12);
+  for (final path in vcs.paths) {
+    paths.add(_repositoryText(path, 48));
+  }
+  paths.count = vcs.totalPaths ?? paths.count;
+  final conflicts = _Preview(12);
+  for (final path in vcs.conflicts) {
+    conflicts.add(_repositoryText(path, 48));
+  }
+  conflicts.count = vcs.conflictCount ?? conflicts.count;
+  final counts = _vcsCounts(vcs, conflicts.count);
+  final fixed = [
+    'vcs: backend: ${_repositoryText(vcs.backend, 8)}',
+    '  branch: ${_repositoryText(vcs.branch, 32)}',
+    if (vcs.change != null) '  change: ${_repositoryText(vcs.change!, 32)}',
+    if (vcs.description != null && vcs.description!.isNotEmpty)
+      '  description: ${_repositoryText(vcs.description!, 64, firstLine: true)}',
+    if (vcs.parent != null) '  parent: ${_repositoryText(vcs.parent!, 24)}',
+    '  $counts',
+    if (vcs.operation != null)
+      '  ${vcs.backend == 'jj' ? 'operation' : 'HEAD'}: ${_repositoryText(vcs.operation!, 24)}',
+  ];
+  var shownPaths = paths.rows.length;
+  var shownConflicts = conflicts.rows.length;
+  while (true) {
+    final text = [
+      ...fixed,
+      for (var i = 0; i < shownPaths; i++) '  ${paths.rows[i]}',
+      if (paths.count > shownPaths)
+        '  … +${_number(paths.count - shownPaths)} more',
+      for (var i = 0; i < shownConflicts; i++)
+        '  conflict: ${conflicts.rows[i]}',
+      if (conflicts.count > shownConflicts)
+        '  conflicts: … +${_number(conflicts.count - shownConflicts)} more',
+    ].join('\n');
+    if (estimateText(text) <= cap) return (text, 'vcs: $counts');
+    if (shownPaths > 0) {
+      shownPaths--;
+    } else if (shownConflicts > 0) {
+      shownConflicts--;
+    } else {
+      throw const SensoriumCompositionError(
+        code: 'section',
+        message: 'VCS summary cannot fit its allocation.',
+      );
+    }
+  }
 }
 
 String _chars(String value, int max) {
@@ -430,18 +668,27 @@ final class _Preview {
 
 // Each stored row is already bounded. Try only bounded preview prefixes and
 // always account for a total omission marker before admitting another row.
-String _rows(String header, _Preview preview, int cap, {int? limit}) {
-  if (preview.count == 0) return '$header: none';
+String _rows(
+  String header,
+  _Preview preview,
+  int cap, {
+  int? limit,
+  String detail = '',
+}) {
+  if (preview.count == 0) {
+    return '$header: none${detail.isEmpty ? '' : ' ($detail)'}';
+  }
   var shown = limit == null || limit > preview.rows.length
       ? preview.rows.length
       : limit;
+  final heading = detail.isEmpty ? '$header:' : '$header: $detail';
   while (shown >= 0) {
     final rows = preview.latest
         ? preview.rows.skip(preview.rows.length - shown)
         : preview.rows.take(shown);
     final omitted = preview.count - shown;
     final text =
-        '$header:\n${rows.map((row) => '  $row').join('\n')}'
+        '$heading\n${rows.map((row) => '  $row').join('\n')}'
         '${omitted > 0 ? '${shown > 0 ? '\n' : ''}  … +${_number(omitted)} more' : ''}';
     if (estimateText(text) <= cap) return text;
     shown--;
@@ -468,39 +715,35 @@ final class _Observed {
   }
 }
 
+String _noticesSection(Set<SensoriumNotice> notices) {
+  if (notices.isEmpty) return 'notices: none';
+  final text = StringBuffer('notices: ');
+  var separator = '';
+  for (final notice in SensoriumNotice.values) {
+    if (!notices.contains(notice)) continue;
+    text
+      ..write(separator)
+      ..write(notice.code);
+    separator = ', ';
+  }
+  final rendered = text.toString();
+  if (estimateText(rendered) <= SensoriumAllocations.notices) return rendered;
+
+  final preview = _Preview(SensoriumNotice.values.length);
+  for (final notice in SensoriumNotice.values) {
+    if (notices.contains(notice)) preview.add(notice.code);
+  }
+  return _rows('notices', preview, SensoriumAllocations.notices);
+}
+
 final class _Sections {
   _Sections(this.snapshot) {
-    vcs = _observe(snapshot.vcs, SensoriumAllocations.vcs, (v, cap) {
-      final preview = _Preview(12);
-      for (final path in v.paths) {
-        preview.add(_clip(path, 48));
-      }
-      final branch = _clip(v.branch, 45);
-      return (
-        _rows(
-          'vcs',
-          preview,
-          cap - estimateText(' branch $branch'),
-        ).replaceFirst('vcs:', 'vcs: branch $branch'),
-        'vcs: branch ${_clip(v.branch, 18)} · ${_number(preview.count)} paths',
-      );
-    });
-    changes = _observe(snapshot.changes, SensoriumAllocations.changes, (
-      values,
-      cap,
-    ) {
-      final full = _Preview(12);
-      final folded = _Preview(12);
-      for (final change in values) {
-        final path = _clip(change.path, 45);
-        full.add('$path +${_number(change.added)} -${_number(change.removed)}');
-        folded.add(path);
-      }
-      return (
-        _rows('changes_since_last_turn', full, cap),
-        _rows('changes_since_last_turn', folded, cap),
-      );
-    });
+    vcs = _observe(snapshot.vcs, SensoriumAllocations.vcs, _vcsSection);
+    changes = _observe(
+      snapshot.changes,
+      SensoriumAllocations.changes,
+      _changesSection,
+    );
     diagnostics = _observe(
       snapshot.diagnostics,
       SensoriumAllocations.diagnostics,
@@ -620,9 +863,7 @@ final class _Sections {
       'checkpoints',
       folds.contains(SensoriumFold.checkpoints),
     ),
-    snapshot.notices.isEmpty
-        ? 'notices: none'
-        : 'notices: ${[if (snapshot.notices.contains(SensoriumNotice.compactionRecovery)) 'compaction_recovery', if (snapshot.notices.contains(SensoriumNotice.legacyWindowIgnored)) 'legacy_window_ignored'].join(', ')}',
+    _noticesSection(snapshot.notices),
   ];
 }
 

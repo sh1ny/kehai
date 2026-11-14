@@ -148,10 +148,11 @@ final class SessionState {
   ///
   /// A `rewind` cuts the timeline after the last record whose turn is at most
   /// the target and rebuilds the non-`meta` subtrees by replaying what is
-  /// left from the origin. `meta` is untouched.
-  void commit(JournalRecord record) {
+  /// left from the origin. `meta` is untouched. [rewindBody] reuses that
+  /// projection when the writer has already computed it.
+  void commit(JournalRecord record, {SessionTree? rewindBody}) {
     if (record.op == Op.rewind) {
-      _rewind(record.value! as int);
+      _rewind(record.value! as int, projectedBody: rewindBody);
       return;
     }
     _target(record.path).apply(record);
@@ -201,10 +202,10 @@ final class SessionState {
     return _replay(_keepCount(turn));
   }
 
-  void _rewind(int target) {
+  void _rewind(int target, {SessionTree? projectedBody}) {
     final keep = _keepCount(target);
     _timeline.removeRange(keep, _timeline.length);
-    _body = _replay(keep);
+    _body = projectedBody ?? _replay(keep);
     _turn = target;
   }
 

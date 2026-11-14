@@ -40,6 +40,15 @@ final class SessionTree {
     return value == null ? null : _copy(value.$1);
   }
 
+  /// Returns the direct child keys at [path] without copying their values.
+  ///
+  /// The returned read-only view must be consumed before mutating this tree.
+  /// An absent or non-map node has no child keys.
+  Iterable<String> childKeys(SessionPath path) {
+    final value = _lookup(path)?.$1;
+    return value is Map<String, Object?> ? value.keys : const [];
+  }
+
   /// Whether a node exists at [path]. The empty path always exists.
   bool contains(SessionPath path) => _lookup(path) != null;
 
