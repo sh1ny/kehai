@@ -38,7 +38,7 @@ Constraints: Dart 3.x AOT, no Rust core, no embedded script runtime, no durable 
 
 ### D2: Content-addressed baselines owned by the VCS, not by Kehai
 
-- **Choice:** jj: the first command snapshots the working copy (ordinary jj behaviour); the baseline is `@`'s commit id. Diff is `jj diff --from <prev> --to <cur>` with a per-file stat template (`DiffStatEntry.lines_added/lines_removed/status_char`, verified against pinned 0.46.0 in a disposable repo during apply). Git: each collection copies the user's current index into a fresh private file in an engine-run temp directory (the copy keeps git's stat cache, so `add` stays fast, and tracked-file membership always follows the user's repository), then runs `git add --sparse -A` and `git write-tree` with `GIT_INDEX_FILE` pointing at that copy, giving a tree id covering tracked and non-ignored untracked files, including files outside a sparse-checkout cone without changing the user's sparse rules; diff is `git diff --numstat -z <prevTree> <curTree>`. Unreferenced objects stay in the user's object store until git's normal prune. The user's index, refs, HEAD and files are never written. **Filter policy:** Kehai invokes no fetch/push/pull/clone/checkout/switch/restore/smudge (enforced by a fixed command plan and an argv allowlist test); clean filters and fsmonitor configured by the repository run exactly as they would for the user's own `git status`, and only under the collection deadline, which kills their process tree. A repository whose filters are unsafe to run unattended is excluded with `vcs.backend: none`. Kehai does not emulate or disable filters, because that would make the captured tree disagree with the repository's own content semantics.
+- **Choice:** jj: the first command snapshots the working copy (ordinary jj behaviour); the baseline is `@`'s commit id. Diff is `jj diff --from <prev> --to <cur>` with a per-file stat template (`DiffStatEntry.lines_added/lines_removed/status_char`, verified against pinned 0.46.0 in a disposable repo during apply). Git: each collection copies the user's current index into a fresh private file in an engine-run temp directory (the copy keeps git's stat cache, so `add` stays fast, and tracked-file membership always follows the user's repository), then runs `git add --sparse -A` and `git write-tree` with `GIT_INDEX_FILE` pointing at that copy, giving a tree id covering tracked and non-ignored untracked files, including files outside a sparse-checkout cone without changing the user's sparse rules; diff is `git diff --numstat -z <prevTree> <curTree>`. Unreferenced objects stay in the user's object store until git's normal prune. The fixed command plan does not write the user's index, refs, HEAD or files. **Execution trust (D12):** no native Git/jj command runs without explicit invocation trust. Once trusted, clean filters and fsmonitor retain native collection-command semantics; Kehai does not emulate or disable them. Such configured programs execute as the user and are not sandboxed. The deadline bounds work but cannot prevent arbitrary filesystem, network or credential-access effects. D12 supersedes the former opt-out filter policy.
 - **Minimum Git version:** `--sparse` requires Git 2.34 or later. An older Git rejects the option, so its collections read `unavailable (failed)` or `stale (failed)` with `vcs_failed`, like any other command failure. Kehai does not fall back to plain `add -A` or classify from stderr. The README states this minimum. The user explicitly accepted this minimum during PR feedback round 2.
 - **Rejected:** a Kehai-owned per-file hash map plus stored previous contents (in the result store) to compute line deltas, because it needs our own ignore-rule engine, stores copies of user files in session payloads with unbounded growth, and duplicates what both VCSs already do content-addressed. Also rejected: `git stash create` (uses the real index and excludes untracked files).
 - **Reversal cost:** medium — the baseline id format is persisted in step metadata; old sessions would lose only their last baseline (`baseline lost`, D6), never data.
@@ -115,15 +115,38 @@ D11 extends the call/live/orphan/foreign footprint below with the actual atomic 
 - **Reversal cost:** medium — additive persisted call/meta field and the internal mutation capability signature; no migration or filename-guessing compatibility layer.
 
 
+### D12: Explicit invocation trust before repository commands
+
+- **Choice and scope:** automatic native VCS observation defaults off. `kehai --trust-vcs` and `kehai rpc --trust-vcs` explicitly authorize collection commands and their repository-configured programs for the current invocation. The grant covers managed descendants only in the same canonical workspace. Omission denies trust, including `--resume` and `--session`; there is no persistent grant, repository/user-config key, environment opt-in, role setting, journal field, replay authority or runtime RPC command that can enable it. `--yolo` remains only permission-prompt policy and does not grant VCS trust. The user authorized this security-policy amendment and PR feedback round 3 after the native fsmonitor/clean-filter finding.
+- **Authority and API:** `RpcRunner`/`runRpc` receive `bool trustVcs = false`; client parsing forwards `--trust-vcs`, including as the first option recognized by `_startsClient`. After config validation and before asynchronous provider discovery, the root engine creates `VcsTrust.grant(root: workspace, backend: selectedSetting)` only for that explicit flag. `ToolRuntime.attach(vcsTrust: …)`, `ToolContext.vcsTrust` and `VcsCollector(trust: …)` share the capability; omission uses the untrusted singleton. The capability owns an immutable binding and a monotonic revocation bit, never a mutable grant or persisted authority. Its implementation belongs to the native collector module, in `vcs_trust.dart`.
+- **Binding and child handoff:** bind the canonical workspace, repository root, selected backend and marker kind at root-engine startup, including a no-repository selection. Each engine permanently revokes its own grant when it observes a different root/backend/marker selection; restoring markers does not regrant it. Managed children retain the parent's original binding, not a fresh one. `AgentTool` forwards `--trust-vcs` plus hidden child-only `--vcs-trust-binding` only when `context.vcsTrust.childBinding(…)` still permits the same canonical workspace. The child validates and checks that original binding independently. Binding data alone grants nothing; a missing explicit flag, malformed/oversized payload or foreign workspace never becomes a fallback grant.
+- **Binding codec:** the child payload is a versioned, closed JSON object containing only canonical workspace/repository paths, selected backend and marker kind/no-repository state. Validate types, absolute canonical path spelling, enumerated values and a 16384-code-unit limit before decoding/using it. A malformed payload fails child startup with a bounded sanitized message before provider discovery or native collection. A valid but changed selection produces a revoked capability and typed inactivity, not re-binding. Direct user-started `rpc --child --trust-vcs` without an inherited payload is a new explicit invocation. The existing total native command-line ceiling still applies.
+- **Codec authority failures:** `--vcs-trust-binding` without `--child`, or with `--child` but without `--trust-vcs`, is a usage error. A well-formed payload whose canonical workspace differs from the child's canonical workspace fails child startup like a malformed payload, before provider discovery or native collection. It is not silently ignored or rebound.
+- **Gate and precedence:** marker-only selection runs before the collection lock, deadline timer and capture-sequence reservation. Precedence remains `disabled`, `no repository`, `trust required`, then executable resolution; observing a lost selection still revokes a bound grant before a no-repository result. Both forced and automatic backends share this gate. Authorized collections recheck after lock acquisition; every native VCS start also checks monotonic revocation, so another preview cannot revoke the grant while a queued plan keeps spawning commands. Inactive collection creates no process, private-index lease, pre-hash work or baseline.
+- **Selection origin:** resolve every selection check from the canonical workspace, not the cached startup repository root, so a newly created repository between them is observed.
+- **Mid-plan revocation:** when a per-start revocation check refuses a start after an authorized plan already started a process, return typed `trust required` with inactive carry semantics. Admit no new baseline and raise no `vcs_timeout`, `vcs_failed`, `user_edits` or `baseline_reset` from that refusal; carry the prior baseline, boundary and bounded value. Already-started processes and the private index follow existing completion, deadline and cleanup rules. A plan whose starts all succeeded before revocation keeps its result.
+- **Typed inactive state:** add `SensoriumReason.trustRequired`, rendered and persisted as `trust required`. Both sections remain unavailable even with an earlier value. Carry the prior effective baseline and original observed boundary without advancing attribution; retain bounded facts but never display them as current or stale while inactive. Inactivity alone adds none of `vcs_timeout`, `vcs_failed`, `user_edits` or `baseline_reset`. Later trusted collection compares against the carried baseline.
+- **Carried metadata bound:** fresh admissions fit within 4 KiB while reserving the largest carried envelope: unavailable/stale state, longest typed reason label and optional loss marker. Newly fitted values carry unchanged. A valid legacy value that fills the old limit may have only its preview refitted with explicit omissions; preserve count values/precision, baseline, observed boundary and typed reason, never drop the whole value or reason, and never mutate earlier admissions. This is the user's approved resolution of R27 M1; the 4 KiB cap does not grow.
+- **Preview precision:** fitting or refitting a preview never introduces `partial`; retain the source's count values and exact/lower-bound precision. Before removing legacy entries, fill absent/null `totalPaths`, `conflictCount` and changes `totalPaths` from their pre-refit list lengths so omissions remain counted. Copy only the mutable preview projection needed for refitting; earlier admitted maps/lists remain untouched.
+- **Deferred lookup loss:** withheld trust takes precedence over `baseline lost` in both sections and emits no `baseline_reset`. With no effective baseline, a lost lookup persists `baselineLost: true` through later trust-required admissions. The next trusted collection uses existing loss handling: changes unavailable with `baseline lost` and `baseline_reset`; a successful capture installs the new baseline. A disabled or no-repository admission instead reads the marker as lookup loss under its existing semantics, reports/consumes it, and does not defer a second reset to the later trusted collection. Keep D6's actual-failure labels and subsequent-failure behavior; never rediscover loss from a reason string.
+- **Trusted behavior and residual risk:** preserve private indexes, sparse capture, native content semantics, hook suppression, allowlisting and bounded cleanup. Any program that Git/jj configuration causes the fixed plan to start may execute as the user, including clean/process filters and fsmonitor backends. Within the binding, trust includes later configuration, attributes and Git-gitfile changes by users, interval processes or permitted agent edits; permitting those edits can enable code execution at the next collection. Binding checks are not configuration/filesystem integrity or a sandbox. Revocation prevents future starts, not already-triggered effects; already-owned processes retain normal deadline/cleanup handling.
+- **Rejected:** repository/user-config, environment, role, journal or yolo grants can self-authorize or outlive the invocation choice. A bare inherited flag would bind a child to a newly selected repository. Selective executable-config stripping changes native semantics without a complete boundary. A persistent trust store adds ownership/invalidation/migration policy. The user selected startup-selection binding rather than workspace-wide dynamic trust, and counted legacy-preview refitting rather than raising the metadata cap.
+- **Verification:** native default/forced Git/jj/colocated cases prove zero starts; startup-no-repository, changed root/backend/marker, restored markers, inherited original binding and concurrent revocation remain denied. A real configured-program fixture checks markers outside the repository from hello/snapshot through read-only status, submit and resume, with a trusted positive control. Public RPC proves trusted capture → untrusted gap with external edit → trusted resume preserves the original comparison turn and reports the edit by user. Line-client and real managed-child observations, direct yolo-child denial, fresh/legacy limit-sized carry and deferred lookup loss are mapped. Existing trusted success/deadline/cleanup/filter fixtures explicitly grant the capability without weakening assertions.
+- **ADR and compatibility:** after FULL approval, record ADR 0019 *VCS repository trust*, superseding only ADR 0017's unattended default/opt-out configured-program policy. Accepted ADRs 0017 and 0018 remain immutable. Update the architecture index and README. This changes the default execution policy and adds a CLI/native capability, but no tool schema, instruction bytes/identity, RPC-v1 wire shape, journal-operation format, package version, section cap, fold order or notice code.
+- **Reversal cost:** low for the in-memory grant and CLI plumbing; medium for the security contract. Restoring unattended default execution requires a new explicit policy decision, not a config fallback.
+
 ## Diagrams (FULL)
 
 Components (T1):
 
 ```mermaid
 flowchart LR
+  CLI[explicit invocation argv] -->|trustVcs, default false| RT[ToolRuntime bound capability: startup selection and monotonic revocation]
+  RT -->|grant for native collector| D
+  RT -->|grant only in same workspace child argv| CHILD[child engine]
   D[driver _step] -->|build turn,offset| RB[RequestBuilder]
   RB -->|frozen tree copy| PV[provenance reader: calls/jobs since baseline]
-  RB -->|collect root,backend,deadline,previous| OB[WorkspaceObserver / vcs_collector]
+  RB -->|collect root,backend,deadline,previous| OB[WorkspaceObserver / native VcsCollector trust gate]
   OB -->|spawn, kill tree at deadline| JJ[(jj)]
   OB -->|spawn with GIT_INDEX_FILE copy| GIT[(git)]
   OB -->|bounded SHA-256 of changed files| FS[(workspace files)]
@@ -132,7 +155,7 @@ flowchart LR
   ED[edit/write tools] -->|target + temporary before, effect sha256 + seq after| W
 ```
 
-Request sequence with deadline (T3):
+Request sequence with deadline (T3), after explicit trust. The inactive path returns typed `trust required` before any VCS process:
 
 ```mermaid
 sequenceDiagram
@@ -172,12 +195,27 @@ Observation availability (T2):
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Unavailable: no repo / disabled / not found / first timeout
-  Unavailable --> Available: collection succeeds
-  Available --> Available: collection succeeds
-  Available --> Stale: timeout or failure, earlier observation exists
-  Stale --> Available: collection succeeds
-  Stale --> Stale: further timeouts (age grows)
+  [*] --> Unavailable: no repo / disabled / trust required / initial failure
+  Unavailable --> Available: trusted collection succeeds
+  Available --> Available: trusted collection succeeds
+  Available --> Stale: trusted timeout/failure with prior value
+  Stale --> Available: trusted collection succeeds
+  Stale --> Stale: further trusted failures
+  Available --> Unavailable: disabled / trust required; retain provenance
+  Stale --> Unavailable: disabled / trust required; retain provenance
+  Unavailable --> Stale: trusted failure with a carried value
+```
+
+Invocation grant lifetime (T2), independently checked in each engine:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Denied: no explicit flag
+  [*] --> Bound: explicit grant captures startup selection
+  Bound --> Revoked: observed selection mismatch
+  Bound --> Bound: selection matches
+  Denied --> Denied
+  Revoked --> Revoked
 ```
 
 Persisted shapes (T4):
@@ -185,7 +223,7 @@ Persisted shapes (T4):
 ```mermaid
 flowchart TB
   S["body/steps/s-N.sensorium"] --> T[text, tokens, mode, folds, source]
-  S --> V["vcs: {state, reason?, observed:{time,turn}, value, baseline?:{backend,id,seq,jobsLive}}"]
+  S --> V["vcs: {state, reason?, observed:{time,turn}, value, baseline?:{backend,id,seq,jobsLive}, baselineLost?}"]
   K["body/calls/c-…"] --> TG["target + temporary: resolved paths; targetAfterSeq: durable watermark (before mutation)"]
   K --> E["effect: {sha256, seq}  (edit/write, success only)"]
 ```
@@ -206,20 +244,22 @@ flowchart TB
 | `baseline.seq` | Collection (engine counter), stored with the admitted baseline | As step metadata | Never edited | Journal |
 | Git temp index copy | Observer (engine run) | One engine run; deleted at shutdown, best effort | Disposable; recreated from the user's index on next run | None (cache) |
 | jj snapshot commits / git tree objects | jj / git | Until jj op GC / git prune | Missing id → `baseline lost` + new baseline | The repository |
-| User index, refs, working copy | User | External | Never written by Kehai observation | The repository |
+| User index, refs, working copy | User; explicitly trusted configured programs may also have arbitrary effects (D12) | External | Never written by Kehai's fixed collection command plan; configured programs are not sandboxed | The repository |
 | Startup `vcs.backend`, `sensorium.collectorDeadlineMs` | Config loader | Engine run | Restart | `config.json` |
+| `VcsTrust` binding and revocation | Startup creates the capability; only its selection-check methods revoke it | One engine; children receive original binding and check independently | No regrant after observed mismatch; no reconstruction from history/config | Explicit startup authority plus bound selection, never the journal |
 
 ## Failure & Visibility (FULL)
 
 | Component | Fails / dies mid-operation → | Recovery | Retry safe? | Who finds out |
 |---|---|---|---|---|
+| Repository trust withheld | Both sections `unavailable (trust required)`; no VCS process or new baseline | Explicit `--trust-vcs` on a later invocation, only for safe repository programs | No automatic grant or trust prompt | Model/user via block and admitted typed reason |
 | VCS executable missing | `unavailable (jj not found)` / `(git not found)` | Install tool or set `vcs.backend` | Yes, each request | Model and user (block, `/sense` later, step metadata) |
 | Command times out | Process trees killed; `stale`/`unavailable (timeout)`, no baseline | Next request retries; raise deadline | Yes, read-only plus idempotent snapshot | Model (`vcs_timeout`), user via observation |
 | Command fails / output unparseable | `stale`/`unavailable (failed)` with bounded reason | Next request retries | Yes | Model (`vcs_failed`), user |
 | Killed mid `git add` with private index | That copy may be locked or partly written, and its writer may survive | Copy quarantined, never reused; next collection makes a fresh copy | Yes, each collection is isolated | Nobody needs to; quarantine cap exhaustion is visible as `unavailable (cleanup pending)` |
 | Tree termination uncertain or stalled | Possible surviving `git`/`jj` descendants | Request continues at deadline; quarantine held until confirmed or engine exit | n/a | Engine log; model only if the quarantine cap is reached |
 | Edit/write interrupted after rename | File changed without a recorded effect | Path reads `unknown` | n/a | Model sees `unknown` |
-| Repository clean filter hangs or fails | Killed at deadline / non-zero exit | `stale`/`unavailable`, `vcs_timeout`/`vcs_failed`; user may set `vcs.backend: none` | Yes | Model and user |
+| Trusted configured program hangs or fails | Killed at deadline / non-zero exit | `stale`/`unavailable`, `vcs_timeout`/`vcs_failed`; omit `--trust-vcs` on the next invocation or set backend `none` | Only after explicit trust | Model and user |
 | Attribution read stalls | Pre-hash wait stops after one third of remaining budget; post-hash wait stops at overall deadline; late results ignored | Preserve a completed capture/baseline; affected rows `by: unknown` | Yes | Model sees `unknown`; `vcs_timeout` only on overall deadline expiry |
 | Killed mid jj snapshot | jj's own op transaction aborts or commits atomically | jj | Yes | jj op log only |
 | Baseline id not resolvable | `unavailable (baseline lost)`, `baseline_reset` | New baseline recorded | Yes | Model and user |
@@ -238,9 +278,10 @@ flowchart TB
 | Stderr retained | 2 KiB, reason ≤200 chars in block/metadata | Truncate with `…` | — | Unchanged |
 | Files hashed for attribution | Only interval-effect paths: 64 paths, 4 MiB each, at most two reads per path | Unverified rows `by: unknown` | Pre-hash wait ≤ one third of remaining post-lock budget; post-hash wait uses overall deadline | Unknown rows grow; counts explicit |
 | Rendered rows | VCS 12 paths, changes 12 rows, section caps 250/200, folded 40/200 | `… +N more` | — | Unchanged |
-| Step metadata `vcs.value` (fresh or carried) and baseline | ≤12 paths, ≤12 change rows, fields clipped, ≤4 KiB serialized | Clip with counted markers | — | Per-step growth constant, including carried copies; session growth as ADR 0016 (no GC) |
-| Backward scan for latest admitted step | 256 steps (failed collections carry the baseline forward, so only non-admitted steps are skipped) | `baseline lost` + `baseline_reset`, new capture | — | Unchanged |
+| Step metadata `vcs.value` (fresh or carried) and baseline | ≤12 paths, ≤12 change rows, fields clipped, ≤4 KiB serialized | Fresh values reserve carried-envelope headroom; legacy previews may refit with counted omissions, never dropping baseline/boundary/reason or count precision | — | Per-step growth constant, including carried copies; session growth as ADR 0016 (no GC) |
+| Backward scan for latest admitted step | 256 steps | Known loss is retained; withheld trust defers its notice through `baselineLost`, and the next trusted collection uses baseline-loss handling | — | Unchanged |
 | Collection lock wait | Deadline of the waiting collection | `stale`/`unavailable (timeout)` without starting a process | Deadline | Status previews queue behind builds, bounded by deadline |
+| VCS trust capability / child binding | One bound selection and revocation bit per engine; child JSON ≤16384 code units and existing native argv ceiling | Reject malformed/oversized child startup, never truncate or rebind | Engine lifetime | Constant state; no trust store, journal authority or new RPC command |
 | Cleanup slots (timed-out collections, jj or git, incl. termination subprocesses) | 16 per engine; held until processes are confirmed gone, else until engine exit | No VCS process starts; `unavailable (cleanup pending)` | Deadline per collection | Stalled kills cannot accumulate past 16 collections' processes |
 | Git private index copies | One per collection, deleted after it; a timed-out collection's copy is quarantined with its cleanup slot | Bounded by cleanup slots | — | Proportional to index size × held slots |
 | Unfinished edit/write runs and open mutations | 16 per engine, detached runs included until they actually finish | New edit/write refused before mutating, error names the count; open targets never evicted | None (a stalled rename is not interruptible); the cap provides backpressure | Repeated cancellation cannot grow pending work or tracked targets past 16 |
@@ -276,6 +317,9 @@ flowchart TB
 
 | Mechanism | Built? | Why (harm nobody catches / expensive later) | Evidence that would change the call |
 |---|---|---|---|
+| Startup-bound invocation trust gate | Planned (D12) | Automatic VCS commands otherwise execute repository-configured programs without user authorization; a bare inherited flag can widen scope | A different explicitly approved execution policy |
+| Carried-envelope headroom / counted legacy refit | Planned (D12) | A full legacy value otherwise loses its typed reason or whole value on carry | A different reviewed metadata-size contract |
+| Deferred `baselineLost` marker | Planned (D12) | Inactive admission otherwise erases exhausted-lookup loss before a trusted comparison | A different reviewed loss-lifecycle contract |
 | Deadline + tree kill | Yes | A hung `git`/`jj` would block every request silently | — |
 | Private git temp index | Yes | Using the real index would alter the user's staging (data-loss class) | — |
 | Identity guard on `quiesced` | Yes | Without it a late finish resurrects a rewound call or closes a re-admitted one | — |
@@ -297,7 +341,7 @@ flowchart TB
 | Engine collection lock | Yes | Overlapping status/build collections corrupt the shared private index (status builds through the same builder, `driver.dart:337`) | — |
 | Baseline carry-forward on failed collection | Yes | Without it a long failure run silently hides user edits | — |
 | Pre/post capture hash + stamp check | Yes | Without it a rewrite during capture is labelled `agent` | — |
-| Filter emulation/disabling | No | Would make captures disagree with repository semantics | A real repository whose clean filter has external effects |
+| Filter emulation/disabling | No | Trusted captures preserve native content semantics; untrusted captures start no VCS process | A different reviewed execution/content policy |
 | Background continuation / collector cache refresh | No | Visible stale + configurable deadline suffices | Dogfood shows default deadline routinely missed on Windows for typical repos |
 | File watcher hints | No | ADR 0007: hints only; VCS snapshot already cheap | Measured collection cost dominating request latency |
 | Notices queue | No | No deferred producer exists | Entry 5 LSP settle windows |
@@ -312,7 +356,7 @@ flowchart TB
 - [jj snapshot side effect adds op-log entries each request] → ordinary jj behaviour; documented; checkpoints (entry 6) rely on these op ids anyway.
 - [`by: unknown` frequent while background jobs run] → honest by design; the model still sees the path and line counts.
 - [Large untracked files hashed by `git add -A`] → bounded by deadline; jj's own max-new-file-size applies on jj; partial coverage marked.
-- [Repository clean filters (e.g. LFS) run during `git add -A`, as for the user's own `git status`] → bounded by deadline; failures surface as `vcs_failed`; `vcs.backend: none` opts out; Kehai itself never invokes remote-touching or smudge commands.
+- [Repository-configured programs can execute arbitrary code as the user] → no automatic Git/jj commands without explicit per-invocation `--trust-vcs`; no config, replay or yolo authorization. Once trusted, configured helpers retain native semantics and may access credentials, modify files or use the network. Deadlines and command allowlisting are not a sandbox; this residual risk is disclosed.
 - [Agent-written files are read twice per request] → bounded to interval effect paths and the deadline; rows degrade to `unknown`, never block.
 
 ## ADRs
@@ -320,6 +364,7 @@ flowchart TB
 - **In force, constraining this change:** 0001 (one tree), 0002 (central results), 0003 (unified jobs), 0007 (perception, `.jj` first, hash authority, provenance meaning of `by: user`), 0010 (call/job tree layout), 0014 (no new package until needed — collector stays in-package), 0015 (native compaction and its compatibility guard unchanged; D10 intentionally changes instruction identity), 0016 (bounded sensorium, caps, notices, admitted observation).
 - **To record during apply:** ADR 0017 *VCS observation baselines and provenance attribution* — content-addressed baselines in admitted step metadata, private git temp index (no user index/ref writes), `target` (pre-mutation, resolved), `effect: {sha256, seq}` and identity-guarded `quiesced` call fields, resolved-target serialization through effect commit, open-mutation semantics, rewind-exempt, session-owned orphaned-mutation records with capture sequence numbers, the attribution floor and foreign copies at fork, and the unfinished-mutation cap, the step-output attribution interval, pre/post-capture verification, attribution rules (`agent`/`user`/`unknown`, stamps only downgrade), baseline carry-forward, the serialized collection deadline contract, backend-independent cleanup slots and the filter policy. Update `openspec/architecture.md`'s ADR index and the perception paragraph that says VCS producers are later work.
 - **To record after amendment review:** ADR 0018 *Atomic temporary-path provenance* — supersede only ADR 0017's single-path mutation footprint and its literal `git add -A` capture command (now `git add --sparse -A`, Git ≥ 2.34), preserving all other ADR 0017 contracts. Update the ADR index in `openspec/architecture.md`.
+- **To record after trust amendment review:** ADR 0019 *VCS repository trust* — supersede only ADR 0017's unattended default/opt-out configured-program policy. Record startup-selection binding/revocation, original-binding child handoff and codec authority checks, typed inactive/mid-plan outcomes, carried-envelope headroom with counted legacy refit and deferred `baselineLost` semantics. Keep accepted ADRs immutable and add the architecture index entry.
 
 ## Open Questions
 

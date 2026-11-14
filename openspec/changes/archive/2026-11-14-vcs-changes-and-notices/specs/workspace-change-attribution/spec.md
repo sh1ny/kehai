@@ -4,10 +4,14 @@
 
 Tells the model which files changed since its previous request, by how many lines, and whether the change is provably its own, provably outside its tools, or unknown, so it re-reads files the user touched instead of clobbering them.
 
+## Scenario conventions
+
+Capture, comparison and attribution scenarios assume explicit invocation trust matching the engine's startup selection, unless the scenario explicitly withholds trust. Withheld-trust precedence and bounded carry-forward follow `vcs-observation`.
+
 ## ADDED Requirements
 
 ### Requirement: Content-addressed baseline per admitted request
-Each admitted request SHALL record with its observation the effective change baseline: a content-addressed working-copy id (jj commit id or git tree id), backend, capture turn and time, and whether a job was live. A failed collection SHALL carry the previous effective baseline forward unchanged. Recording SHALL NOT change the user's index, refs or working tree.
+Each admitted request SHALL record its effective baseline when one exists: content-addressed working-copy id, backend, capture turn/time and jobs-live flag. Successful capture requires an enabled backend and explicit invocation trust. Failed or inactive collection SHALL carry the prior baseline unchanged, never invent one or advance its provenance boundary. The fixed recording command plan SHALL NOT write the user's index, refs or working tree.
 
 #### Scenario: Baseline recorded on admission
 - **WHEN** a request at turn 13 is admitted in a git repository and collection succeeds
@@ -21,6 +25,10 @@ Each admitted request SHALL record with its observation the effective change bas
 - **WHEN** 300 consecutive admitted requests fail collection after a baseline was captured
 - **THEN** the next successful request still diffs against that carried baseline rather than reporting `no baseline`
 
+#### Scenario: Trust withheld after prior admission
+- **WHEN** an earlier trusted request captured a baseline and the current invocation withholds repository trust
+- **THEN** both sections read `unavailable (trust required)`, admission retains that baseline and its original capture boundary unchanged, and the next successful trusted capture compares against it
+
 ### Requirement: Changes since the last baseline
 `changes_since_last_turn` SHALL list each file whose content differs between the effective baseline and the newly captured one, with added/removed line counts (`binary` for binary files), up to 12 rows plus an explicit `… +N more`, and the baseline's capture turn. Unchanged files SHALL NOT appear.
 
@@ -33,7 +41,7 @@ Each admitted request SHALL record with its observation the effective change bas
 - **THEN** the section reads `none`
 
 #### Scenario: First request of a session
-- **WHEN** no admitted step carries a baseline
+- **WHEN** no admitted step carries a baseline and a trusted collection succeeds
 - **THEN** the section reads `unavailable (no baseline)` and this request's capture becomes the baseline
 
 #### Scenario: Baseline lost
