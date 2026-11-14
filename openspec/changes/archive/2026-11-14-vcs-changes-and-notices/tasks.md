@@ -27,6 +27,7 @@
 | vcs-observation → Failures are named, never clean | Command fails | `test/loop/attribution_test.dart` (new) | stderr cannot invalidate the carried comparison baseline | green |
 | vcs-observation → Failures are named, never clean | Output exceeds the read bound | `test/workspace/vcs_collector_test.dart` (new) | oversized output marks partial, never clean | green |
 | vcs-observation → Failures are named, never clean | Output exceeds the read bound | `test/workspace/vcs_collector_test.dart` (new) | git and jj truncated comparison remains partial after collection | green |
+| vcs-observation → Failures are named, never clean | Output exceeds the read bound repeatedly on a native process | `test/workspace/vcs_real_test.dart` | completed truncated native collections do not exhaust cleanup slots | green |
 | vcs-observation → Failures are named, never clean | Status-only truncation | `test/loop/attribution_test.dart` (new) | status-only truncation does not make a complete comparison partial | green |
 | vcs-observation → Observation does not alter the user's repository state | Git index untouched | `test/workspace/vcs_real_test.dart` (new) | git collection leaves .git/index bytes and refs unchanged | green |
 | vcs-observation → Observation does not alter the user's repository state | Concurrent user git command | `test/workspace/vcs_real_test.dart` (new) | collection takes no index.lock and user git add succeeds | green |

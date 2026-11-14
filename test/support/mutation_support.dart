@@ -77,7 +77,7 @@ final class MutationHarness {
     Tool? writeTool,
     Tool? editTool,
   }) async {
-    final root = await tempDir();
+    final root = Directory((await tempDir()).resolveSymbolicLinksSync());
     Directory(p.join(root.path, '.git')).createSync();
     final writer = await createWriter(root);
     final runtime = await ToolRuntime.attach(

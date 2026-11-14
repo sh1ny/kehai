@@ -26,6 +26,81 @@ const _collectionDeadline = Duration(seconds: 5);
 
 void main() {
   group('real process VCS collection', () {
+    test('completed truncated native collections do not exhaust cleanup slots', () async {
+      final workspace = _RealWorkspace.create();
+      final collector = VcsCollector();
+      _registerCleanup(workspace, collector);
+      await workspace.initGit();
+      final empty = await _gitText(workspace.directory, [
+        'hash-object',
+        '-w',
+        '--stdin',
+      ]);
+      final index = await Process.start('git', [
+        'update-index',
+        '--index-info',
+      ], workingDirectory: workspace.directory.path);
+      final drained = index.stdout.drain<void>();
+      final errors = index.stderr.transform(utf8.decoder).join();
+      final suffix = ''.padRight(140, 'x');
+      for (var i = 0; i < 20000; i++) {
+        index.stdin.writeln(
+          '100644 $empty\tmissing/${i.toString().padLeft(5, '0')}-$suffix.txt',
+        );
+      }
+      await index.stdin.close();
+      expect(await index.exitCode, 0, reason: await errors);
+      await drained;
+      await _gitOk(workspace.directory, [
+        'commit',
+        '--quiet',
+        '-m',
+        'tracked paths absent from the working tree',
+        '-m',
+        _coAuthor,
+      ]);
+      final status = await Process.run(
+        'git',
+        ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'],
+        workingDirectory: workspace.directory.path,
+        stdoutEncoding: null,
+      );
+      expect(status.exitCode, 0, reason: '${status.stderr}');
+      expect((status.stdout as List<int>).length, greaterThan(4 * 1024 * 1024));
+      for (var turn = 0; turn < 17; turn++) {
+        final result = await collector.collect(
+          root: workspace.directory.path,
+          backend: 'git',
+          deadline: const Duration(seconds: 10),
+          turn: turn,
+        );
+        final observation = result.observation;
+        expect(
+          observation,
+          isA<SensoriumAvailable<SensoriumVcs>>(),
+          reason: 'capture $turn: ${result.reason}',
+        );
+        final value = (observation as SensoriumAvailable<SensoriumVcs>).value;
+        expect(value.partial, isTrue);
+        expect(value.deleted, greaterThan(0));
+      }
+      await _gitOk(workspace.directory, ['read-tree', '--empty']);
+      await _gitOk(workspace.directory, [
+        'commit',
+        '--quiet',
+        '-m',
+        'complete the deletions',
+        '-m',
+        _coAuthor,
+      ]);
+      final recovered = await collector.collect(
+        root: workspace.directory.path,
+        backend: 'git',
+        deadline: const Duration(seconds: 10),
+      );
+      expect(_available(recovered).partial, isFalse);
+    });
+
     test('private-index capture includes sparse-checkout paths', () async {
       final workspace = _RealWorkspace.create();
       final collector = VcsCollector();
@@ -823,7 +898,10 @@ final class _RealWorkspace {
   factory _RealWorkspace.create() {
     final temporary = Directory.systemTemp.createTempSync('kehai_vcs_real_');
     final directory = Directory(p.join(temporary.path, 'repo'))..createSync();
-    return _RealWorkspace._(temporary, directory);
+    return _RealWorkspace._(
+      temporary,
+      Directory(directory.resolveSymbolicLinksSync()),
+    );
   }
 
   final Directory temporary;

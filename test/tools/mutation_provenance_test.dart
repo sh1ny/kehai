@@ -53,7 +53,7 @@ void main() {
   });
 
   test('temporary attribution freezes while the intent is flushing', () async {
-    final workspace = await tempDir();
+    final workspace = Directory((await tempDir()).resolveSymbolicLinksSync());
     Directory(p.join(workspace.path, '.git')).createSync();
     File(p.join(workspace.path, 'tracked.txt')).writeAsStringSync('before\n');
     final user = File(p.join(workspace.path, 'user.txt'))

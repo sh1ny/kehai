@@ -796,11 +796,9 @@ final class _VcsCollectorEngine {
       try {
         final result = _boundProcessResult(await process.result);
         if (run.isStopped) throw const _CollectionStopped();
-        if (process is _NativeVcsProcess && result._stdoutTruncated) {
-          run.retainForCleanup(tracked);
-        } else {
-          run.removeCommand(tracked);
-        }
+        // Both output streams and the exit code have settled. A truncated
+        // prefix is partial data, not a still-running cleanup obligation.
+        run.removeCommand(tracked);
         return result;
       } on _CollectionStopped {
         rethrow;
@@ -988,7 +986,6 @@ final class _CollectionRun {
   final Completer<VcsCollection> returned = Completer<VcsCollection>();
   final _CommandLimiter _commandLimiter = _CommandLimiter();
   final Set<_TrackedCommand> _commands = {};
-  final Set<_TrackedCommand> _cleanupCommands = {};
   final Set<Future<void>> _io = {};
   _LockLease? _lock;
   _CleanupLease? lease;
@@ -1055,12 +1052,6 @@ final class _CollectionRun {
 
   void removeCommand(_TrackedCommand command) => _commands.remove(command);
 
-  void retainForCleanup(_TrackedCommand command) {
-    _commands.remove(command);
-    _cleanupCommands.add(command);
-    unawaited(command.terminate());
-  }
-
   Future<T> trackIo<T>(Future<T> operation) {
     final settled = operation.then<void>(
       (_) {},
@@ -1077,14 +1068,7 @@ final class _CollectionRun {
     releaseLock();
     final currentLease = lease;
     if (currentLease != null) {
-      if (_cleanupCommands.isEmpty) {
-        engine._releaseLease(currentLease);
-      } else {
-        currentLease.quarantine(
-          List<_TrackedCommand>.of(_cleanupCommands),
-          List<Future<void>>.of(_io),
-        );
-      }
+      engine._releaseLease(currentLease);
     }
     engine._forgetRun(this);
   }
@@ -1106,16 +1090,13 @@ final class _CollectionRun {
     engine._forgetRun(this);
     final currentLease = lease;
     if (currentLease != null) {
-      if (deadlineExpired &&
-          captured != null &&
-          _commands.isEmpty &&
-          _cleanupCommands.isEmpty) {
+      if (deadlineExpired && captured != null && _commands.isEmpty) {
         engine._releaseLease(currentLease);
       } else {
-        currentLease.quarantine([
-          ..._commands,
-          ..._cleanupCommands,
-        ], List<Future<void>>.of(_io));
+        currentLease.quarantine(
+          List<_TrackedCommand>.of(_commands),
+          List<Future<void>>.of(_io),
+        );
       }
     }
     if (!returned.isCompleted) returned.complete(result);

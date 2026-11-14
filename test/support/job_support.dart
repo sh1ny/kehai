@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:kehai/kehai.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:win32/win32.dart';
 
 import 'session_support.dart';
 
@@ -232,6 +233,9 @@ final class Pause {
 /// Engine processes known to have exited.
 final Expando<bool> _exited = Expando('exited');
 
+ProcessResult _killWindowsTree(Process process) =>
+    Process.runSync('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+
 /// A run of `test/fixtures/run_job_then_wait.dart`: an engine in its own
 /// process that the test kills.
 final class EngineRun {
@@ -241,14 +245,17 @@ final class EngineRun {
     this.jobPid,
     this.jobId,
     this.dir, {
+    required this._ownerHandle,
     required this.longJob,
   });
 
-  /// The `dart run` process.
+  /// The `dart run` wrapper process.
   final Process process;
 
-  /// The pid of the fixture itself (a child of [process]).
+  /// The pid reported by the fixture itself.
   final int pid;
+
+  final HANDLE? _ownerHandle;
 
   /// The pid of the job's process, or 0.
   final int jobPid;
@@ -271,21 +278,36 @@ final class EngineRun {
   Future<void> kill() async {
     if (_killed) return;
     _killed = true;
-    // Once the engine is gone its pids, and the job's, may be reused.
-    if (_exited[process] ?? false) return;
     if (Platform.isWindows) {
-      // The tree of the `dart run` process holds the fixture and the job.
-      Process.runSync('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+      final handle = _ownerHandle!;
+      try {
+        final result = (_exited[process] ?? false)
+            ? null
+            : _killWindowsTree(process);
+        // taskkill can report failure after a descendant has already exited.
+        // The retained owner handle, not taskkill's status, proves its exit.
+        final wait = WaitForSingleObject(handle, 10000);
+        expect(
+          wait.value,
+          WAIT_OBJECT_0,
+          reason:
+              'fixture $pid did not exit (Win32 ${wait.error}); '
+              'taskkill: ${result?.stdout}${result?.stderr}',
+        );
+      } finally {
+        CloseHandle(handle);
+      }
     } else {
       // Stop the writer first: killing the job while its engine is alive can
       // commit a settled intent before the supposed crash.
-      if (pid != 0) Process.killPid(pid, ProcessSignal.sigkill);
+      if (_exited[process] ?? false) return;
+      Process.killPid(pid, ProcessSignal.sigkill);
       process.kill(ProcessSignal.sigkill);
       if (longJob && jobPid != 0) {
         Process.runSync('kill', ['-KILL', '--', '-$jobPid']);
       }
     }
-    await process.exitCode;
+    await process.exitCode.timeout(const Duration(seconds: 10));
   }
 }
 
@@ -313,10 +335,18 @@ Future<EngineRun> runEngine(String mode, {String point = 'none'}) async {
     } else if (_exited[process] ?? false) {
       return;
     } else if (Platform.isWindows) {
-      Process.runSync('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+      final result = _killWindowsTree(process);
+      await process.exitCode.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => fail(
+          'fixture launcher did not exit: ${result.stdout}${result.stderr}',
+        ),
+      );
+      return;
     } else {
       process.kill(ProcessSignal.sigkill);
     }
+    await process.exitCode.timeout(const Duration(seconds: 10));
   });
   final line = await lines
       .firstWhere((l) => l.startsWith('READY ') || l == 'ENDED')
@@ -326,13 +356,39 @@ Future<EngineRun> runEngine(String mode, {String point = 'none'}) async {
       );
   if (line == 'ENDED') fail('the engine fixture ended without parking ($mode)');
   final parts = line.split(' ');
+  final ownerPid = int.parse(parts[1]);
+  final dir = Directory(parts.skip(4).join(' '));
+  final owner = jsonDecode(
+    File(p.join(dir.path, ownerFileName)).readAsStringSync(),
+  ) as Map<String, Object?>;
+  expect(
+    owner['pid'],
+    ownerPid,
+    reason: 'READY must identify the session owner',
+  );
+  HANDLE? ownerHandle;
+  if (Platform.isWindows) {
+    final opened = OpenProcess(PROCESS_SYNCHRONIZE, false, ownerPid);
+    expect(
+      opened.value.isValid,
+      isTrue,
+      reason: 'OpenProcess: ${opened.error}',
+    );
+    ownerHandle = opened.value;
+    final wait = WaitForSingleObject(ownerHandle, 0);
+    if (wait.value != WAIT_TIMEOUT) {
+      CloseHandle(ownerHandle);
+      fail('fixture $ownerPid was not running at READY (Win32 ${wait.error})');
+    }
+  }
   return run = EngineRun._(
     process,
-    int.parse(parts[1]),
+    ownerPid,
     int.parse(parts[2]),
     parts[3],
-    Directory(parts.skip(4).join(' ')),
+    dir,
     longJob: mode != 'quick',
+    ownerHandle: ownerHandle,
   );
 }
 
