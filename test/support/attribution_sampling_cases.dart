@@ -281,7 +281,7 @@ Future<_SamplingFixture> _createFixture(
   Iterable<String> vcsOrder,
   _ControlledFileReader reader,
 ) async {
-  final harness = await MutationHarness.create();
+  final harness = await MutationHarness.create(skipFlush: true);
   final git = _ScenarioVcsRunner(vcsOrder);
   final clock = ManualVcsDeadlineScheduler();
   final collector = VcsCollector(

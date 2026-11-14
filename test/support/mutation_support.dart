@@ -70,16 +70,26 @@ final class MutationHarness {
   final SessionWriter writer;
   final ToolRuntime runtime;
 
+  /// Skips only journal fsync in large logic fixtures when [skipFlush] is true.
+  /// Crash, recovery and flush-boundary fixtures retain native flushes by default.
   static Future<MutationHarness> create({
     FileWriteSeams seams = const FileWriteSeams(),
     CallStage gate = const AllowAllStage(),
     ToolRuntimeSeams runtimeSeams = const ToolRuntimeSeams(),
     Tool? writeTool,
     Tool? editTool,
+    bool skipFlush = false,
   }) async {
     final root = Directory((await tempDir()).resolveSymbolicLinksSync());
     Directory(p.join(root.path, '.git')).createSync();
-    final writer = await createWriter(root);
+    final SessionWriter writer;
+    if (skipFlush) {
+      final (created, io) = await createHooked(root);
+      io.skipFlush = true;
+      writer = created;
+    } else {
+      writer = await createWriter(root);
+    }
     final runtime = await ToolRuntime.attach(
       writer,
       ResultStore(writer.sessionDir),

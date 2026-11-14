@@ -641,7 +641,7 @@ void main() {
   });
 
   test('300 failed collections still find the carried baseline', () async {
-    final harness = await MutationHarness.create();
+    final harness = await MutationHarness.create(skipFlush: true);
     var failures = 0;
     final observer = CallbackWorkspaceObserver((request) {
       if (failures > 0) {
