@@ -14,6 +14,7 @@ import '../session/scratch.dart';
 import '../session/tree.dart';
 import 'compaction_state.dart';
 import 'instructions.dart';
+import '../workspace/workspace_perception.dart';
 import 'sensorium.dart';
 
 const Set<String> _terminal = {'settled', 'failed', 'cancelled'};
@@ -89,6 +90,7 @@ final class BuiltRequest {
     required this.quality,
     this.source,
     this.folds = const [],
+    this.perception,
   });
 
   /// The provider, route, model and captured instruction/tool identity.
@@ -124,6 +126,9 @@ final class BuiltRequest {
   /// The source-order reductions applied to this observation.
   final List<SensoriumFold> folds;
 
+  /// The collected workspace frame included in the request, if configured.
+  final WorkspacePerceptionFrame? perception;
+
   /// Whether the context in use exceeds a known window.
   bool get overflow => window != null && used != null && used! > window!;
 }
@@ -153,6 +158,7 @@ final class RequestBuilder {
     this.onCaptured,
     this.compactionThreshold,
     this.legacyWindowIgnored = false,
+    this.workspacePerception,
   });
 
   /// The startup composition ceiling, permitting lower direct test seams.
@@ -166,6 +172,9 @@ final class RequestBuilder {
 
   /// The optional test barrier after the tree and clock have been frozen.
   final Future<void> Function()? onCaptured;
+
+  /// The optional workspace observation capability for standalone builders.
+  final WorkspacePerception? workspacePerception;
 
   /// The provider identity recorded at admission.
   final String providerId;
@@ -289,7 +298,14 @@ final class RequestBuilder {
         message: 'Invalid scratch state: ${error.message}',
       );
     }
+    final perceptionCapture = workspacePerception?.capture(
+      tree: tree,
+      source: source,
+    );
     await onCaptured?.call();
+    final perception = perceptionCapture == null
+        ? null
+        : await perceptionCapture.collect();
     contextKey ??= _currentContext(tree);
     // A child's role is read from the tree: the text captured at its start
     // wins over the constructor's hook, whatever the role file says now.
@@ -342,6 +358,12 @@ final class RequestBuilder {
     final composition = composeSensorium(
       SensoriumSnapshot(
         source: source,
+        vcs:
+            perception?.vcs ??
+            const SensoriumUnavailable(SensoriumReason.notCollected),
+        changes:
+            perception?.changes ??
+            const SensoriumUnavailable(SensoriumReason.notCollected),
         workspaceName: workspaceName,
         budget: budget(0),
         scratch: scratch,
@@ -349,6 +371,7 @@ final class RequestBuilder {
         notices: {
           if (notice != null) SensoriumNotice.compactionRecovery,
           if (legacyWindowIgnored) SensoriumNotice.legacyWindowIgnored,
+          if (perception != null) ...perception.notices,
         },
       ),
       maxTokens: sensoriumMaxTokens,
@@ -439,6 +462,7 @@ final class RequestBuilder {
       boundary: boundary,
       source: source,
       folds: finalComposition.folds,
+      perception: perception,
     );
   }
 

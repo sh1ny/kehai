@@ -48,6 +48,7 @@ SensoriumSnapshot _snapshot({
   SensoriumObservation<Iterable<SensoriumDiagnostic>>? diagnostics,
   SensoriumObservation<SensoriumTests>? tests,
   SensoriumObservation<String>? plan,
+  Set<SensoriumNotice>? notices,
   Iterable<SensoriumProcess>? processes,
 }) => SensoriumSnapshot(
   source: SensoriumSource(
@@ -68,16 +69,20 @@ SensoriumSnapshot _snapshot({
       SensoriumAvailable(
         SensoriumVcs(
           branch: 'feature',
+          modified: 13,
           paths: List.generate(13, (i) => '${_id('vcs-path', i)}.dart'),
         ),
       ),
   changes: SensoriumAvailable(
-    List.generate(
-      6,
-      (i) => SensoriumChange(
-        '${_id('changed-path', i)}.dart',
-        added: 12345,
-        removed: 6789,
+    SensoriumChanges(
+      sinceTurn: 13,
+      rows: List.generate(
+        6,
+        (i) => SensoriumChange(
+          '${_id('changed-path', i)}.dart',
+          added: 12345,
+          removed: 6789,
+        ),
       ),
     ),
   ),
@@ -124,10 +129,12 @@ SensoriumSnapshot _snapshot({
       (i) => SensoriumCheckpoint('${_id('checkpoint', i)}-snapshot'),
     ),
   ),
-  notices: const {
-    SensoriumNotice.compactionRecovery,
-    SensoriumNotice.legacyWindowIgnored,
-  },
+  notices:
+      notices ??
+      const {
+        SensoriumNotice.compactionRecovery,
+        SensoriumNotice.legacyWindowIgnored,
+      },
 );
 
 // Search a finite range of *direct* ceilings, rather than pinning incidental
@@ -160,6 +167,41 @@ SensoriumSnapshot _snapshot({
 
 void main() {
   group('Finite sensorium composition', () {
+    for (final folded in [false, true]) {
+      test(
+        '${folded ? 'folded' : 'full'} changes retain attribution and baseline turn',
+        () {
+          final snapshot = _snapshot();
+          final result = folded
+              ? _atFold(snapshot, 5).$1
+              : composeSensorium(snapshot);
+          final changes = _section(result.text, 'changes_since_last_turn');
+          expect(changes, contains('by: unknown'));
+          expect(changes, contains('since_turn: 13'));
+          if (folded) {
+            expect(changes, isNot(matches(RegExp(r'\+\d+ -\d+'))));
+          }
+        },
+      );
+    }
+
+    test('all six notice codes fit 80 tokens in fixed order', () {
+      final result = composeSensorium(
+        _snapshot(notices: SensoriumNotice.values.reversed.toSet()),
+      );
+      final notices = _section(result.text, 'notices');
+      expect(
+        notices,
+        'notices: compaction_recovery, legacy_window_ignored, vcs_timeout, vcs_failed, user_edits, baseline_reset',
+      );
+      expect(estimateText(notices), lessThanOrEqualTo(80));
+    });
+
+    test('no notice condition renders notices none', () {
+      final result = composeSensorium(_snapshot(notices: {}));
+      expect(_section(result.text, 'notices'), 'notices: none');
+    });
+
     test(
       'typed supplied observations preserve section order and availability',
       () {
@@ -302,6 +344,120 @@ void main() {
           reason: '${entry.key} must count its own labels and markers',
         );
       }
+    });
+    test('vcs section lists 12 paths then … +N more', () {
+      final paths = List.generate(
+        40,
+        (index) => 'src/file-${index.toString().padLeft(2, '0')}.dart',
+      );
+      final result = composeSensorium(
+        _snapshot(
+          vcs: SensoriumAvailable(
+            SensoriumVcs(branch: 'main', paths: paths, modified: 40),
+          ),
+        ),
+        maxTokens: 10000,
+      );
+      final vcs = _section(result.text, 'vcs');
+      expect(RegExp(r'file-\d{2}\.dart').allMatches(vcs), hasLength(12));
+      expect(vcs, contains('file-00.dart'));
+      expect(vcs, contains('file-11.dart'));
+      expect(vcs, isNot(contains('file-12.dart')));
+      expect(vcs, contains('… +28 more'));
+      expect(vcs, matches(RegExp(r'\bM\s+40\b')));
+    });
+
+    test(
+      'vcs reports backend change parent counts conflicts and operation',
+      () {
+        final result = composeSensorium(
+          _snapshot(
+            vcs: SensoriumAvailable(
+              SensoriumVcs(
+                backend: 'jj',
+                branch: 'feature',
+                change: 'change-id-123',
+                description: 'first line',
+                parent: 'parent-id-456',
+                modified: 2,
+                added: 1,
+                deleted: 0,
+                paths: const ['src/modified.dart', 'src/added.dart'],
+                conflicts: const ['src/conflicted.dart'],
+                operation: 'operation-id-789',
+              ),
+            ),
+          ),
+          maxTokens: 10000,
+        );
+        final vcs = _section(result.text, 'vcs');
+        expect(vcs, contains('backend: jj'));
+        expect(vcs, contains('change-id-123'));
+        expect(vcs, contains('first line'));
+        expect(vcs, contains('parent-id-456'));
+        expect(vcs, matches(RegExp(r'\bM\s+2\s+A\s+1\s+D\s+0\b')));
+        expect(vcs, matches(RegExp(r'conflicts?:?\s*1')));
+        expect(vcs, contains('src/conflicted.dart'));
+        expect(vcs, contains('operation-id-789'));
+      },
+    );
+
+    test('folded VCS keeps counts and omits path details', () {
+      final snapshot = _snapshot(
+        vcs: SensoriumAvailable(
+          SensoriumVcs(
+            backend: 'git',
+            branch: 'main',
+            change: 'change-id-hidden-in-fold',
+            paths: const ['hidden-vcs-path.dart'],
+            modified: 2,
+            added: 3,
+            deleted: 1,
+          ),
+        ),
+      );
+      final (result, _) = _atFold(snapshot, 2);
+      final vcs = _section(result.text, 'vcs');
+      expect(vcs, matches(RegExp(r'\bM\s+2\s+A\s+3\s+D\s+1\b')));
+      expect(vcs, isNot(contains('hidden-vcs-path.dart')));
+      expect(
+        estimateText(vcs),
+        lessThanOrEqualTo(SensoriumAllocations.foldedVcs),
+      );
+    });
+
+    test('budget replacement retains VCS section lookup and details', () {
+      final snapshot = _snapshot(
+        vcs: const SensoriumAvailable(
+          SensoriumVcs(
+            backend: 'git',
+            branch: 'main',
+            paths: ['budget-lookup-path.dart'],
+            modified: 1,
+          ),
+        ),
+      );
+      final composed = composeSensorium(snapshot, maxTokens: 10000);
+      final replaced = sensoriumWithBudget(
+        composed,
+        SensoriumBudget(
+          model: 'gpt-5.5',
+          used: 82000,
+          window: 200000,
+          compactionThreshold: 180000,
+          turnsSinceCompaction: 4,
+        ),
+        maxTokens: 10000,
+      );
+      final budget = replaced.text.indexOf('\nbudget:');
+      final vcsStart = replaced.text.indexOf('\nvcs:', budget + 1);
+      expect(budget, greaterThanOrEqualTo(0));
+      expect(vcsStart, greaterThan(budget));
+      expect(_section(replaced.text, 'budget'), contains('82k'));
+      expect(
+        _section(replaced.text, 'vcs'),
+        contains('budget-lookup-path.dart'),
+      );
     });
 
     test('diagnostic messages truncate visibly at 120 characters before section capping', () {

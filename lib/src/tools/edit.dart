@@ -79,7 +79,14 @@ final class EditTool implements Tool {
     if (denied != null) return Future.value(denied);
     // Edit the file a link points at instead of replacing the link.
     final target = realPath(absolute) ?? absolute;
-    return PathLocks.run(target, () => _edit(context, path, target, input));
+    return PathLocks.run(target, () {
+      try {
+        checkMutationTarget(context, target);
+      } on MutationTargetRefusal catch (e) {
+        return Future<ToolOutcome>.value(e.outcome);
+      }
+      return _edit(context, path, target, input);
+    });
   }
 
   Future<ToolOutcome> _edit(
@@ -125,18 +132,31 @@ final class EditTool implements Tool {
 
     final output = plan.apply(lines);
     if (_sameBytes(output, bytes)) return failure('edit made no change');
+    final mutation = context.mutation;
 
     try {
       await writeAtomically(
         target,
         output,
+        beforeWrite: (temporary) async {
+          if (mutation != null && !await mutation.target(target, temporary)) {
+            throw const WriteFailure('edit target was refused');
+          }
+          checkMutationTarget(context, target);
+          if (context.cancel.isCancelled) {
+            throw const WriteFailure(writeCancelled);
+          }
+        },
         unchangedSince: stat,
         seams: seams,
         isCancelled: () => context.cancel.isCancelled,
       );
+    } on MutationTargetRefusal catch (e) {
+      return e.outcome;
     } on WriteFailure catch (e) {
       return failure(e.message);
     }
+    await mutation?.effect(sha256.convert(output).toString());
 
     final result = _Lines(output);
     final hashes = blockHashes([output]);

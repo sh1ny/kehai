@@ -8,7 +8,6 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
-import '../auth/posix_ffi.dart';
 import '../results/descriptor.dart';
 import '../results/live_result.dart';
 import '../results/result_store.dart';
@@ -18,6 +17,7 @@ import '../session/write_gate.dart';
 import '../session/writer.dart';
 import '../shell/detect.dart';
 import '../shell/launch.dart';
+import '../shell/process_tree.dart';
 import 'recovery.dart';
 
 /// The most jobs that may be live (`pending` or `running`) at once.
@@ -471,18 +471,6 @@ const int _esrch = 3;
 const int _maxHandoffRetries = 16;
 const Set<String> _terminalStates = {'settled', 'failed', 'cancelled'};
 
-/// The system `taskkill`, by absolute path: a bare name would also be looked
-/// for in the working directory, which can be the workspace.
-String _taskkill() {
-  final root =
-      Platform.environment['SystemRoot'] ?? Platform.environment['windir'];
-  if (root == null) return 'taskkill';
-  final path = p.join(root, 'System32', 'taskkill.exe');
-  return File(path).existsSync() ? path : 'taskkill';
-}
-
-int _libcSignal(int pgid, int signal) => PosixLibc.instance.kill(-pgid, signal);
-
 enum _Phase { launching, running, handoff }
 
 /// Runs file operations of one spool one at a time.
@@ -599,7 +587,7 @@ final class JobSupervisor {
     bool? windows,
     bool reconcile = true,
     WriteGate? writeGate,
-  }) : _signal = groupSignal ?? _libcSignal,
+  }) : _signal = groupSignal ?? signalProcessGroup,
        _windows = windows ?? Platform.isWindows,
        writeGate = writeGate ?? WriteGate(),
        recovery = JobRecovery(writer, store, hooks: hooks) {
@@ -615,7 +603,7 @@ final class JobSupervisor {
 
   /// Runs at the end of every reconciliation pass; the runtime cancels its
   /// calls whose nodes a rewind removed.
-  void Function() afterReconcile = () {};
+  FutureOr<void> Function() afterReconcile = () {};
 
   /// The session writer.
   final SessionWriter writer;
@@ -832,7 +820,7 @@ final class JobSupervisor {
       liveLaunches: {for (final job in _jobs.values) job.launch},
       liveCalls: liveCallKeys(),
     );
-    afterReconcile();
+    await afterReconcile();
   }
 
   Future<void> _killRewound(_Job job) async {
@@ -1082,52 +1070,21 @@ final class JobSupervisor {
   /// `cleanup` text.
   Future<String> _terminateMain(_Job job) async {
     final started = job.proc!;
-    final process = started.process;
-    if (_windows) {
-      try {
-        await Process.run(_taskkill(), ['/PID', '${process.pid}', '/T', '/F']);
-      } on ProcessException {
-        process.kill();
-      }
-      return 'uncertain: descendants not verifiable';
-    }
-    if (!started.groupKnown) {
-      process.kill();
-      if (!await _within(process.exitCode, timings.grace)) {
-        job.forcedKill = true;
-        process.kill(ProcessSignal.sigkill);
-      }
-      return 'uncertain: process group not known';
-    }
-    final pgid = process.pid;
-    // No group may only mean `setsid` has not made it yet, while the direct
-    // process is alive and may still run the command. Only that process's
-    // exit proves nothing is left; until then keep trying to reach the group.
-    final clock = Stopwatch()..start();
-    while (_signal(pgid, _sigterm) == _esrch) {
-      if (await _within(process.exitCode, timings.poll)) return 'confirmed';
-      if (clock.elapsed >= timings.grace) {
-        job.forcedKill = true;
-        process.kill(ProcessSignal.sigkill);
-        return 'uncertain: process group not established';
-      }
-    }
-    if (await _groupGone(pgid, timings.grace)) return 'confirmed';
-    job.forcedKill = true;
-    _signal(pgid, _sigkill);
-    return await _groupGone(pgid, timings.probe)
-        ? 'confirmed'
-        : 'uncertain: group still present';
+    final result = await terminateProcessTree(
+      started.process,
+      groupKnown: started.groupKnown,
+      windows: _windows,
+      signal: _signal,
+      grace: timings.grace,
+      probe: timings.probe,
+      poll: timings.poll,
+    );
+    if (result.forced) job.forcedKill = true;
+    return result.cleanup;
   }
 
-  Future<bool> _groupGone(int pgid, Duration limit) async {
-    final clock = Stopwatch()..start();
-    while (true) {
-      if (_signal(pgid, 0) == _esrch) return true;
-      if (clock.elapsed >= limit) return false;
-      await Future<void>.delayed(timings.poll);
-    }
-  }
+  Future<bool> _groupGone(int pgid, Duration limit) =>
+      waitForProcessGroup(pgid, limit, signal: _signal, poll: timings.poll);
 
   void _killQuietly(_Job job) {
     final started = job.proc;

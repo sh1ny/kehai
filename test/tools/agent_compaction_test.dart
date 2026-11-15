@@ -254,6 +254,7 @@ void main() {
             String? sessionId,
             String? modelFlag,
             String? effortFlag,
+            bool trustVcs = false,
             child,
           }) async {
             starts++;

@@ -184,14 +184,26 @@ final class RouteCapacity {
   final String? migrationNotice;
 }
 
-/// The startup-only ceiling for a full sensorium observation.
+/// The startup-only sensorium ceiling and collection deadline.
 final class SensoriumSettings {
   const SensoriumSettings({
     this.maxTokens = SensoriumAllocations.defaultMaxTokens,
+    this.collectorDeadlineMs = 300,
   });
 
   /// The conservative UTF-8-bytes-over-three composition ceiling.
   final int maxTokens;
+
+  /// The shared collection deadline, including lock wait and file hashing.
+  final int collectorDeadlineMs;
+}
+
+/// The startup-only repository observation selection.
+final class VcsSettings {
+  const VcsSettings({this.backend = 'auto'});
+
+  /// The selected backend: `auto`, `jj`, `git` or `none`.
+  final String backend;
 }
 
 /// The settings read once from `<kehai home>/config.json`.
@@ -208,6 +220,7 @@ final class UserConfig {
     this.agentModels = const {},
     this.providers = const {},
     this.sensorium = const SensoriumSettings(),
+    this.vcs = const VcsSettings(),
   });
 
   /// Reads `config.json` from [home].
@@ -279,6 +292,9 @@ final class UserConfig {
 
   /// The validated startup sensorium settings, not captured provider policy.
   final SensoriumSettings sensorium;
+
+  /// The validated startup VCS settings.
+  final VcsSettings vcs;
 
   /// Encodes only validated provider policy for an internal child launch.
   ///
@@ -363,6 +379,7 @@ final class UserConfig {
     agentModels: agentModels,
     providers: decodeProviderPolicy(encoded).providers,
     sensorium: sensorium,
+    vcs: vcs,
   );
 
   /// Resolves each field separately, retaining its exact source setting.
@@ -456,6 +473,7 @@ UserConfig _parse(String path, Object? json) {
     'agents',
     'providers',
     'sensorium',
+    'vcs',
   });
   final rgPath = json['rgPath'];
   if (json.containsKey('rgPath') && (rgPath is! String || rgPath.isEmpty)) {
@@ -510,15 +528,20 @@ UserConfig _parse(String path, Object? json) {
     agentModels: _agents(path, json),
     providers: _providers(path, json),
     sensorium: _sensorium(path, json),
+    vcs: _vcs(path, json),
   );
 }
 
 SensoriumSettings _sensorium(String path, Map<String, Object?> root) {
   if (!root.containsKey('sensorium')) return const SensoriumSettings();
   final settings = _object(path, 'sensorium', root['sensorium']);
-  _noUnknown(path, 'sensorium', settings, const {'maxTokens'});
-  if (!settings.containsKey('maxTokens')) return const SensoriumSettings();
-  final value = settings['maxTokens'];
+  _noUnknown(path, 'sensorium', settings, const {
+    'maxTokens',
+    'collectorDeadlineMs',
+  });
+  final value = settings.containsKey('maxTokens')
+      ? settings['maxTokens']
+      : SensoriumAllocations.defaultMaxTokens;
   if (value is! int) {
     throw ConfigError(path, 'sensorium.maxTokens: must be an integer');
   }
@@ -529,7 +552,30 @@ SensoriumSettings _sensorium(String path, Map<String, Object?> root) {
       '${SensoriumAllocations.minimumMaxTokens}',
     );
   }
-  return SensoriumSettings(maxTokens: value);
+  final deadline = settings.containsKey('collectorDeadlineMs')
+      ? settings['collectorDeadlineMs']
+      : 300;
+  if (deadline is! int || deadline < 100 || deadline > 10000) {
+    throw ConfigError(
+      path,
+      'sensorium.collectorDeadlineMs: must be an integer from 100 to 10000',
+    );
+  }
+  return SensoriumSettings(maxTokens: value, collectorDeadlineMs: deadline);
+}
+
+VcsSettings _vcs(String path, Map<String, Object?> root) {
+  if (!root.containsKey('vcs')) return const VcsSettings();
+  final settings = _object(path, 'vcs', root['vcs']);
+  _noUnknown(path, 'vcs', settings, const {'backend'});
+  final backend = settings.containsKey('backend')
+      ? settings['backend']
+      : 'auto';
+  if (backend is! String ||
+      !const {'auto', 'jj', 'git', 'none'}.contains(backend)) {
+    throw ConfigError(path, 'vcs.backend: must be auto, jj, git or none');
+  }
+  return VcsSettings(backend: backend);
 }
 
 Map<String, String> _agents(String path, Map<String, Object?> root) {

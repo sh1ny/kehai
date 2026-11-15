@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+
 import '../permissions/workspace_paths.dart';
 import 'atomic_write.dart';
 import 'block_hash.dart';
@@ -28,10 +30,14 @@ final class WriteTool implements Tool {
     if (denied != null) return Future.value(denied);
     // Write through a link instead of replacing it.
     final target = realPath(absolute) ?? absolute;
-    return PathLocks.run(
-      target,
-      () => _write(context, path, target, input['content']! as String),
-    );
+    return PathLocks.run(target, () {
+      try {
+        checkMutationTarget(context, target);
+      } on MutationTargetRefusal catch (e) {
+        return Future<ToolOutcome>.value(e.outcome);
+      }
+      return _write(context, path, target, input['content']! as String);
+    });
   }
 
   Future<ToolOutcome> _write(
@@ -46,21 +52,36 @@ final class WriteTool implements Tool {
       return failure('$path is a directory');
     }
     final bytes = Uint8List.fromList(utf8.encode(content));
-    try {
-      Directory(File(target).parent.path).createSync(recursive: true);
-    } on FileSystemException catch (e) {
-      return failure('cannot create the directory of $path: ${e.message}');
-    }
+    final mutation = context.mutation;
     try {
       await writeAtomically(
         target,
         bytes,
+        beforeWrite: (temporary) async {
+          if (mutation != null && !await mutation.target(target, temporary)) {
+            throw const WriteFailure('write target was refused');
+          }
+          checkMutationTarget(context, target);
+          if (context.cancel.isCancelled) {
+            throw const WriteFailure(writeCancelled);
+          }
+          try {
+            Directory(File(target).parent.path).createSync(recursive: true);
+          } on FileSystemException catch (e) {
+            throw WriteFailure(
+              'cannot create the directory of $path: ${e.message}',
+            );
+          }
+        },
         seams: seams,
         isCancelled: () => context.cancel.isCancelled,
       );
+    } on MutationTargetRefusal catch (e) {
+      return e.outcome;
     } on WriteFailure catch (e) {
       return failure('could not write $path: ${e.message}');
     }
+    await mutation?.effect(sha256.convert(bytes).toString());
     final counter = BlockHasher(hashing: false, stopAtBlock: false)
       ..feed(bytes, 0, bytes.length)
       ..finishInput();

@@ -18,6 +18,7 @@ import '../jobs/supervisor.dart';
 import '../results/composer.dart';
 import '../results/descriptor.dart';
 import '../shell/detect.dart';
+import '../workspace/vcs_collector.dart' show VcsTrust;
 import 'ask.dart';
 
 /// What a tool reports when it finishes.
@@ -107,6 +108,26 @@ abstract interface class ToolOutput {
   Future<void> writeText(String text);
 }
 
+/// The runtime-owned capability for one filesystem mutation.
+///
+/// [target] records the resolved absolute destination and temporary paths before
+/// either changes. Returning `false` means the tool must not mutate.
+/// [effect] records the SHA-256 of the exact bytes successfully written.
+final class FileMutation {
+  /// Creates a mutation capability from its target and effect callbacks.
+  const FileMutation({required this.target, required this.effect});
+
+  /// Records both resolved absolute paths before the filesystem changes.
+  final Future<bool> Function(
+    String resolvedAbsoluteTarget,
+    String resolvedAbsoluteTemporary,
+  )
+  target;
+
+  /// Records [sha256] for the exact bytes written successfully.
+  final Future<void> Function(String sha256) effect;
+}
+
 /// What the runtime gives a tool for one call.
 final class ToolContext {
   /// Creates the context of the call keyed [callKey].
@@ -126,8 +147,10 @@ final class ToolContext {
     this.scratch,
     this.model,
     this.effort,
+    this.mutation,
     this.yolo = false,
-  });
+    VcsTrust? vcsTrust,
+  }) : vcsTrust = vcsTrust ?? VcsTrust.untrusted;
 
   /// Sends one ephemeral progress line of [kind] to the client, when the
   /// answerer takes progress; it is not recorded (design D13).
@@ -186,6 +209,9 @@ final class ToolContext {
   /// The user configuration read at attach.
   final UserConfig config;
 
+  /// Invocation-bound authority, denied unless explicitly supplied.
+  final VcsTrust vcsTrust;
+
   /// The answerer channel of the runtime, or null when the context has none.
   final PromptChannel? prompts;
 
@@ -193,6 +219,9 @@ final class ToolContext {
   /// even when the permission gate let the call through; null when the
   /// context has none.
   final Directory? kehaiHome;
+
+  /// The mutation capability for this call, or null without a session runtime.
+  final FileMutation? mutation;
 }
 
 /// The runtime-owned capability for mutations in this call's session only.

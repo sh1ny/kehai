@@ -33,6 +33,7 @@ import '../tools/roster.dart';
 import '../tools/runtime.dart';
 import '../workspace/inventory.dart' show loadWorkspace;
 import '../workspace/roles.dart';
+import '../workspace/vcs_collector.dart' show VcsTrust;
 import 'doctor.dart' show printable;
 import 'settings.dart';
 
@@ -58,6 +59,7 @@ final class ChildSpec {
     this.yolo = false,
     this.effortDefault = false,
     this.compactionPolicy,
+    this.vcsTrustBinding,
   });
 
   /// The parent session's directory; the child session is created under its
@@ -83,6 +85,9 @@ final class ChildSpec {
 
   /// The bounded provider-policy snapshot captured by the parent engine.
   final String? compactionPolicy;
+
+  /// Original parent binding, supplied only by managed trusted children.
+  final String? vcsTrustBinding;
 }
 
 /// The engine startup boundary, injectable by command-line input tests.
@@ -95,6 +100,7 @@ typedef RpcRunner = Future<int> Function({
   String? sessionId,
   String? modelFlag,
   String? effortFlag,
+  bool trustVcs,
   ChildSpec? child,
 });
 
@@ -121,6 +127,7 @@ Future<int> runRpc({
   String? sessionId,
   String? modelFlag,
   String? effortFlag,
+  bool trustVcs = false,
   ChildSpec? child,
 }) async {
   SessionWriter? writer;
@@ -149,6 +156,23 @@ Future<int> runRpc({
       );
     } on ConfigError catch (e) {
       throw _StartupFailure(e.message);
+    }
+    if (child?.vcsTrustBinding != null && !trustVcs) {
+      throw const _StartupFailure(
+        'Inherited VCS trust requires explicit trust.',
+      );
+    }
+    final VcsTrust vcsTrust;
+    try {
+      vcsTrust = trustVcs
+          ? VcsTrust.grant(
+              root: real,
+              backend: config.vcs.backend,
+              inheritedBinding: child?.vcsTrustBinding,
+            )
+          : VcsTrust.untrusted;
+    } on FormatException {
+      throw const _StartupFailure('Invalid inherited VCS trust binding.');
     }
     if (child?.effortDefault == true && effortFlag != null) {
       throw const _StartupFailure(
@@ -208,6 +232,7 @@ Future<int> runRpc({
       ResultStore(writer.sessionDir),
       workspace: Directory(real),
       config: config,
+      vcsTrust: vcsTrust,
       kehaiHome: Directory(settings.home),
       answerer: answerer,
       yolo: child?.yolo ?? false,

@@ -99,3 +99,22 @@ ToolOutcome? movedDenial(ToolContext context, String absolute) {
     summary: targetMovedRefusal,
   );
 }
+
+/// A mutation authorization refusal carried across the atomic-write boundary.
+final class MutationTargetRefusal implements Exception {
+  const MutationTargetRefusal(this.outcome);
+
+  final ToolOutcome outcome;
+}
+
+/// Re-resolves the approved path after an asynchronous mutation boundary.
+///
+/// This check is synchronous with the following parent/temporary creation. It
+/// closes the callback and file-lock gaps; it does not anchor the later rename
+/// to an open directory handle.
+void checkMutationTarget(ToolContext context, String approvedTarget) {
+  final current = realPath(approvedTarget) ?? approvedTarget;
+  final denial =
+      credentialDenial(context, current) ?? movedDenial(context, current);
+  if (denial != null) throw MutationTargetRefusal(denial);
+}

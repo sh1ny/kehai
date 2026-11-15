@@ -68,10 +68,16 @@ String temporaryPrefix(String target) => '.${p.basename(target)}.kehai-';
 /// step before the rename: a cancelled call fails with [writeCancelled], the
 /// target stays as it was and the temporary file is removed.
 ///
+/// Calls [beforeWrite] with the actual temporary path before creating it.
+/// The caller records its complete mutation intent and prepares directories.
+/// Callback errors propagate before temporary ownership or cleanup begins.
+/// Cancellation is checked again after this callback completes.
+///
 /// Throws [WriteFailure].
 Future<void> writeAtomically(
   String target,
   List<int> bytes, {
+  required Future<void> Function(String temporary) beforeWrite,
   FileStat? unchangedSince,
   FileWriteSeams seams = const FileWriteSeams(),
   bool Function()? isCancelled,
@@ -85,6 +91,8 @@ Future<void> writeAtomically(
   final temporary = File(
     p.join(p.dirname(target), '${temporaryPrefix(target)}$suffix'),
   );
+  await beforeWrite(temporary.path);
+  if (isCancelled?.call() ?? false) throw const WriteFailure(writeCancelled);
   try {
     final RandomAccessFile out;
     try {

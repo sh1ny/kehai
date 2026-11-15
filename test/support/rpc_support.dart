@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:kehai/kehai.dart';
+import 'package:kehai/src/workspace/vcs_collector.dart' show VcsTrust;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -146,6 +147,7 @@ Future<RpcRig> rpcRig(
   UserConfig config = const UserConfig(),
   Directory? workspace,
   int? backendWindow,
+  VcsTrust? vcsTrust,
 }) async {
   final root = await tempDir();
   final ws = workspace ?? (Directory(p.join(root.path, 'ws'))..createSync());
@@ -169,6 +171,7 @@ Future<RpcRig> rpcRig(
     answerer: answerer,
     model: model,
     config: config,
+    vcsTrust: vcsTrust,
   );
   final driver = ExchangeDriver(
     writer: writer,
