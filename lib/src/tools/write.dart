@@ -30,10 +30,14 @@ final class WriteTool implements Tool {
     if (denied != null) return Future.value(denied);
     // Write through a link instead of replacing it.
     final target = realPath(absolute) ?? absolute;
-    return PathLocks.run(
-      target,
-      () => _write(context, path, target, input['content']! as String),
-    );
+    return PathLocks.run(target, () {
+      try {
+        checkMutationTarget(context, target);
+      } on MutationTargetRefusal catch (e) {
+        return Future<ToolOutcome>.value(e.outcome);
+      }
+      return _write(context, path, target, input['content']! as String);
+    });
   }
 
   Future<ToolOutcome> _write(
@@ -57,6 +61,7 @@ final class WriteTool implements Tool {
           if (mutation != null && !await mutation.target(target, temporary)) {
             throw const WriteFailure('write target was refused');
           }
+          checkMutationTarget(context, target);
           if (context.cancel.isCancelled) {
             throw const WriteFailure(writeCancelled);
           }
@@ -71,6 +76,8 @@ final class WriteTool implements Tool {
         seams: seams,
         isCancelled: () => context.cancel.isCancelled,
       );
+    } on MutationTargetRefusal catch (e) {
+      return e.outcome;
     } on WriteFailure catch (e) {
       return failure('could not write $path: ${e.message}');
     }
