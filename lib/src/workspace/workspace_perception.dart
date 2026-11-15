@@ -175,11 +175,9 @@ final class WorkspacePerception {
         notices.add(SensoriumNotice.userEdits);
       }
       final totalPaths = rawRows.length;
-      var rowsWereClipped = false;
       final rows = <Object?>[];
       for (final row in rawRows.take(_displayRowLimit)) {
         final path = _clipJsonString(row.path, 64);
-        if (path != row.path) rowsWereClipped = true;
         rows.add({
           'path': path,
           'added': row.added,
@@ -193,7 +191,7 @@ final class WorkspacePerception {
         'sinceTurn': previousBaseline.turn,
         'rows': rows,
         'totalPaths': totalPaths,
-        'partial': rowsWereClipped || collection.deltaPartial,
+        'partial': collection.deltaPartial,
       };
     }
 

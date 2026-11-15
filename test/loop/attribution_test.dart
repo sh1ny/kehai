@@ -1180,6 +1180,67 @@ void main() {
     });
   }
 
+  for (final partial in const [false, true]) {
+    test(
+      'clipped change labels preserve coverage precision partial=$partial',
+      () async {
+        final harness = await MutationHarness.create(skipFlush: true);
+        var failed = false;
+        final observer = CallbackWorkspaceObserver((request) {
+          if (failed) {
+            return const VcsCollection(
+              observation: SensoriumUnavailable(SensoriumReason.failed),
+              reason: 'failed',
+            );
+          }
+          return availableCollection(
+            request,
+            id: 'clipped-change-label-${request.turn}',
+            changes: [_delta(longPath, added: 3, removed: 2)],
+            deltaPartial: partial,
+          );
+        });
+        final perception = workspacePerception(harness, observer);
+        await _captureAndAdmit(harness, perception);
+        await harness.nextTurn();
+        final fresh = await _capture(harness, perception);
+        final changes = _changes(fresh);
+        final header = composeWorkspaceFrame(fresh).text
+            .split('\n')
+            .firstWhere((line) => line.startsWith('changes_since_last_turn:'));
+        expect(
+          header,
+          partial ? contains('partial') : isNot(contains('partial')),
+        );
+        expect(changes.partial, partial);
+        expect(changes.totalPaths, 1);
+        expect(changes.rows.single.path, isNot(longPath));
+        expect(changes.rows.single.added, 3);
+        expect(changes.rows.single.removed, 2);
+        await admitWorkspaceFrame(harness.writer, fresh);
+        await harness.nextTurn();
+        failed = true;
+        final stale = await _capture(harness, perception);
+        _expectChangesUnavailable(
+          stale,
+          SensoriumReason.failed,
+          'changes_since_last_turn: unavailable (failed)',
+        );
+        for (final frame in [fresh, stale]) {
+          final value = frame.metadata['value']! as Map<String, Object?>;
+          final stored = value['changes']! as Map<String, Object?>;
+          expect(stored['partial'], partial);
+          expect(stored['totalPaths'], 1);
+          final row =
+              (stored['rows']! as List<Object?>).single!
+                  as Map<String, Object?>;
+          expect(row['added'], 3);
+          expect(row['removed'], 2);
+        }
+      },
+    );
+  }
+
   test('300 failed collections still find the carried baseline', () async {
     final harness = await MutationHarness.create(skipFlush: true);
     var failures = 0;
