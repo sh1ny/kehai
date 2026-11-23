@@ -11,7 +11,7 @@ finish: pr
 github:
   # Account for push, PR creation, replies and thread resolution.
   # Empty = the active gh account, resolved once when a run starts and fenced
-  # for the whole run (as.sh), so a later gh auth switch cannot redirect it.
+  # for the whole run (sw as), so a later gh auth switch cannot redirect it.
   # Set it if you switch gh accounts between sessions.
   login: "KintsugiBot"
   # Comment posted once on each new PR to request a review. Empty = none.
@@ -53,6 +53,12 @@ review:
 #   task  - one commit per task (the default)
 #   group - one commit per task group, with a Specwright-Task trailer per task
 commit_granularity: group
+
+# How far you are kept in the loop while a change is planned:
+#   autonomous - the agent decides; a decision summary shows at the end (the default)
+#   important  - important decisions are put to you with options and a recommendation
+#   all        - every decision is put to you
+decision_making: autonomous
 
 project:
   # Project-level files used by specwright-roadmap. Point these at existing

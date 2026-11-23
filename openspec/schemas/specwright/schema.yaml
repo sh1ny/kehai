@@ -53,6 +53,79 @@ artifacts:
       If the project has a roadmap (`project.roadmap` in
       openspec/specwright.yaml, default openspec/roadmap.md), name the
       milestone this change serves and the exit criteria it advances in Why.
+      When it advances a user-verified exit criterion of that milestone, say
+      in Why how this change checks it: a `[user]` task in tasks.md, or that
+      the criterion is judged at the milestone close and why.
+
+      Decision mode. Before you write proposal.md, resolve the mode for this
+      change. Read `decision_making` from the code repo's
+      openspec/specwright.yaml: `autonomous`, `important` or `all`; unset
+      means `autonomous`, and no decision is put to the user for it.
+
+      If `decision_making` is anything else (an unknown value such as
+      `ask`), stop before any decision is written. Name the value you found
+      and the three valid values: `autonomous`, `important`, `all`.
+
+      An instruction from the user when the change starts, naming a mode or
+      saying how much to be asked ("ask me everything for this one"), sets
+      the mode for this change only. It does not change
+      openspec/specwright.yaml. An instruction given mid-planning applies
+      from then on; decisions already written stay unless the user asks to
+      revisit them. Once proposal.md exists,
+      update the `DECISION_MAKING:` and `Source:` lines there in the same
+      turn the override is given, so later sessions, review fix rounds and
+      apply read the mode in force.
+
+      Record the mode in force in a `## Decision Making` section of
+      proposal.md, the first artifact written: a `DECISION_MAKING: <mode>`
+      line, a `Source:` line (`setting`, or `user` with the user's quoted
+      words), then the scope decisions of this change as `S1`, `S2`... each
+      with Choice, Rejected, Reversal cost, Important and Chosen by.
+
+      Classify each scope or non-goal decision before asking: `Important:
+      yes` when any one of four criteria is met, naming the criterion: high
+      reversal cost; binds future changes (contract, data format, config
+      key, boundary); changes behaviour or settings users see; chosen on
+      weak evidence. Otherwise `Important: no`. The design step uses the
+      same four criteria. `Chosen by: user` when the user chose or stated
+      it, in any mode, else `agent`.
+
+      Asking. The questions are asked before the artifact that holds the
+      decision is written: scope and non-goal choices before proposal.md is
+      written (the proposal is written as soon as they are answered), design
+      decisions before design.md is written. In `important` mode ask the
+      user about each important decision before it is written, and in
+      `all` mode about every decision; each question has a recommended
+      option. The other decisions are taken by the agent and recorded
+      `Chosen by: agent`. In `autonomous` mode nothing is asked.
+
+      Put the questions in batches of at most 4, or fewer when the usable
+      ask tool takes fewer questions per call. More decisions: more batches;
+      every decision is still asked.
+
+      Each question offers 2 to 4 options, cut to the ask tool's option
+      limit by dropping the weakest alternatives. Always keep the
+      recommended option marked, and a way to discuss: the tool's free-text
+      answer when it has one, else a discuss option.
+
+      Put each batch through the harness's own ask tool when it is usable in
+      the current session and mode, so the user picks rather than types.
+      Plain text is the fallback only: when no ask tool is usable (the
+      harness has none, or the session or mode does not allow it), print the
+      batch as plain text with lettered options, the recommended one marked
+      and a discuss option, and wait for the answer before writing the
+      decisions.
+
+      A decision under discussion is not written until the user settles it
+      with a choice, recorded `Chosen by: user`. If the user hands it back
+      ("you decide"), take the recommended option and record
+      `Chosen by: agent`, with a note that the user handed it back.
+
+      Later sessions of the change, review fix rounds and apply read the mode
+      from the `DECISION_MAKING:` line in proposal.md, not from the
+      conversation. A proposal with no mode line (planned before this
+      existed) uses the setting; do not rewrite or edit an artifact for the
+      missing line.
 
       Keep it concise (1-2 pages). Focus on the "why" not the "how" -
       implementation details belong in design.md.
@@ -124,6 +197,7 @@ artifacts:
         finding.
       - Each THEN MUST be an assertable outcome (a value, a state, a visible
         message, an error) - never "works correctly" or "handles gracefully".
+      - Every scenario MUST have a WHEN/GIVEN step (its trigger) and a THEN step (its outcome). A scenario with only AND lines or plain prose still counts as a scenario, but `openspec validate` flags it as a warning: normal validation still passes, but `openspec validate --strict` fails on it.
       - Keep each requirement's description (the text between `### Requirement:` and its first scenario) to 500 characters or fewer. `openspec validate` flags longer descriptions in ADDED requirements and in the main spec. This is a warning: normal validation still passes, but `openspec validate --strict` fails on it. When writing a new requirement, state one behavior per requirement: move examples and edge cases into scenarios, and split a requirement that covers several behaviors into separate `### Requirement:` blocks, each with its own scenarios. Under MODIFIED, keep the existing requirement block whole; never split, trim or rewrite existing text just to meet the length. Split an existing long requirement only when the user asks for it, in a change made for that purpose: under MODIFIED, keep its header and every scenario and cut its description down to one behavior without changing its meaning, then add each behavior you removed as its own ADDED requirement with its own scenarios.
 
       New capabilities only: the delta spec's first section is `## Purpose` -
@@ -208,25 +282,92 @@ artifacts:
         logs, lists, queues, history)
       - T6 Risk: security, auth, money, data loss, or user data that cannot
         be recreated
-      No trigger → LIGHT tier: write Triage, Context and Decisions only.
+      No trigger → LIGHT tier: write Triage, Context, Decisions, Assumptions and Carried constraints only.
       Any trigger → FULL tier: write every section the template marks FULL.
       When unsure whether a trigger applies, it applies. Emit the
       machine-readable line exactly: `TIER: LIGHT` or `TIER: FULL`.
 
-      2. GROUND before deciding. Read the code the change touches and cite
-      existing patterns as file:line. Check any claim that something does not
-      exist; otherwise label it an unverified assumption. Read the in-force
-      ADRs (see ADR rules); the design MUST be coherent with them or flag the
-      conflict under Open Questions.
+      2. GROUND before deciding. Read the code the change touches. Every
+      claim about how existing code, data or a format behaves (what a
+      function does, what an input holds, what a format guarantees) cites
+      the `path:line` range that shows it, as narrow as the claim allows:
+      the lines that show it, not the whole file or function around them.
+      Check any claim that something does not exist the same way. A claim
+      you did not check against the code goes in `## Assumptions`, never in
+      the text as fact. Read the in-force ADRs (see ADR rules); the design
+      MUST be coherent with them or flag the conflict under Open Questions.
 
       3. SECTIONS.
-      - Context: only the current state and constraints the approach needs.
-        Point to proposal.md instead of restating it.
+      - Context: only the current state and constraints the approach needs,
+        each claim about existing behaviour with its `path:line`. Point to
+        proposal.md instead of restating it.
+      - `## Assumptions` (both tiers), placed after the Decision summary and
+        above the template's LIGHT boundary, reads `None` when every claim is
+        cited; otherwise each claim you did not check against the code is one
+        entry: an id (`A1`, `A2` and so on), the claim, why it was not
+        checked, and the decisions or tasks that depend on it (or `none`).
+      - `## Carried constraints` (both tiers), placed after `## Assumptions`
+        and above the template's LIGHT boundary, lists each fact a future
+        change must respect as one entry: an id (`C1`, `C2` and so on), the
+        fact, its kind (invariant, deliberate gap or rejected alternative),
+        and exactly one destination: `doc comment: <path> <symbol>`,
+        `spec: specs/<capability>/spec.md → Requirement: <name>`, or
+        `ADR NNNN`. The `## Carried constraints` section reads `None` when
+        nothing outlives the change; a design planned before this rule has
+        no section, which counts as `None`.
+        Pick the destination by kind. A fact about specific code (what an
+        input holds, why a path is not taken) goes in that code's doc
+        comment, where the next planner reads it during GROUND. A guarantee
+        users or downstream systems rely on goes in this change's delta spec.
+        A decision that binds future changes beyond one module goes in an ADR,
+        under the ADR rules. When the constrained code is in a file that
+        cannot hold a comment, the destination is the nearest owning code or
+        the spec.
       - Decisions (both tiers): each states the choice, at least one rejected
         alternative that differs structurally (ownership, boundary,
         sequencing, integration pattern - not cosmetically), why it lost, and
         its reversal cost (low/medium/high). High reversal cost on weak
         evidence is a risk: name the evidence that would settle it.
+
+        Each Decisions entry also records `Important: yes|no` and
+        `Chosen by: agent|user`. Important is yes when any one of four
+        criteria is met, and the entry names the criterion: high reversal
+        cost; binds future changes (contract, data format, config key,
+        boundary); changes behaviour or settings users see; chosen on weak
+        evidence. Otherwise it is no. A config key decision is therefore
+        always `Important: yes`.
+
+        Chosen by is `user` when the user chose or stated the decision, in
+        any mode, else `agent`. A choice the user stated before planning began
+        (in the conversation, or in the issue they approved) is recorded
+        `Chosen by: user` without asking again; it is not a question.
+
+        Asking: put the decisions to the user before design.md is written,
+        by the same asking rule as the proposal step. In `important` mode
+        ask about each important decision, in `all` mode about every
+        decision, each with a recommended option and 2 to 4 options, cut to
+        the ask tool's option limit by dropping the weakest, keeping the
+        recommended one and a way to discuss (the tool's free-text answer,
+        else a discuss option). Batches of at most 4, fewer when the tool
+        takes fewer; more decisions: more batches, every decision asked.
+        Use the harness's own ask tool when it is usable, so the user picks;
+        plain text with lettered options is the fallback only, when no ask
+        tool is usable (the harness has none, or the session or mode does
+        not allow it), then wait for the answer. The other decisions are
+        `Chosen by: agent`. A decision under discussion is not written until
+        the user settles it, `Chosen by: user`; "you decide" takes the
+        recommended option, `Chosen by: agent`, with a note that the user
+        handed it back.
+
+        Wording of a message, the order of tasks and the layout of a test are
+        not decisions: they get no Decisions entry.
+
+        Decision summary: after the last decision, write a `### Decision
+        summary` table with columns #, Decision, Choice, Rejected, Reversal
+        cost, Important, Chosen by. It has one row per decision: one row per
+        scope decision from proposal.md (S1...) and per design decision
+        (D1...). Whenever an entry is added, removed or changed, update the
+        table in the same edit, so the rows match the entries one to one.
       - Diagrams (FULL): at least one mermaid diagram per applying trigger
         among T1-T4 (component graph, state machine, sequence, data flow).
         Token cost is not a reason to omit one.
@@ -297,15 +438,28 @@ artifacts:
       (read through `openspec context --json`, never written); name an
       unresolved reference in the review and continue.
 
-      LIGHT: re-check the triage against the code. If it still holds, write
-      only the metadata with `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a`
-      and a one-line reason, and stop. If a trigger applies after all, fix
+      LIGHT: re-check the triage against the code, and re-read each citation
+      in the design against its claim, opening only files tracked in the
+      repository (the Claims item below). When a cited range contradicts its
+      claim, fix the claim in design.md before any verdict is written; a fix
+      that makes a trigger apply makes the design FULL. The re-check also
+      applies the Carried constraints test below. Each failure is recorded in
+      review.md as a Moderate finding under `## Findings`, with no `VERDICT:`
+      line, so the tasks precheck stops. The author adds the missing entry or
+      fixes its destination in design.md and runs the re-check again; after
+      a passing re-check, review.md gets `VERDICT: SKIPPED_LIGHT` with each
+      earlier finding marked fixed. If the triage still holds and the
+      re-check finds nothing, write only the metadata with
+      `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a` and a one-line reason,
+      and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
+
+      `<sw>` is the project's `sw` binary, `<home>/.specwright/bin/<project VERSION>/sw`, checked with `<sw> version --json` as the Specwright skills define.
 
       FULL: the review MUST NOT be written in the context that authored
       proposal, specs or design. Choose the reviewer with the
       `specwright-review` skill's routes (its Routes and Design reviews
-      sections): `review-run.sh select --runtime <the harness you run in>`,
+      sections): `<sw> review select --runtime <the harness you run in>`,
       its output saved to a file (the select output below), walks
       `review.order` in openspec/specwright.yaml (default codex,
       claude, omp), skips your own harness and takes the first reviewer CLI
@@ -313,7 +467,7 @@ artifacts:
       `specwright-reviewer` agent. `review.cross_model: false` means the
       agent only.
       - CLI route: write the review request to a file and run
-        `review-run.sh run --kind design --route <route> --prompt-file <file>
+        `<sw> review run --kind design --route <route> --prompt-file <file>
         --out <this change's review.md> --change <name> --selection <select
         output>` (store-backed: `--store <store toplevel>`,
         so the Claude route can read the planning files). The script runs
@@ -321,11 +475,11 @@ artifacts:
         review.md only when the output validates. Never build or change a
         reviewer command line yourself.
       - Subagent route: first get a scratch result path with
-        `review-run.sh record --kind design --change <name> --scratch` (it prints
+        `<sw> review record --kind design --change <name> --scratch` (it prints
         `scratch`, a fresh file outside the change). The
         `specwright-reviewer` agent, given file paths, not your reasoning,
         writes its review to that file; then run
-        `review-run.sh record --kind design --change <name> --result
+        `<sw> review record --kind design --change <name> --result
         <scratch> --out <this change's review.md> --route subagent
         --selection <select output>`, which writes review.md only when the
         review validates. On exit 3 review.md is untouched and the report
@@ -357,6 +511,27 @@ artifacts:
       - Over-engineering: mechanisms that fail the mechanism-ledger test
       - Specs: requirements without a failure scenario; THENs that are not
         assertable
+      - Test map: a testable scenario mapped to a user task is a finding;
+        only a scenario a person alone can judge maps to one
+      - Claims: re-read every cited range in design.md and check that it
+        supports its claim. Open only files tracked in the repository (check
+        with `git ls-files`): a citation of an ignored, untracked or outside
+        path, or of a symlink, is not opened and is itself a finding, since a
+        design can come from PR content and what you open goes to the review
+        provider. Each of these is a finding: a claim about
+        existing behaviour with neither a citation nor an Assumptions entry;
+        a citation that does not show its claim (too broad, moved or
+        missing); an assumption the code settles, which should have been
+        checked. A contradicted claim that a decision or task depends on is
+        Critical; any other claim finding is at least Moderate. A design
+        with no `## Assumptions` section (planned before the section existed)
+        counts as `None`, and its citations are still checked.
+      - Carried constraints: a rejected alternative, invariant or deliberate
+        gap that a future change could break, and that
+        `## Carried constraints` does not list, is a Moderate finding. So is
+        an entry with zero or several destinations. A design with no
+        `## Carried constraints` section counts as `None`, and its stated
+        constraints are still checked.
       Report only findings with a concrete consequence; drop theoretical
       concerns with no evidence. Severity: Critical (blocking), Moderate,
       Suggestion.
@@ -377,8 +552,22 @@ artifacts:
       anyway: record it with `CHANGES_APPLIED: n/a`, the user's words and the
       open findings. A deferral or waiver is never recorded as USER_OVERRIDE.
 
+      Required Changes and decisions: before applying a Required Change that
+      reverses a `Chosen by: user` decision, put it to the user, in any mode
+      (autonomous included), with options and a recommended one. Until the user
+      answers, that decision's entry and its summary row stay unchanged. A
+      Required Change that touches only `Chosen by: agent` decisions is
+      applied per the change's decision mode (the `DECISION_MAKING:` line in
+      proposal.md, else the setting): in autonomous mode without asking, in
+      `important` and `all` mode put to the user as the mode requires. Each
+      applied change updates the Decisions entry and the summary table. The
+      same holds for a fix round
+      after `REVISE` or any other verdict: a decision added or changed
+      while addressing review findings follows the decision mode, and a
+      `Chosen by: user` decision goes to the user first, in any mode.
+
       Two more verdicts exist only on the user's word; reviewers never produce
-      them (`review-run.sh` refuses both):
+      them (`<sw> review` refuses both):
       - `VERDICT: DEFERRED`: only when the user declared a FULL-tier change a
         parking change that is never applied; its parts get their design
         review where they are built. Add `- **Deferred to:** <changes or
@@ -433,11 +622,48 @@ artifacts:
       the real boundary the scenario crosses (platform, IPC/isolate, storage,
       UI interaction) over mocks of it. A scenario that cannot be tested in
       code maps to a mechanical check (analyzer, schema validation, script)
-      marked `n/a` with a reason - never prose sign-off. Unmapped scenarios
-      are a defect. Extra tests are welcome and need no row.
+      marked `n/a` with a reason - never prose sign-off. A scenario only a
+      person can judge maps to the user task that checks it, with state
+      `user`: the row names the user task id and turns `green` when its user
+      task is ticked. A testable scenario never maps to a user task.
+      Unmapped scenarios are a defect. Extra tests are welcome and need no row.
+
+      MARKERS. A task only the user can check starts with `[user]` right
+      after its id: `- [ ] 4.3 [user] <what the user checks>`. A task that
+      captures evidence starts with `[evidence]` and names one file:
+      `- [ ] 4.2 [evidence] <what to capture> → evidence/<file>`. Write the
+      marker lowercase and first after the id; anywhere else it is plain
+      text. An evidence file lives under the change's `evidence/` folder: tick
+      the task only when the file is present, non-empty and committed with
+      the task.
+
+      EXIT CRITERIA. When the proposal names a user-verified exit criterion
+      of its milestone, add a `[user]` task that checks it for this change,
+      or the proposal says the criterion is judged at milestone close and why.
 
       If design.md lists new or superseding ADRs, the first task group
       writes those ADR files.
+
+      ASSUMPTIONS. For each `## Assumptions` entry in the design that names a
+      dependent decision or task, add a task that names its id and says what
+      to read or run to settle it, placed before the first task that relies on it.
+      An entry with no dependents gets no task. A disproved assumption is
+      design drift: apply stops that work and the drift rule applies.
+
+      CARRIED CONSTRAINTS. For each `## Carried constraints` entry in the
+      design, add a task that names its id (`C1` and so on) and writes the
+      fact at its destination.
+      ADR destinations ride the task that writes that ADR file: that task
+      names the entry ids it carries. The task is ticked only when the text
+      is at the destination. A destination that is gone, or no
+      longer fits, during apply is design drift: apply stops that task, the
+      entry is amended under the drift rule, and the task then writes it at
+      the new destination. A section that reads `None`, or no section, adds
+      no task.
+
+      At the end of planning, before apply, show the user the Decision
+      summary table from design.md. In `autonomous` mode planning does not
+      wait for an answer to it: show it and continue, with no question.
 
       **IMPORTANT: Follow the template below for tracked tasks.** The apply phase parses
       checkbox format to track progress. A box holding only `x` counts as done,
@@ -470,12 +696,12 @@ artifacts:
         carries neither. A final group is for integration checks only, not for
         the tests and docs an earlier group owed.
       - When `release.enabled` is true in openspec/specwright.yaml, the last
-        task group MUST include a task `release.sh bump --to <version>`
+        task group MUST include a task `<sw> release bump --to <version>`
         (the version from the proposal, per the pre-1.0 rule in
-        CONTRIBUTING.md), verified by `release.sh check`. That task also
+        CONTRIBUTING.md), verified by `<sw> release check`. That task also
         rewrites the summary of the proposal's `## Release Notes` section to
         describe the whole release, and is verified by
-        `release.sh notes --proposal <proposal.md>` too. With releases off, this rule adds no
+        `<sw> release notes --proposal <proposal.md>` too. With releases off, this rule adds no
         bump task.
 
       Reference specs for what needs to be built, design for how to build it.
@@ -511,9 +737,8 @@ apply:
     and commit per the configured granularity (`commit_granularity`: one
     commit per task, or per task group; the commit rules say how). A
     DRIFT or BLOCKED report stops the group (see drift rule).
-    Once per apply run, read the cheap tier: `bash <specwright-pr>/scripts/pr-pair.sh
-    tier --code <code toplevel>` (`<specwright-pr>` is the specwright-pr
-    skill's folder). It prints `{"ok": true, "cheap_tier": <bool>}` and
+    Once per apply run, read the cheap tier: `<sw> pr tier --code <code
+    toplevel>` (`<sw>` as in the skills). It prints `{"ok": true, "cheap_tier": <bool>}` and
     maybe a `note`; repeat a note once. A failed call, or output with no
     `cheap_tier` field, means the tier is off: say once that the setting
     could not be read. With the tier on and `TIER: LIGHT` in the change's
@@ -524,12 +749,19 @@ apply:
     off, or for a FULL change, keep `specwright-implementer` and this rule:
     small groups (one or two trivial edits) you may implement directly.
 
+    USER TASKS. A task marked `[user]` is the user's. Never tick, implement
+    or dispatch a `[user]` task, to a `specwright-implementer` or any other
+    worker. Skip each `[user]` task, go on with the next agent task, and
+    list every unticked one as waiting on the user. When the user reports a
+    result in chat, leave the box unticked and ask them to tick it in
+    `tasks.md`; the agent never writes the `x`.
+
     - Write each new or changed behavior's failing test first and confirm it
       fails for the right reason; then implement; then flip its test map row
       to `green`. Rows that start `green` only need their test re-run.
     - A task that changes what the change ships updates the proposal's
       `## Release Notes` section in its own task commit; every commit that
-      edits the section runs `release.sh notes --proposal <proposal.md>`.
+      edits the section runs `<sw> release notes --proposal <proposal.md>`.
     - On an unexpected failure or regression, find the root cause before
       fixing. No symptom patches.
     - SPEC OR DESIGN DRIFT: if implementation shows a requirement, scenario or
@@ -537,6 +769,13 @@ apply:
       around it. Amend the artifact and re-run the review step, whatever the
       tier (the old verdict is void; LIGHT re-checks its triage and may become
       FULL), commit the amendments, update tasks and the test map, then
-      resume.
+      resume. A replacement decision follows the change's recorded mode (the
+      `DECISION_MAKING:` line in proposal.md, else the setting): in `all` mode,
+      or in `important` mode when it is important, put it to the user before
+      amending the design; otherwise the agent takes it without asking. In
+      autonomous mode an amended `Chosen by: agent` decision keeps
+      `Chosen by: agent`. Either way update the Decisions entry and the
+      summary table. A `Chosen by: user` decision is always put to the user,
+      in any mode, and stays as it is until they answer.
     - Do not claim a task complete without a fresh run of its verification.
     Pause if you hit blockers or need clarification.
