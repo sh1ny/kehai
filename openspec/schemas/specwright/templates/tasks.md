@@ -8,6 +8,8 @@
 |---|---|---|---|---|
 | <!-- capability → requirement --> | <!-- scenario --> | <!-- path --> | <!-- name --> | red |
 
+<!-- A design assumption that work depends on gets a verify task before the first task that relies on it: `- [ ] 1.1 Verify A1: <what to read or run to settle it>`. -->
+
 ## 1. <!-- Task Group Name -->
 
 - [ ] 1.1 <!-- Write failing test for <scenario> and verify it fails for the right reason -->
@@ -16,3 +18,5 @@
 ## 2. <!-- Task Group Name -->
 
 - [ ] 2.1 <!-- Task description and how to verify it -->
+
+<!-- Markers right after the id, lowercase. A check only the user can make: `- [ ] 2.2 [user] What the user checks`; only the user ticks it. Evidence to capture: `- [ ] 2.3 [evidence] What to capture → evidence/<file>`; one path under the change folder, ticked only when the file is present, non-empty and committed with the task. -->

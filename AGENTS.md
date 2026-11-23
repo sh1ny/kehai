@@ -1,6 +1,7 @@
 # Project workflow
 
-- Use the GitHub account `sh1ny` for pushes, pull requests, replies, and thread resolution. Fence authenticated operations with Specwright's `as.sh`; do not switch the globally active account.
+- Resolve Specwright from `openspec/.specwright/VERSION`: use `~/.specwright/bin/<VERSION>/sw` (`sw.exe` on Windows), with `SPECWRIGHT_HOME` replacing `~` when set. Check `sw version --json` reports that version and interface 3 before using it.
+- Use the GitHub account `sh1ny` for pushes, pull requests, replies, and thread resolution. Fence GitHub CLI calls with `sw as <login>` and use `sw vcs` with `--login` for network Git writes. Do not switch the globally active account.
 - Commit as `Nikolay Bochev <309868+sh1ny@users.noreply.github.com>` (`sh1ny`). Include this trailer on every agent-created commit:
 
   `Co-authored-by: KintsugiBot <296966193+KintsugiBot@users.noreply.github.com>`

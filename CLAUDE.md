@@ -1,1 +1,1 @@
-Follow the repository's `AGENTS.md` for commit identity, the KintsugiBot co-author trailer, and the conditional pull request review policy. Read `openspec/specwright.yaml` for Specwright workflow settings.
+Follow the repository's `AGENTS.md` for the versioned `sw` binary, GitHub identity fencing, commit identity, the KintsugiBot co-author trailer, and the conditional pull request review policy. Read `openspec/specwright.yaml` for Specwright workflow settings.

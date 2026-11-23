@@ -7,7 +7,7 @@ ripgrep = "15.2.0"
 gh = "2.103.3"
 gitleaks = "8.30.1"
 node = "24"
-"npm:@fission-ai/openspec" = "1.14.1"
+"npm:@fission-ai/openspec" = "1.16.0"
 
 [env]
 # Project-local Dart tool state, so this repo's `dart mcp-server` app bundle
