@@ -32,12 +32,12 @@ mise run secrets     # scans for committed secrets
 
 - Branch from `main` and keep each pull request to one change.
 - **Tests.** Add or update tests for behaviour you change. A test must never fail because a machine is slow: wait for an event or a result, never sleep for a fixed time.
-- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, for example `fix(map): show transits on Reserve`. If you get it wrong, a maintainer will fix it when merging.
+- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, for example `fix(rpc): report a malformed response`. If you get it wrong, a maintainer will fix it when merging.
 - **Write it yourself.** Don't copy code from other projects, including translating it from another language. Adding a dependency is fine when its licence is compatible, but mention it in the pull request.
 
 ### Rules specific to Kehai
 
-- **Write it yourself.** Kehai is its own harness. Don't port code from other agent harnesses, even translated from another language. Learning from how they behave is fine; copying how they're written is not.
+- **No ports from other harnesses.** Kehai is its own harness. Don't port code from other agent harnesses, even translated from another language. Learning from how they behave is fine; copying how they're written is not.
 - The RPC interface is what other programs build on. A change to its messages is a bigger change, so open an issue first.
 - Kehai runs on native Windows and Linux; don't assume WSL or a Unix shell.
 
